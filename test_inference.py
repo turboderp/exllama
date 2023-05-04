@@ -51,9 +51,6 @@ with torch.no_grad():
         gen_tokens -= 1
         if gen_tokens == 0: break
 
-        if next_id.item() == tokenizer.bos_token_id:
-            x = 0
-
         logits = model.forward(next_id, cache)
 
     text = tokenizer.decode(ids[0])

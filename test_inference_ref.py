@@ -52,9 +52,6 @@ with torch.no_grad():
         gen_tokens -= 1
         if gen_tokens == 0: break
 
-        if next_id.item() == tokenizer.bos_token_id:
-            x = 0
-
         result = model.forward(next_id, past_key_values = pkv, use_cache = True)
         logits = result["logits"]
         pkv = result["past_key_values"]
