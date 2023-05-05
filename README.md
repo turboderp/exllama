@@ -67,7 +67,8 @@ kernels and whatnot. It seems very unpredictable, so maybe the behavior could be
 
 - [ ] Rudimentary test harness
 - [ ] Compile small, representative dataset for testing
-- [ ] Make sure new model performs at least as well as reference model on perplexity 
+- [ ] Make sure new model performs at least as well as reference model on perplexity
+- [ ] Sort out dependencies and compatibility with latest GPTQ release
 - [ ] Optimize memory usage in large matrix multiplications
 - [ ] Consider Triton implementation
 - [ ] Evaluate Triton implementation
