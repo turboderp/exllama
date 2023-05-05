@@ -1,26 +1,79 @@
-
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
+from autograd_ref.autograd_4bit import load_llama_model_4bit_low_ram, Autograd4bitQuantLinear
 from transformers import LlamaTokenizer
 import time
 import torch
+import argparse
 
 torch.set_grad_enabled(False)
 torch.cuda._lazy_init()
 
-# tokenizer_path = "/mnt/Fast/models/llama-7b-4bit-128g/"
-# model_config_path = "/mnt/Fast/models/llama-7b-4bit-128g/config.json"
-# model_path = "/mnt/Fast/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
-# model_groupsize = 128
-#
-# tokenizer_path = "/mnt/Fast/models/llama-13b-4bit-128g/"
-# model_config_path = "/mnt/Fast/models/llama-13b-4bit-128g/config.json"
-# model_path = "/mnt/Fast/models/llama-13b-4bit-128g/llama-13b-4bit-128g.safetensors"
-# model_groupsize = 128
+class ModelWrapper:
 
-tokenizer_path = "/mnt/Fast/models/llama-30b-4bit-128g/"
-model_config_path = "/mnt/Fast/models/llama-30b-4bit-128g/config.json"
-model_path = "/mnt/Fast/models/llama-30b-4bit-128g/llama-30b-4bit-128g.safetensors"
-model_groupsize = 128
+    def __init__(self, tokenizer_path, model_config_path, model_path, model_groupsize, new, half, attention, matmul):
+
+        self.new = new
+        self.tokenizer_path = tokenizer_path
+        self.model_config_path = model_config_path
+        self.model_path = model_path
+        self.cache = None
+        self.pkv = None
+
+        if self.new:
+
+            config = ExLlamaConfig(model_config_path, model_path)
+            config.max_seq_len = 2048
+            config.is_v1_model = (model_groupsize == -1)
+            config.groupsize = model_groupsize
+
+            config.attention_method = args.attention
+            config.matmul_method = args.matmul
+
+            self.model = ExLlama(config)
+            self.tokenizer = LlamaTokenizer.from_pretrained(tokenizer_path)
+            self.tokenizer.pad_token_id = 0
+            self.tokenizer.bos_token_id = 1
+            self.tokenizer.eos_token_id = 2
+
+        else:
+
+            self.model, self.tokenizer = load_llama_model_4bit_low_ram(tokenizer_path, model_path, groupsize = model_groupsize,  is_v1_model = (model_groupsize == -1))
+
+            if half:
+
+                self.model.half()
+                for n, m in self.model.named_modules():
+                    if isinstance(m, Autograd4bitQuantLinear):
+                        if m.groupsize == -1: m.zeros = m.zeros.half()
+                        m.scales = m.scales.half()
+                        m.bias = m.bias.half()
+
+
+    def begin(self):
+
+        if self.new:
+
+            if self.cache is None: self.cache = ExLlamaCache(self.model)
+            else: self.cache.current_seq_len = 0
+
+        else:
+
+            self.pkv = None
+
+
+    def next_logits(self, input_ids):
+
+        if self.new:
+
+            return self.model.forward(input_ids, self.cache)
+
+        else:
+
+            result = self.model.forward(input_ids, use_cache = True, past_key_values = self.pkv)
+            next_logits = result["logits"]
+            self.pkv = result["past_key_values"]
+            return next_logits
+
 
 def timer(name, func):
     t = time.time()
@@ -29,10 +82,6 @@ def timer(name, func):
     print(f" ** Time, {name}: {t:.2f} seconds")
     return ret
 
-torch.cuda.reset_peak_memory_stats("cuda")
-
-mem_base = torch.cuda.max_memory_allocated("cuda")
-mem_last = mem_base
 
 def mem(name, total = False):
     global mem_base, mem_last
@@ -41,32 +90,67 @@ def mem(name, total = False):
     mem_last = mem_c
     print(f" ** VRAM, {name}: {mem_this / (1024 ** 2):,.2f} MB")
 
-tokenizer = LlamaTokenizer.from_pretrained(tokenizer_path)
-tokenizer.pad_token_id = 0
-tokenizer.bos_token_id = 1
-tokenizer.eos_token_id = 2
 
-config = ExLlamaConfig(model_config_path, model_path)
-config.max_seq_len = 2048
-config.attention_method = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP
-config.matmul_method = ExLlamaConfig.MatmulMethod.QUANT_ONLY
-gen_tokens = 128
+# Parse arguments
 
-ids = torch.randint(0, 31999, (1, config.max_seq_len - gen_tokens))
+parser = argparse.ArgumentParser(description = "Benchmark tests for ExLlama")
 
-model = timer("load model", lambda: ExLlama(config, model_groupsize))
+parser.add_argument("-t", "--tokenizer", type = str, help = "Tokenizer directory", required = True)
+parser.add_argument("-c", "--config", type = str, help = "Model config path (config.json)", required = True)
+parser.add_argument("-m", "--model", type = str, help = "Model weights path (.pt or .safetensors file)", required = True)
+parser.add_argument("-g", "--groupsize", type = int, help = "Groupsize for quantized weights", default = -1)
+
+parser.add_argument("-o", "--original", action = "store_true", help = "Use original implementation")
+parser.add_argument("-half", "--half", action = "store_true", help = "Reduce to 16-bit precision (original implementation only)")
+parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP)
+parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
+
+args = parser.parse_args()
+use_new = not args.original
+
+# Some feedback
+
+print(f" -- Loading model")
+print(f" -- Tokenizer: {args.tokenizer}")
+print(f" -- Model config: {args.config}")
+print(f" -- Model: {args.model}")
+print(f" -- Groupsize: {args.groupsize if args.groupsize != -1 else 'none'}")
+
+print_opts = []
+if args.original:
+    print_opts.append("original")
+    if args.half: print_opts.append("half")
+else:
+    print_opts.append("attention: " + str(args.attention))
+    print_opts.append("matmul: " + str(args.matmul))
+
+print(f" -- Options: {print_opts}")
+
+# Instantiate model
+
 torch.cuda.reset_peak_memory_stats("cuda")
-mem("model")
+mem_base = torch.cuda.max_memory_allocated("cuda")
+mem_last = mem_base
+
+wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer, args.config, args.model, args.groupsize, use_new, args.half, args.attention, args.matmul))
+
+torch.cuda.reset_peak_memory_stats("cuda")
+mem("Model")
+
+# Test sequence
+
+gen_tokens = 128
+max_seq_len = 2048
+ids = torch.randint(0, 31999, (1, max_seq_len - gen_tokens)).cuda()
 
 with torch.no_grad():
 
-    cache = ExLlamaCache(model)
-    mem("cache")
+    wrapper.begin()
 
     t = time.time()
 
     print(" -- Inference, first pass.")
-    logits = timer("inference", lambda: model.forward(ids, cache))
+    logits = timer("Inference", lambda: wrapper.next_logits(ids))
 
     t = time.time() - t
     print(f" ** Speed: {ids.shape[-1] / t:.2f} tokens/second")
@@ -79,15 +163,11 @@ with torch.no_grad():
         logits = logits[0, -1, :]
         token = torch.argmax(logits)
 
-        next_ids = token.unsqueeze(0).unsqueeze(0)
-        logits = model.forward(next_ids, cache)
+        next_id = token.unsqueeze(0).unsqueeze(0)
+        logits = wrapper.next_logits(next_id)
 
     t = time.time() - t
     print(f" ** Speed: {gen_tokens / t:.2f} tokens/second")
 
-    mem("inference")
-    mem("total", total = True)
-
-
-
-
+    mem("Inference")
+    mem("Total", total = True)

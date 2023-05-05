@@ -31,7 +31,8 @@ tokenizer.eos_token_id = 2
 config = ExLlamaConfig(model_config_path, model_path)
 config.attention_method = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP
 config.matmul_method = ExLlamaConfig.MatmulMethod.QUANT_ONLY
-model = ExLlama(config, model_groupsize)
+config.groupsize = model_groupsize
+model = ExLlama(config)
 cache = ExLlamaCache(model)
 
 gen_tokens = 128

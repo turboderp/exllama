@@ -9,16 +9,32 @@ import math
 from enum import Enum
 import xformers.ops
 
+class ParsedEnum(Enum):
+
+    def __str__(self):
+        return self.name.lower()
+
+    def __repr__(self):
+        return str(self)
+
+    @classmethod
+    def argparse(cls, s):
+        try:
+            return cls[s.upper()]
+        except KeyError:
+            return s
+
+
 class ExLlamaConfig:
 
-    class AttentionMethod(Enum):
+    class AttentionMethod(ParsedEnum):
 
         PYTORCH_MATMUL = 1  # Regular attention from HF implementation. Dog poop.
         PYTORCH_SCALED_DP = 2  # Seems more memory-efficient than xformers
         XFORMERS_MEM_EFF = 3  # Seems faster than SDP, requires mask in different shape though so doesn't currently work
 
 
-    class MatmulMethod(Enum):
+    class MatmulMethod(ParsedEnum):
 
         QUANT_ONLY = 1
         SWITCHED = 2  # Much faster but allocates up to 500M of VRAM for reconstructing float tensors from quants
@@ -397,7 +413,7 @@ class ExLlamaDeviceMap:
 
 class ExLlama(nn.Module):
 
-    def __init__(self, config, max_seq_len = 2048):
+    def __init__(self, config):
         super().__init__()
         self.eval()
 
