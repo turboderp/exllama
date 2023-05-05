@@ -457,8 +457,8 @@ class ExLlama(nn.Module):
             freqs = torch.einsum("i,j->ij", t, inv_freq)
             emb = torch.cat((freqs, freqs), dim=-1)
 
-            sin = emb.sin()[None, None, :, :]  # .half()
-            cos = emb.cos()[None, None, :, :]  # .half()
+            sin = emb.sin()[None, None, :, :].half()
+            cos = emb.cos()[None, None, :, :].half()
 
             self.sincos[device] = (sin, cos)
 
@@ -474,7 +474,7 @@ class ExLlama(nn.Module):
         self.layers = nn.ModuleList(modules)
 
 
-    def forward(self, input_ids, cache):
+    def forward(self, input_ids, cache, last_id_only = True):
 
         batch_size, seq_len = input_ids.shape
         past_len = cache.current_seq_len
@@ -513,6 +513,8 @@ class ExLlama(nn.Module):
         hidden_states = self.norm(hidden_states)
 
         # Head
+
+        if last_id_only: hidden_states = hidden_states[:, -1:, :]
 
         hidden_states.to(self.config.device_map.lm_head)
         logits = self.lm_head(hidden_states)

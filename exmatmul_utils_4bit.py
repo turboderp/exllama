@@ -14,6 +14,7 @@ debug = False
 def get_buffer(shape_of_qweight, dtype=torch.float16, device='cuda'):
     if shape_of_qweight not in buffer_mat_dic.keys():
         buffer_mat_dic[shape_of_qweight] = torch.zeros((shape_of_qweight[0] * 8, shape_of_qweight[1]), dtype=dtype, device=device)
+        # print(shape_of_qweight)
     else:
         if buffer_mat_dic[shape_of_qweight].device != device:
             buffer_mat_dic[shape_of_qweight] = buffer_mat_dic[shape_of_qweight].to(device)

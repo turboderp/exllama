@@ -3,10 +3,16 @@ from autograd_ref.autograd_4bit import load_llama_model_4bit_low_ram, Autograd4b
 from transformers import LlamaTokenizer
 import time
 import torch
+import torch.nn.functional as F
 import argparse
+import json
+import math
+
+testdata_path = "testdata.jsonl"
 
 torch.set_grad_enabled(False)
 torch.cuda._lazy_init()
+# torch.backends.cuda.matmul.allow_tf32 = True
 
 class ModelWrapper:
 
@@ -61,11 +67,11 @@ class ModelWrapper:
             self.pkv = None
 
 
-    def next_logits(self, input_ids):
+    def next_logits(self, input_ids, last_id_only = True):
 
         if self.new:
 
-            return self.model.forward(input_ids, self.cache)
+            return self.model.forward(input_ids, self.cache, last_id_only)
 
         else:
 
@@ -73,6 +79,11 @@ class ModelWrapper:
             next_logits = result["logits"]
             self.pkv = result["past_key_values"]
             return next_logits
+
+
+    def tokenize(self, text):
+
+        return self.tokenizer.encode(text, return_tensors = "pt", add_special_tokens = False)
 
 
 def timer(name, func):
@@ -105,6 +116,8 @@ parser.add_argument("-half", "--half", action = "store_true", help = "Reduce to 
 parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP)
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
 
+parser.add_argument("-ppl", "--perplexity", action = "store_true", help = "Perplexity benchmark (slow)")
+
 args = parser.parse_args()
 use_new = not args.original
 
@@ -123,6 +136,7 @@ if args.original:
 else:
     print_opts.append("attention: " + str(args.attention))
     print_opts.append("matmul: " + str(args.matmul))
+if args.perplexity: print_opts.append("ppl")
 
 print(f" -- Options: {print_opts}")
 
@@ -144,6 +158,8 @@ max_seq_len = 2048
 ids = torch.randint(0, 31999, (1, max_seq_len - gen_tokens)).cuda()
 
 with torch.no_grad():
+
+    # Benchmark memory and performance
 
     wrapper.begin()
 
@@ -171,3 +187,48 @@ with torch.no_grad():
 
     mem("Inference")
     mem("Total", total = True)
+
+    # Benchmark perplexity
+
+    if args.perplexity:
+
+        print(" -- Loading dataset...")
+
+        ds = []
+        with open(testdata_path) as f:
+            for line in f:
+                ex = json.loads(line)["text"]
+                if len(ex) > 50: ds.append(ex)
+
+        print(" -- Testing", end = "")
+
+        logprob_sum = 0.0
+        logprob_count = 0
+        ex_count = 100
+        for ex in ds:
+
+            wrapper.begin()
+
+            ids = wrapper.tokenize(ex).cuda()
+            ids = ids[:, :max_seq_len + 1]
+            input_ids = ids[:, :-1]
+            target_ids = ids[:, 1:]
+
+            logits = wrapper.next_logits(input_ids, last_id_only = False)
+
+            log_probs = F.log_softmax(logits, dim = -1)
+            token_log_probs = log_probs.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)
+
+            logprob_sum += token_log_probs.sum().item()
+            logprob_count += target_ids.numel()
+
+            ex_count -= 1
+            if ex_count % 10 == 0: print(".", end = "")
+            if ex_count == 0: break
+
+        mean_log_prob = logprob_sum / logprob_count
+        perplexity = math.exp(-mean_log_prob)
+
+        print("")
+        print(f" ** Perplexity: {perplexity:.4f}")
+
