@@ -257,18 +257,19 @@ class ExLlamaAttention(nn.Module):
 
         def rotate_half(x):
             half_size = x.shape[-1] // 2
-            x1 = x[..., : half_size]
-            x2 = x[..., half_size:]
-            x[..., : half_size], x[..., half_size:] = -x2, x1
+            x1 = x.narrow(-1, 0, half_size)
+            x2 = x.narrow(-1, half_size, half_size)
+            return torch.cat((-x2, x1), dim = -1)
 
-        rotate_half_query = query_states.clone()  # TODO: Try to eliminate this malloc
-        rotate_half_key = key_states.clone()
+        query_states_r = rotate_half(query_states)
+        query_states_r.mul_(sin_emb)
+        query_states.mul_(cos_emb)
+        query_states.add_(query_states_r)
 
-        rotate_half(rotate_half_query)
-        rotate_half(rotate_half_key)
-
-        query_states.mul_(cos_emb).add_(rotate_half_query.mul_(sin_emb))
-        key_states.mul_(cos_emb).add_(rotate_half_key.mul_(sin_emb))
+        key_states_r = rotate_half(key_states)
+        key_states_r.mul_(sin_emb)
+        key_states.mul_(cos_emb)
+        key_states.add_(key_states_r)
 
         # Add keys and values to cache
 
@@ -429,7 +430,11 @@ class ExLlama(nn.Module):
                 if key.endswith(".rotary_emb.inv_freq"): continue  # This is always precomputed during init anyway
 
                 device = self.config.device_map.map(key)
-                tensor = f.get_tensor(key).to(device, non_blocking = True)
+                tensor = f.get_tensor(key)
+
+                if key.endswith(".scales"): tensor = tensor.half().float()  # In reference this gets downcast, TODO: Test if ppl is better without this
+
+                tensor = tensor.to(device, non_blocking = True)
                 tensors[key] = tensor
                 # print(key + " -> " + device)
 
@@ -452,10 +457,10 @@ class ExLlama(nn.Module):
         self.sincos = {}
         for device in self.config.device_map.get_layers_devs():
 
-            inv_freq = 1.0 / (self.config.rotary_embedding_base ** (torch.arange(0, self.config.head_dim, 2, dtype = torch.float32, device = device) / self.config.head_dim))
-            t = torch.arange(self.config.max_seq_len, device = device, dtype = torch.float16)
+            inv_freq = 1.0 / (self.config.rotary_embedding_base ** (torch.arange(0, self.config.head_dim, 2, device = device).float() / self.config.head_dim))
+            t = torch.arange(self.config.max_seq_len, device = device, dtype = torch.float32)
             freqs = torch.einsum("i,j->ij", t, inv_freq)
-            emb = torch.cat((freqs, freqs), dim=-1)
+            emb = torch.cat((freqs, freqs), dim = -1)
 
             sin = emb.sin()[None, None, :, :].half()
             cos = emb.cos()[None, None, :, :].half()
