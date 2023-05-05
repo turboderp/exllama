@@ -13,10 +13,11 @@ testdata_path = "testdata.jsonl"
 torch.set_grad_enabled(False)
 torch.cuda._lazy_init()
 # torch.backends.cuda.matmul.allow_tf32 = True
+torch.set_printoptions(precision = 10)
 
 class ModelWrapper:
 
-    def __init__(self, tokenizer_path, model_config_path, model_path, model_groupsize, new, half, attention, matmul):
+    def __init__(self, tokenizer_path, model_config_path, model_path, model_groupsize, new, half, attention, matmul, length):
 
         self.new = new
         self.tokenizer_path = tokenizer_path
@@ -28,7 +29,7 @@ class ModelWrapper:
         if self.new:
 
             config = ExLlamaConfig(model_config_path, model_path)
-            config.max_seq_len = 2048
+            config.max_seq_len = length
             config.is_v1_model = (model_groupsize == -1)
             config.groupsize = model_groupsize
 
@@ -116,7 +117,10 @@ parser.add_argument("-half", "--half", action = "store_true", help = "Reduce to 
 parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP)
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
 
+parser.add_argument("-l", "--length", type = int, help = "Maximum sequence length", default = 2048)
+parser.add_argument("-p", "--perf", action = "store_true", help = "Benchmark speed and VRAM usage")
 parser.add_argument("-ppl", "--perplexity", action = "store_true", help = "Perplexity benchmark (slow)")
+
 
 args = parser.parse_args()
 use_new = not args.original
@@ -128,6 +132,7 @@ print(f" -- Tokenizer: {args.tokenizer}")
 print(f" -- Model config: {args.config}")
 print(f" -- Model: {args.model}")
 print(f" -- Groupsize: {args.groupsize if args.groupsize != -1 else 'none'}")
+print(f" -- Sequence length: {args.length}")
 
 print_opts = []
 if args.original:
@@ -136,6 +141,7 @@ if args.original:
 else:
     print_opts.append("attention: " + str(args.attention))
     print_opts.append("matmul: " + str(args.matmul))
+if args.perf: print_opts.append("perf")
 if args.perplexity: print_opts.append("ppl")
 
 print(f" -- Options: {print_opts}")
@@ -146,7 +152,7 @@ torch.cuda.reset_peak_memory_stats("cuda")
 mem_base = torch.cuda.max_memory_allocated("cuda")
 mem_last = mem_base
 
-wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer, args.config, args.model, args.groupsize, use_new, args.half, args.attention, args.matmul))
+wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer, args.config, args.model, args.groupsize, use_new, args.half, args.attention, args.matmul, args.length))
 
 torch.cuda.reset_peak_memory_stats("cuda")
 mem("Model")
@@ -154,39 +160,41 @@ mem("Model")
 # Test sequence
 
 gen_tokens = 128
-max_seq_len = 2048
+max_seq_len = args.length
 ids = torch.randint(0, 31999, (1, max_seq_len - gen_tokens)).cuda()
 
 with torch.no_grad():
 
     # Benchmark memory and performance
 
-    wrapper.begin()
+    if args.perf:
 
-    t = time.time()
+        wrapper.begin()
 
-    print(" -- Inference, first pass.")
-    logits = timer("Inference", lambda: wrapper.next_logits(ids))
+        t = time.time()
 
-    t = time.time() - t
-    print(f" ** Speed: {ids.shape[-1] / t:.2f} tokens/second")
+        print(" -- Inference, first pass.")
+        logits = timer("Inference", lambda: wrapper.next_logits(ids))
 
-    t = time.time()
+        t = time.time() - t
+        print(f" ** Speed: {ids.shape[-1] / t:.2f} tokens/second")
 
-    print(f" -- Generating {gen_tokens} tokens...")
-    for i in range(gen_tokens):
+        t = time.time()
 
-        logits = logits[0, -1, :]
-        token = torch.argmax(logits)
+        print(f" -- Generating {gen_tokens} tokens...")
+        for i in range(gen_tokens):
 
-        next_id = token.unsqueeze(0).unsqueeze(0)
-        logits = wrapper.next_logits(next_id)
+            logits = logits[0, -1, :]
+            token = torch.argmax(logits)
 
-    t = time.time() - t
-    print(f" ** Speed: {gen_tokens / t:.2f} tokens/second")
+            next_id = token.unsqueeze(0).unsqueeze(0)
+            logits = wrapper.next_logits(next_id)
 
-    mem("Inference")
-    mem("Total", total = True)
+        t = time.time() - t
+        print(f" ** Speed: {gen_tokens / t:.2f} tokens/second")
+
+        mem("Inference")
+        mem("Total", total = True)
 
     # Benchmark perplexity
 
