@@ -1,6 +1,6 @@
 
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
-from transformers import LlamaTokenizer
+from tokenizer import ExLlamaTokenizer
 import time
 import torch
 
@@ -15,27 +15,26 @@ model_config_path = "/mnt/Fast/models/llama-7b-4bit-128g/config.json"
 model_path = "/mnt/Fast/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
 model_groupsize = 128
 
-tokenizer = LlamaTokenizer.from_pretrained(tokenizer_path)
-tokenizer.pad_token_id = 0
-tokenizer.bos_token_id = 1
-tokenizer.eos_token_id = 2
+tokenizer = ExLlamaTokenizer(tokenizer_path)
 
 config = ExLlamaConfig(model_config_path, model_path)
-model = ExLlama(config, model_groupsize)
+config.attention_method = ExLlamaConfig.AttentionMethod.XFORMERS_MEM_EFF
+config.model_groupsize = 128
+model = ExLlama(config)
 cache = ExLlamaCache(model)
 
 gen_tokens = 128
-ids = tokenizer.encode("Hello!", return_tensors = "pt")
+ids = tokenizer.encode("Hello!")
 
 with torch.no_grad():
 
-    logits = model.forward(ids, cache)
+    logits = model.forward(ids, cache, last_id_only = False)
     print(logits)
 
-    logits = model.forward(ids, cache)
+    logits = model.forward(ids, cache, last_id_only = False)
     print(logits)
 
     cache.current_seq_len = 0
     ids = torch.cat((ids, ids), dim = 1)
-    logits = model.forward(ids, cache)
+    logits = model.forward(ids, cache, last_id_only = False)
     print(logits)

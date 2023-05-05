@@ -1,6 +1,6 @@
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
+from tokenizer import ExLlamaTokenizer
 from autograd_ref.autograd_4bit import load_llama_model_4bit_low_ram, Autograd4bitQuantLinear
-from transformers import LlamaTokenizer
 import time
 import torch
 import torch.nn.functional as F
@@ -33,14 +33,11 @@ class ModelWrapper:
             config.is_v1_model = (model_groupsize == -1)
             config.groupsize = model_groupsize
 
-            config.attention_method = args.attention
-            config.matmul_method = args.matmul
+            config.attention_method = attention
+            config.matmul_method = matmul
 
             self.model = ExLlama(config)
-            self.tokenizer = LlamaTokenizer.from_pretrained(tokenizer_path)
-            self.tokenizer.pad_token_id = 0
-            self.tokenizer.bos_token_id = 1
-            self.tokenizer.eos_token_id = 2
+            self.tokenizer = ExLlamaTokenizer(tokenizer_path)
 
         else:
 

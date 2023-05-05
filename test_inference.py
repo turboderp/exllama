@@ -1,5 +1,5 @@
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
-from transformers import LlamaTokenizer
+from tokenizer import ExLlamaTokenizer
 import torch
 
 # Just a quick test to see if we are getting anything sensible out of the model. Greedy sampling, should produce
@@ -12,31 +12,30 @@ torch.cuda._lazy_init()
 # model_config_path = "/mnt/Fast/models/llama-7b-4bit-128g/config.json"
 # model_path = "/mnt/Fast/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
 # model_groupsize = 128
-#
-# tokenizer_path = "/mnt/Fast/models/llama-13b-4bit-128g/"
-# model_config_path = "/mnt/Fast/models/llama-13b-4bit-128g/config.json"
-# model_path = "/mnt/Fast/models/llama-13b-4bit-128g/llama-13b-4bit-128g.safetensors"
-# model_groupsize = 128
 
-tokenizer_path = "/mnt/Fast/models/llama-30b-4bit-128g/"
-model_config_path = "/mnt/Fast/models/llama-30b-4bit-128g/config.json"
-model_path = "/mnt/Fast/models/llama-30b-4bit-128g/llama-30b-4bit-128g.safetensors"
+tokenizer_path = "/mnt/Fast/models/llama-13b-4bit-128g/"
+model_config_path = "/mnt/Fast/models/llama-13b-4bit-128g/config.json"
+model_path = "/mnt/Fast/models/llama-13b-4bit-128g/llama-13b-4bit-128g.safetensors"
 model_groupsize = 128
 
-tokenizer = LlamaTokenizer.from_pretrained(tokenizer_path)
-tokenizer.pad_token_id = 0
-tokenizer.bos_token_id = 1
-tokenizer.eos_token_id = 2
+# tokenizer_path = "/mnt/Fast/models/llama-30b-4bit-128g/"
+# model_config_path = "/mnt/Fast/models/llama-30b-4bit-128g/config.json"
+# model_path = "/mnt/Fast/models/llama-30b-4bit-128g/llama-30b-4bit-128g.safetensors"
+# model_groupsize = 128
 
 config = ExLlamaConfig(model_config_path, model_path)
 config.attention_method = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP
-config.matmul_method = ExLlamaConfig.MatmulMethod.QUANT_ONLY
+# config.matmul_method = ExLlamaConfig.MatmulMethod.QUANT_ONLY
+config.max_seq_len = 1536
 config.groupsize = model_groupsize
 model = ExLlama(config)
 cache = ExLlamaCache(model)
 
+tokenizer = ExLlamaTokenizer(tokenizer_path)
+
 gen_tokens = 128
-ids = tokenizer.encode("Q: What are five good reasons to sell your house and buy a boat instead?\nA:", return_tensors = "pt", add_special_tokens = False)
+# ids = tokenizer.encode("Q: What are five good reasons to sell your house and buy a boat instead?\nA:", return_tensors = "pt", add_special_tokens = False)
+ids = tokenizer.encode("Q: What are five good reasons to sell your house and buy a boat instead?\nA:")
 
 with torch.no_grad():
 

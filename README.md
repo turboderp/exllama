@@ -64,7 +64,7 @@ scores are not necessarily comparable to other Llama benchmarks.
 - [ ] Write and test Triton implementation
 - [ ] Test device mapping across multiple GPUs
 - [ ] Provide alternative backend to allow layers on CPU
-- [ ] Eliminate need for HF tokenizer (use SentencePiece library directly)
+- [x] Eliminate need for HF tokenizer (use SentencePiece library directly)
 - [ ] Library of basic sampling methods
 - [ ] Memory-efficient beam search implementation
 - [ ] (Multi) LoRA support for inference
