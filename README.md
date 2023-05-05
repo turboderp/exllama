@@ -29,6 +29,8 @@ These shouldn't be needed but PyCharm says they're referenced somewhere:
 
 ## Some preliminary results
 
+Tests on stock RTX 4090:
+
 |                             | Model     | Cache    | Inference | Total     | Max (actual) | Speed 1   | Speed 2  |
 |-----------------------------|-----------|----------|-----------|-----------|--------------|-----------|----------|
 | 7B 4bit 128g, HF            | 4,859 MB  | -        | 4,080 MB  | 8,940 MB  | 10,712 MB    | 2,342 t/s | 31 t/s   |
