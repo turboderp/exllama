@@ -65,4 +65,18 @@ kernels and whatnot. It seems very unpredictable, so maybe the behavior could be
 
 ## Todo
 
-- [ ] Write to-do list
+- [ ] Rudimentary test harness
+- [ ] Compile small, representative dataset for testing
+- [ ] Make sure new model performs at least as well as reference model on perplexity 
+- [ ] Optimize memory usage in large matrix multiplications
+- [ ] Consider Triton implementation
+- [ ] Evaluate Triton implementation
+- [ ] Write and test Triton implementation
+- [ ] Test device mapping across multiple GPUs
+- [ ] Provide alternative backend to allow layers on CPU
+- [ ] Eliminate need for HF tokenizer (use SentencePiece library directly)
+- [ ] Library of basic sampling methods
+- [ ] Memory-efficient beam search implementation
+- [ ] (Multi) LoRA support for inference
+- [ ] Allow for backpropagation
+- [ ] LoRA training features
