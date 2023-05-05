@@ -65,7 +65,7 @@ kernels and whatnot. It seems very unpredictable, so maybe the behavior could be
 
 ## Todo
 
-- [ ] Rudimentary test harness
+- [x] Rudimentary test harness
 - [ ] Compile small, representative dataset for testing
 - [ ] Make sure new model performs at least as well as reference model on perplexity
 - [ ] Sort out dependencies and compatibility with latest GPTQ release
