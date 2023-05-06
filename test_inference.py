@@ -1,9 +1,9 @@
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
 from tokenizer import ExLlamaTokenizer
+from generator import ExLlamaGenerator
 import torch
 
-# Just a quick test to see if we are getting anything sensible out of the model. Greedy sampling, should produce
-# uninteresting and repetitive (but coherent) text
+# Just a quick test to see if we are getting anything sensible out of the model.
 
 torch.set_grad_enabled(False)
 torch.cuda._lazy_init()
@@ -13,15 +13,15 @@ torch.cuda._lazy_init()
 # model_path = "/mnt/Fast/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
 # model_groupsize = 128
 #
-# tokenizer_model_path = "/mnt/Fast/models/llama-13b-4bit-128g/tokenizer.model"
-# model_config_path = "/mnt/Fast/models/llama-13b-4bit-128g/config.json"
-# model_path = "/mnt/Fast/models/llama-13b-4bit-128g/llama-13b-4bit-128g.safetensors"
-# model_groupsize = 128
-
-tokenizer_model_path = "/mnt/Fast/models/llama-30b-4bit-128g/tokenizer.model"
-model_config_path = "/mnt/Fast/models/llama-30b-4bit-128g/config.json"
-model_path = "/mnt/Fast/models/llama-30b-4bit-128g/llama-30b-4bit-128g.safetensors"
+tokenizer_model_path = "/mnt/Fast/models/llama-13b-4bit-128g/tokenizer.model"
+model_config_path = "/mnt/Fast/models/llama-13b-4bit-128g/config.json"
+model_path = "/mnt/Fast/models/llama-13b-4bit-128g/llama-13b-4bit-128g.safetensors"
 model_groupsize = 128
+#
+# tokenizer_model_path = "/mnt/Fast/models/llama-30b-4bit-128g/tokenizer.model"
+# model_config_path = "/mnt/Fast/models/llama-30b-4bit-128g/config.json"
+# model_path = "/mnt/Fast/models/llama-30b-4bit-128g/llama-30b-4bit-128g.safetensors"
+# model_groupsize = 128
 
 # tokenizer_model_path = "/mnt/Fast/models/llama-30b-4bit-128g-act/tokenizer.model"
 # model_config_path = "/mnt/Fast/models/llama-30b-4bit-128g-act/config.json"
@@ -32,34 +32,18 @@ config = ExLlamaConfig(model_config_path)
 config.model_path = model_path
 # config.attention_method = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP
 # config.matmul_method = ExLlamaConfig.MatmulMethod.QUANT_ONLY
-config.max_seq_len = 1536
+config.max_seq_len = 2048
 config.groupsize = model_groupsize
 model = ExLlama(config)
 cache = ExLlamaCache(model)
 
 tokenizer = ExLlamaTokenizer(tokenizer_model_path)
+generator = ExLlamaGenerator(model, tokenizer, cache)
+
+prompt = "So how do we prove the Riemann hypothesis? It's actually not that hard. Let me explain:"
 
 gen_tokens = 200
-ids = tokenizer.encode("Q: What are five good reasons to sell your house and buy a boat instead?\nA:")
 
-with torch.no_grad():
-
-    logits = model.forward(ids, cache)
-
-    while True:
-
-        logits = logits[0, -1, :]
-        token = torch.argmax(logits).cpu()
-        next_id = token.unsqueeze(0).unsqueeze(0)
-        ids = torch.cat((ids, next_id), dim = 1)
-
-        gen_tokens -= 1
-        if gen_tokens == 0: break
-
-        logits = model.forward(next_id, cache)
-
-    text = tokenizer.decode(ids[0])
-    print(text)
-
-
+text = generator.generate_simple(prompt, max_new_tokens = gen_tokens)
+print(text)
 

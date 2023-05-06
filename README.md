@@ -70,7 +70,7 @@ scores are not necessarily comparable to other Llama benchmarks.
 - [ ] Provide alternative backend to allow layers on CPU
 - [ ] Consider fused QKV projection and fused MLP
 - [x] Eliminate need for HF tokenizer (use SentencePiece library directly)
-- [ ] Library of basic sampling methods
+- [x] Basic sampling methods
 - [ ] Memory-efficient beam search implementation
 - [ ] (Multi) LoRA support for inference
 - [ ] Allow for backpropagation
