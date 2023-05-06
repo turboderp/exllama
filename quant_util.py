@@ -1,7 +1,9 @@
 import torch
-import numpy as np
 from gptq_llama import quant_cuda
 
+# TODO: Rewrite/clean up most of this
+# TODO: Optimize use of buffer for float reconstructions
+# TODO: Integrate quant_cuda
 
 # Global Buffer
 buffer_mat_dic = {}
@@ -10,10 +12,10 @@ auto_switch = True
 auto_switch_thd = 8
 debug = False
 
-
 def get_buffer(shape_of_qweight, dtype=torch.float16, device='cuda'):
     if shape_of_qweight not in buffer_mat_dic.keys():
         buffer_mat_dic[shape_of_qweight] = torch.zeros((shape_of_qweight[0] * 8, shape_of_qweight[1]), dtype=dtype, device=device)
+        # print(shape_of_qweight)
     else:
         if buffer_mat_dic[shape_of_qweight].device != device:
             buffer_mat_dic[shape_of_qweight] = buffer_mat_dic[shape_of_qweight].to(device)
@@ -63,7 +65,7 @@ def _matmul4bit_v2(x, qweight, scales, zeros, g_idx):
     y = torch.zeros((x.shape[0], qweight.shape[-1]), dtype=torch.float32, device=x.device)
     dtype = x.dtype
     x = x.half()
-    quant_cuda.vecquant4matmul_faster(x, qweight, y, scales, zeros, g_idx, x.shape[-1] // 2)
+    quant_cuda.vecquant4matmul_faster(x, qweight, y, scales.float(), zeros, g_idx, x.shape[-1] // 2)
     y = y.to(dtype)
     return y.reshape(outshape)
 
@@ -97,6 +99,7 @@ def _matmul4bit_v2_recons(x, qweight, scales, zeros, g_idx, transpose=False):
         output = torch.matmul(x, buffer)
     else:
         output = torch.matmul(x, buffer.T)
+    del buffer
     return output
 
 

@@ -2,12 +2,11 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from safetensors import safe_open
-import exmatmul_utils_4bit as mm4b
+import quant_util
 from torch.cuda.amp import custom_bwd, custom_fwd
 import json
 import math
 from enum import Enum
-import xformers.ops
 
 class ParsedEnum(Enum):
 
@@ -31,7 +30,6 @@ class ExLlamaConfig:
 
         PYTORCH_MATMUL = 1  # Regular attention from HF implementation. Dog poop.
         PYTORCH_SCALED_DP = 2  # Seems more memory-efficient than xformers
-        XFORMERS_MEM_EFF = 3  # Seems faster than SDP, requires mask in different shape though so doesn't currently work
 
 
     class MatmulMethod(ParsedEnum):
@@ -40,14 +38,14 @@ class ExLlamaConfig:
         SWITCHED = 2  # Much faster but allocates up to 500M of VRAM for reconstructing float tensors from quants
 
 
-    # Config for the model, mostly loaded from its config.json file
+    # Load config from Llama config.json
 
-    def __init__(self, model_config_path, model_path):
+    def __init__(self, model_config_path):
 
         with open(model_config_path) as f:
             read_config = json.load(f)
 
-        self.model_path = model_path
+        # Loaded/automatic settings
 
         self.bos_token_id = read_config["bos_token_id"]  # Note that the HF LlamaTokenizer doesn't seem to recognize these automatically
         self.eos_token_id = read_config["eos_token_id"]
@@ -65,11 +63,15 @@ class ExLlamaConfig:
         self.rotary_embedding_base = 10000  # Constant used for pretrained models, leave as is unless retraining
         self.head_dim = self.hidden_size // self.num_attention_heads
 
-        # Configurable settings
+        # Required settings
+
+        self.model_path = None
+        self.groupsize = None  # Group size used for quantized model, specify -1 for v1 model
+
+        # Optional settings
 
         self.max_seq_len = 2048  # Reduce to save memory. Can also be increased, but the pretrained models produce degenerate output after 2048 tokens in any case. Should be possible to finetune for longer sequence lengths.
-        self.groupsize = 128  # Group size used for quantized model, specify -1 for v1 model
-        self.is_v1_model = False
+        self.is_v1_model = False  # TODO: Sort out v1 models?
         self.attention_method = self.AttentionMethod.PYTORCH_SCALED_DP
         self.matmul_method = self.MatmulMethod.SWITCHED
         self.device_map = ExLlamaDeviceMap(self.num_hidden_layers)
@@ -86,8 +88,8 @@ class ExAutogradMatmul4bitCuda(torch.autograd.Function):
     @custom_fwd  # (cast_inputs = torch.float16)
     def forward(ctx, x, qweight, scales, zeros, g_idx, bits, maxq):
         ctx.save_for_backward(qweight, scales, zeros, g_idx)
-        if g_idx is None: output = mm4b._matmul4bit_v1_recons(x, qweight, scales, zeros)
-        else: output = mm4b._matmul4bit_v2_recons(x, qweight, scales, zeros, g_idx)
+        if g_idx is None: output = quant_util._matmul4bit_v1_recons(x, qweight, scales, zeros)
+        else: output = quant_util._matmul4bit_v2_recons(x, qweight, scales, zeros, g_idx)
         output = output.clone()
         return output
 
@@ -96,8 +98,8 @@ class ExAutogradMatmul4bitCuda(torch.autograd.Function):
     def backward(ctx, grad_output):
         qweight, scales, zeros, g_idx = ctx.saved_tensors
         if ctx.needs_input_grad[0]:
-            if g_idx is None: grad = mm4b._matmul4bit_v1_recons(grad_output, qweight, scales, zeros, transpose = True)
-            else: grad = mm4b._matmul4bit_v2_recons(grad_output, qweight, scales, zeros, g_idx, transpose = True)
+            if g_idx is None: grad = quant_util._matmul4bit_v1_recons(grad_output, qweight, scales, zeros, transpose = True)
+            else: grad = quant_util._matmul4bit_v2_recons(grad_output, qweight, scales, zeros, g_idx, transpose = True)
         return grad, None, None, None, None, None, None
 
 
@@ -112,18 +114,18 @@ def matmul4bit(x, qweight, scales, zeros, g_idx = None, auto_switch = False):
     if zeros.dtype != torch.int32:
 
         if auto_switch and xdp > auto_switch_thd:
-            output = mm4b._matmul4bit_v1_recons(x.to(scales.dtype), qweight, scales, zeros.float()).half()
+            output = quant_util._matmul4bit_v1_recons(x.to(scales.dtype), qweight, scales, zeros.float()).half()
         else:
-            output = mm4b._matmul4bit_v1(x, qweight, scales, zeros.float())
+            output = quant_util._matmul4bit_v1(x, qweight, scales, zeros.float())
 
     else:
 
         if g_idx is None: g_idx = torch.zeros(qweight.shape[0] * 8, dtype = torch.int32, device = x.device)  # Hmm
 
         if auto_switch and xdp > auto_switch_thd:
-            output = mm4b._matmul4bit_v2_recons(x.to(scales.dtype), qweight, scales, zeros, g_idx).half()
+            output = quant_util._matmul4bit_v2_recons(x.to(scales.dtype), qweight, scales, zeros, g_idx).half()
         else:
-            output = mm4b._matmul4bit_v2(x, qweight, scales, zeros, g_idx)
+            output = quant_util._matmul4bit_v2(x, qweight, scales, zeros, g_idx)
 
     return output
 

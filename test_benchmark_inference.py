@@ -1,12 +1,12 @@
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
 from tokenizer import ExLlamaTokenizer
-from autograd_ref.autograd_4bit import load_llama_model_4bit_low_ram, Autograd4bitQuantLinear
 import time
 import torch
 import torch.nn.functional as F
 import argparse
 import json
 import math
+import sys
 
 testdata_path = "testdata.jsonl"
 
@@ -17,71 +17,41 @@ torch.set_printoptions(precision = 10)
 
 class ModelWrapper:
 
-    def __init__(self, tokenizer_path, model_config_path, model_path, model_groupsize, new, half, attention, matmul, length):
+    def __init__(self, tokenizer_model_path, model_config_path, model_path, model_groupsize, attention, matmul, length):
 
-        self.new = new
-        self.tokenizer_path = tokenizer_path
+        self.tokenizer_model_path = tokenizer_model_path
         self.model_config_path = model_config_path
         self.model_path = model_path
         self.cache = None
         self.pkv = None
 
-        if self.new:
+        config = ExLlamaConfig(model_config_path)
+        config.model_path = model_path
+        config.max_seq_len = length
+        config.is_v1_model = (model_groupsize == -1)
+        config.groupsize = model_groupsize
 
-            config = ExLlamaConfig(model_config_path, model_path)
-            config.max_seq_len = length
-            config.is_v1_model = (model_groupsize == -1)
-            config.groupsize = model_groupsize
+        config.attention_method = attention
+        config.matmul_method = matmul
 
-            config.attention_method = attention
-            config.matmul_method = matmul
-
-            self.model = ExLlama(config)
-            self.tokenizer = ExLlamaTokenizer(tokenizer_path)
-
-        else:
-
-            self.model, self.tokenizer = load_llama_model_4bit_low_ram(tokenizer_path, model_path, groupsize = model_groupsize,  is_v1_model = (model_groupsize == -1))
-
-            if half:
-
-                self.model.half()
-                for n, m in self.model.named_modules():
-                    if isinstance(m, Autograd4bitQuantLinear):
-                        if m.groupsize == -1: m.zeros = m.zeros.half()
-                        m.scales = m.scales.half()
-                        m.bias = m.bias.half()
+        self.model = ExLlama(config)
+        self.tokenizer = ExLlamaTokenizer(tokenizer_model_path)
 
 
     def begin(self):
 
-        if self.new:
-
-            if self.cache is None: self.cache = ExLlamaCache(self.model)
-            else: self.cache.current_seq_len = 0
-
-        else:
-
-            self.pkv = None
+        if self.cache is None: self.cache = ExLlamaCache(self.model)
+        else: self.cache.current_seq_len = 0
 
 
     def next_logits(self, input_ids, last_id_only = True):
 
-        if self.new:
-
-            return self.model.forward(input_ids, self.cache, last_id_only)
-
-        else:
-
-            result = self.model.forward(input_ids, use_cache = True, past_key_values = self.pkv)
-            next_logits = result["logits"]
-            self.pkv = result["past_key_values"]
-            return next_logits
+        return self.model.forward(input_ids, self.cache, last_id_only)
 
 
     def tokenize(self, text):
 
-        return self.tokenizer.encode(text, return_tensors = "pt", add_special_tokens = False)
+        return self.tokenizer.encode(text)
 
 
 def timer(name, func):
@@ -104,13 +74,11 @@ def mem(name, total = False):
 
 parser = argparse.ArgumentParser(description = "Benchmark tests for ExLlama")
 
-parser.add_argument("-t", "--tokenizer", type = str, help = "Tokenizer directory", required = True)
+parser.add_argument("-t", "--tokenizer", type = str, help = "Tokenizer model path", required = True)
 parser.add_argument("-c", "--config", type = str, help = "Model config path (config.json)", required = True)
 parser.add_argument("-m", "--model", type = str, help = "Model weights path (.pt or .safetensors file)", required = True)
 parser.add_argument("-g", "--groupsize", type = int, help = "Groupsize for quantized weights", default = -1)
 
-parser.add_argument("-o", "--original", action = "store_true", help = "Use original implementation")
-parser.add_argument("-half", "--half", action = "store_true", help = "Reduce to 16-bit precision (original implementation only)")
 parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP)
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
 
@@ -118,9 +86,7 @@ parser.add_argument("-l", "--length", type = int, help = "Maximum sequence lengt
 parser.add_argument("-p", "--perf", action = "store_true", help = "Benchmark speed and VRAM usage")
 parser.add_argument("-ppl", "--perplexity", action = "store_true", help = "Perplexity benchmark (slow)")
 
-
 args = parser.parse_args()
-use_new = not args.original
 
 # Some feedback
 
@@ -132,12 +98,8 @@ print(f" -- Groupsize: {args.groupsize if args.groupsize != -1 else 'none'}")
 print(f" -- Sequence length: {args.length}")
 
 print_opts = []
-if args.original:
-    print_opts.append("original")
-    if args.half: print_opts.append("half")
-else:
-    print_opts.append("attention: " + str(args.attention))
-    print_opts.append("matmul: " + str(args.matmul))
+print_opts.append("attention: " + str(args.attention))
+print_opts.append("matmul: " + str(args.matmul))
 if args.perf: print_opts.append("perf")
 if args.perplexity: print_opts.append("ppl")
 
@@ -149,7 +111,7 @@ torch.cuda.reset_peak_memory_stats("cuda")
 mem_base = torch.cuda.max_memory_allocated("cuda")
 mem_last = mem_base
 
-wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer, args.config, args.model, args.groupsize, use_new, args.half, args.attention, args.matmul, args.length))
+wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer, args.config, args.model, args.groupsize, args.attention, args.matmul, args.length))
 
 torch.cuda.reset_peak_memory_stats("cuda")
 mem("Model")
@@ -206,6 +168,7 @@ with torch.no_grad():
                 if len(ex) > 50: ds.append(ex)
 
         print(" -- Testing", end = "")
+        sys.stdout.flush()
 
         logprob_sum = 0.0
         logprob_count = 0
@@ -228,7 +191,9 @@ with torch.no_grad():
             logprob_count += target_ids.numel()
 
             ex_count -= 1
-            if ex_count % 10 == 0: print(".", end = "")
+            if ex_count % 10 == 0:
+                print(".", end = "")
+                sys.stdout.flush()
             if ex_count == 0: break
 
         mean_log_prob = logprob_sum / logprob_count

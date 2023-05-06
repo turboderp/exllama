@@ -4,9 +4,9 @@ import torch
 
 class ExLlamaTokenizer:
 
-    def __init__(self, tokenizer_dir):
+    def __init__(self, tokenizer_model_path):
 
-        self.path = os.path.join(tokenizer_dir, "tokenizer.model")
+        self.path = tokenizer_model_path
         self.tokenizer = SentencePieceProcessor(model_file = self.path)
 
     def encode(self, text):
