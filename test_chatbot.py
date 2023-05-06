@@ -37,8 +37,19 @@ model = ExLlama(config)
 cache = ExLlamaCache(model)
 
 tokenizer = ExLlamaTokenizer(tokenizer_model_path)
+
+# These settings seem to work well
+
 generator = ExLlamaGenerator(model, tokenizer, cache)
 generator.settings = ExLlamaGenerator.Settings()
+generator.settings.top_k = 20
+generator.settings.top_p = 0.65
+generator.settings.min_p = 0.02
+generator.settings.token_repetition_penalty_max = 1.2
+generator.settings.token_repetition_penalty_sustain = 50
+generator.settings.token_repetition_penalty_decay = 50
+
+# Be nice to Chatbort
 
 username = "Steve"
 bot_name = "Chatbort"
@@ -56,28 +67,44 @@ ids = tokenizer.encode(past)
 generator.gen_begin(ids)
 
 while True:
-    in_line = input(username + ": ")
 
+    # Read and format input
+
+    in_line = input(username + ": ")
     in_line = username + ": " + in_line.strip() + "\n"
+
+    # No need for this, really
+
     past += in_line
+
+    # SentencePiece doesn't tokenize spaces separately so we can't know from individual tokens if they start a new word
+    # or not. Instead, repeatedly decode the generated response as it's being built, starting from the last newline,
+    # and print out the differences between consecutive decodings to stream out the response.
 
     in_tokens = tokenizer.encode(in_line)
 
     res_line = bot_name + ":"
     res_tokens = tokenizer.encode(res_line)
-    num_res_tokens = res_tokens.shape[-1]
+    num_res_tokens = res_tokens.shape[-1]  # Decode from here
 
     in_tokens = torch.cat((in_tokens, res_tokens), dim = 1)
 
-    print(res_line, end = "")
-    sys.stdout.flush()
+    # If we're approaching the context limit, prune some whole lines from the start of the context. Also prune a
+    # little extra so we don't end up rebuilding the cache on ever line when up against the limit.
 
     expect_tokens = in_tokens.shape[-1] + max_response_tokens
     max_tokens = config.max_seq_len - expect_tokens
     if generator.gen_num_tokens() >= max_tokens:
         generator.gen_prune_to(config.max_seq_len - expect_tokens - extra_prune, tokenizer.newline_token_id)
 
+    # Feed in the user input and "{bot_name}:", tokenized
+
     generator.gen_feed_tokens(in_tokens)
+
+    # Generate with streaming
+
+    print(res_line, end = "")
+    sys.stdout.flush()
 
     for i in range(max_response_tokens):
         token = generator.gen_single_token()
@@ -91,6 +118,6 @@ while True:
         print(new_text, end="")
         sys.stdout.flush()
 
-        if token.item() == tokenizer.newline_token_id: break
+        if token.item() == tokenizer.newline_token_id: break  # Response includes newline
 
     past += res_line
