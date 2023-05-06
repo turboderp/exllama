@@ -11,7 +11,7 @@ class ExLlamaGenerator:
         min_p = 0.02  # Do not consider tokens with probability less than this
 
         token_repetition_penalty_max = 1.2  # Repetition penalty for most recent tokens
-        token_repetition_penalty_sustain = 50  # No. recent tokens to repeat penalty for
+        token_repetition_penalty_sustain = 50  # No. most recent tokens to repeat penalty for
         token_repetition_penalty_decay = 50  # Gradually decrease penalty over this many tokens
 
 
@@ -82,8 +82,14 @@ class ExLlamaGenerator:
         self.cache.current_seq_len = 0
 
         if in_tokens.shape[-1] >= 1:
-            self.model(self.sequence[:, :-1], self.cache, preprocess_only = False)
+            self.model(self.sequence[:, :-1], self.cache, preprocess_only = True)
 
+
+    def gen_feed_tokens(self, in_tokens):
+
+        start = self.sequence.shape[-1] - 1
+        self.sequence = torch.cat((self.sequence, in_tokens), dim = 1)
+        self.model(self.sequence[:, start:-1], self.cache, preprocess_only = True)
 
     def gen_single_token(self):
 
@@ -102,9 +108,38 @@ class ExLlamaGenerator:
         return token
 
 
-    def gen_accept_tokens(self, tokens):
+    def gen_accept_token(self, token):
 
-        self.sequence = torch.cat((self.sequence, tokens), dim = 1)
+        self.sequence = torch.cat((self.sequence, token), dim = 1)
+
+
+    def gen_prune_right(self, tokens):
+
+        if tokens > self.sequence.shape[-1] - 1: return
+        self.gen_begin(self.sequence[:, tokens:])
+
+
+    def gen_prune_to(self, max_tokens, token_id):
+
+        if self.gen_num_tokens() <= max_tokens: return
+
+        while self.gen_num_tokens() > max_tokens:
+
+            pruned = False
+            for i in range(self.sequence.shape[-1] - 1):
+                if self.sequence[0, i] == token_id:
+                    self.sequence = self.sequence[:, i + 1:]
+                    pruned = True
+                    break
+
+            if not pruned: return
+
+        self.gen_begin(self.sequence)
+
+
+    def gen_num_tokens(self):
+
+        return self.sequence.shape[-1]
 
 
     def generate_simple(self, prompt, settings = Settings(), max_new_tokens = 128):
@@ -117,7 +152,7 @@ class ExLlamaGenerator:
         for i in range(max_new_tokens):
             token = self.gen_single_token()
             if token.item() == self.tokenizer.eos_token_id: break
-            self.gen_accept_tokens(token)
+            self.gen_accept_token(token)
 
         text = self.tokenizer.decode(self.sequence[0])
         return text
