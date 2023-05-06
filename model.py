@@ -306,15 +306,6 @@ class ExLlamaAttention(nn.Module):
             attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask = attention_mask, is_causal = False)
             attn_output = attn_output.transpose(1, 2)
 
-        # -- xformers memory-efficient attention, fast but currently broken :(
-
-        elif self.config.attention_method == ExLlamaConfig.AttentionMethod.XFORMERS_MEM_EFF:
-
-            query_states = query_states.transpose(1, 2)
-            key_states = key_states.transpose(1, 2)
-            value_states = value_states.transpose(1, 2)
-            attn_output = xformers.ops.memory_efficient_attention(query_states, key_states, value_states, attn_bias = xformers.ops.LowerTriangularMask())
-
         else: raise ValueError("Wut?")
 
         # Output projection
@@ -481,7 +472,7 @@ class ExLlama(nn.Module):
         self.layers = nn.ModuleList(modules)
 
 
-    def forward(self, input_ids, cache, last_id_only = True):
+    def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False):
 
         batch_size, seq_len = input_ids.shape
         past_len = cache.current_seq_len
@@ -514,6 +505,10 @@ class ExLlama(nn.Module):
 
         cache.current_seq_len += seq_len
 
+        # Early exit when we don't need logits
+
+        if preprocess_only: return None
+
         # Norm
 
         hidden_states.to(self.config.device_map.norm)
@@ -526,7 +521,7 @@ class ExLlama(nn.Module):
         hidden_states.to(self.config.device_map.lm_head)
         logits = self.lm_head(hidden_states)
 
-        return logits
+        return logits.to(self.config.device_map.embed_tokens).float()
 
         # TODO: Accept labels and calc (optional) loss, also test backprop
         # HF implementation for ref.:
