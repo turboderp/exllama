@@ -459,8 +459,9 @@ class ExLlama(nn.Module):
         # Decoder layers
 
         for idx, decoder_layer in enumerate(self.layers):
-            hidden_states = hidden_states.to(self.config.device_map.layers[idx])
-            hidden_states = decoder_layer(hidden_states, cache, attn_mask)
+            device = self.config.device_map.layers[idx]
+            hidden_states = hidden_states.to(device)
+            hidden_states = decoder_layer(hidden_states, cache, attn_masks[device])
 
         cache.current_seq_len += seq_len
 
@@ -470,14 +471,14 @@ class ExLlama(nn.Module):
 
         # Norm
 
-        hidden_states.to(self.config.device_map.norm)
+        hidden_states = hidden_states.to(self.config.device_map.norm)
         hidden_states = self.norm(hidden_states)
 
         # Head
 
         if last_id_only: hidden_states = hidden_states[:, -1:, :]
 
-        hidden_states.to(self.config.device_map.lm_head)
+        hidden_states = hidden_states.to(self.config.device_map.lm_head)
         logits = self.lm_head(hidden_states)
 
         return logits.to(self.config.device_map.embed_tokens).float()
