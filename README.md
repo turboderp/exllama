@@ -35,18 +35,19 @@ This list might be incomplete:
 
 Tests above are on a reference implementation based on Sterlind's repo
 [here](https://github.com/sterlind/GPTQ-for-LLaMa/tree/eaa9955d8700dc8566f0c443054233e9c4503f66). They will not be
-updated, to avoid having to maintain superfluous code. Here are runs on the new implementation:
+updated, to avoid having to maintain superfluous code. Here are runs on the new implementation. which will be updated:
 
-|                                     | Seq. len. | VRAM      | Long seq.   | Ind.   | Ppl  |
-|-------------------------------------|-----------|-----------|-------------|--------|------|
-| 7B 4bit 128g, ExLlama               | 2,048 t   | 5,599 MB  | 4,897 t/s   | 80 t/s | 6.45 |
-| 13B 4bit 128g, ExLlama              | 2,048 t   | 9,759 MB  | 2,193 t/s   | 52 t/s | 5.62 |
-| 30B 4bit 128g, ExLlama <sup>1</sup> | 2,048 t   | 21,048 MB | 161 t/s     | 14 t/s | 4.60 |
-| 30B 4bit 128g, ExLlama              | 2,048 t   | 22,129 MB | 859 t/s     | 26 t/s | 4.60 |
+|                                     | Seq. len. | VRAM      | Long seq. | Ind.   | Ppl  |
+|-------------------------------------|-----------|-----------|-----------|--------|------|
+| 7B 4bit 128g, ExLlama               | 2,048 t   | 5,191 MB  | 2,587 t/s | 89 t/s | 6.45 |
+| 13B 4bit 128g, ExLlama              | 2,048 t   | 9,119 MB  | 1,443 t/s | 58 t/s | 5.62 |
+| 30B 4bit 128g, ExLlama              | 2,048 t   | 21,047 MB | 645 t/s   | 30 t/s | 4.60 |
+| 30B 4bit 128g, ExLlama <sup>1</sup> | 2,454 t   | 22,145 MB | 648 t/s   | 28 t/s | 4.60 |
 
-<sup>1</sup> Quantized matmul only.
+<sup>1</sup> Max sequence length achieved so far without OoM. Llama goes incoherent generating past 2048 tokens anyway 
+but it's good to have some headroom.
 
-Tests done on stock RTX 4090, running with a desktop environment, with a few other apps also using VRAM.
+All tests done on stock RTX 4090, running with a desktop environment, with a few other apps also using VRAM.
 
 All results are inference over a longer sequence, with the last 128 tokens generated individually, up to the sequence
 length specified. VRAM usage is as reported by PyTorch and does not include PyTorch's own overhead (CUDA kernels,
@@ -64,7 +65,7 @@ scores are not necessarily comparable to other Llama benchmarks.
 - [x] Make sure new model performs at least as well as reference model on perplexity
 - [x] ~~Sort out dependencies and compatibility with latest GPTQ release~~
 - [ ] Integrate quant-cuda from Sterlind's old commit, remove dependency
-- [ ] Optimize memory usage in large matrix multiplications
+- [x] Optimize memory usage in large matrix multiplications
 - [x] ~~Consider Triton implementation~~ (Triton implementations are all slow right now, it seems)
 - [ ] Test device mapping across multiple GPUs
 - [ ] Provide alternative backend to allow layers on CPU
