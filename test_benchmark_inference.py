@@ -14,6 +14,7 @@ torch.set_grad_enabled(False)
 torch.cuda._lazy_init()
 # torch.backends.cuda.matmul.allow_tf32 = True
 torch.set_printoptions(precision = 10)
+torch_devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
 
 class ModelWrapper:
 
@@ -30,6 +31,10 @@ class ModelWrapper:
         config.max_seq_len = length
         config.is_v1_model = (model_groupsize == -1)
         config.groupsize = model_groupsize
+
+        # config.device_map.layers[-10:] = ["cuda:1"] * 10
+        # config.device_map.lm_head = "cuda:1"
+        # config.device_map.norm = "cuda:1"
 
         config.attention_method = attention
         config.matmul_method = matmul
@@ -62,12 +67,28 @@ def timer(name, func):
     return ret
 
 
+mem_base = {}
+mem_last = {}
+for dev in torch_devices:
+    torch.cuda.reset_peak_memory_stats(dev)
+    mem_base[dev] = mem_last[dev] = torch.cuda.max_memory_allocated(dev)
+
 def mem(name, total = False):
     global mem_base, mem_last
-    mem_c = torch.cuda.max_memory_allocated("cuda")
-    mem_this = mem_c - mem_last if not total else mem_c - mem_base
-    mem_last = mem_c
-    print(f" ** VRAM, {name}: {mem_this / (1024 ** 2):,.2f} MB")
+
+    res = f" ** VRAM, {name}: "
+    first = True
+
+    for device in torch_devices:
+        mem_c = torch.cuda.max_memory_allocated(device)
+        mem_this = mem_c - mem_last[device] if not total else mem_c - mem_base[device]
+        mem_last[device] = mem_c
+
+        if not first: res += " - "
+        first = False
+        res += f"[{device}] {mem_this / (1024 ** 2):,.2f} MB"
+
+    print(res)
 
 
 # Parse arguments
@@ -106,10 +127,6 @@ if args.perplexity: print_opts.append("ppl")
 print(f" -- Options: {print_opts}")
 
 # Instantiate model
-
-torch.cuda.reset_peak_memory_stats("cuda")
-mem_base = torch.cuda.max_memory_allocated("cuda")
-mem_last = mem_base
 
 wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer, args.config, args.model, args.groupsize, args.attention, args.matmul, args.length))
 

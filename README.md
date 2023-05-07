@@ -39,13 +39,9 @@ updated, to avoid having to maintain superfluous code. Here are runs on the new 
 
 |                                     | Seq. len. | VRAM      | Long seq. | Ind.   | Ppl  |
 |-------------------------------------|-----------|-----------|-----------|--------|------|
-| 7B 4bit 128g, ExLlama               | 2,048 t   | 5,191 MB  | 2,587 t/s | 89 t/s | 6.45 |
-| 13B 4bit 128g, ExLlama              | 2,048 t   | 9,119 MB  | 1,443 t/s | 58 t/s | 5.62 |
-| 30B 4bit 128g, ExLlama              | 2,048 t   | 21,047 MB | 645 t/s   | 30 t/s | 4.60 |
-| 30B 4bit 128g, ExLlama <sup>1</sup> | 2,454 t   | 22,145 MB | 648 t/s   | 28 t/s | 4.60 |
-
-<sup>1</sup> Max sequence length achieved so far without OoM. Llama goes incoherent generating past 2048 tokens anyway 
-but it's good to have some headroom.
+| 7B 4bit 128g, ExLlama               | 2,048 t   | 5,191 MB  | 2,827 t/s | 95 t/s | 6.45 |
+| 13B 4bit 128g, ExLlama              | 2,048 t   | 9,119 MB  | 1,463 t/s | 61 t/s | 5.62 |
+| 30B 4bit 128g, ExLlama              | 2,048 t   | 21,047 MB | 633 t/s   | 30 t/s | 4.60 |
 
 All tests done on stock RTX 4090, running with a desktop environment, with a few other apps also using VRAM.
 
@@ -58,6 +54,16 @@ internals.
 Perplexity is measured only to verify the accuracy of the output. The dataset used is a small sample from WikiText, and
 scores are not necessarily comparable to other Llama benchmarks.
 
+The following tests were all done on 30B 4bit 128g with various settings, just to test the max sequence length and get
+a sense of what can be achieved with multiple GPUs right now. Llama goes incoherent generating past 2048 tokens anyway,
+but with some fine-tuning, who knows? 
+
+|                        | Seq. len.  | VRAM                 | Long seq. | Ind.   | Ppl  |
+|------------------------|------------|----------------------|-----------|--------|------|
+| 4090/24GB              | 2,454 t    | 22,145 MB            | 648 t/s   | 28 t/s | 4.60 |
+| 4090/24GB + 3070Ti/8GB | 3,932 t    | 22,055 MB + 7,377 MB | 467 t/s   | 22 t/s | 4.60 |
+
+
 ## Todo
 
 - [x] Rudimentary test harness
@@ -67,7 +73,7 @@ scores are not necessarily comparable to other Llama benchmarks.
 - [ ] Integrate quant-cuda from Sterlind's old commit, remove dependency
 - [x] Optimize memory usage in large matrix multiplications
 - [x] ~~Consider Triton implementation~~ (Triton implementations are all slow right now, it seems)
-- [ ] Test device mapping across multiple GPUs
+- [x] Test device mapping across multiple GPUs
 - [ ] Provide alternative backend to allow layers on CPU
 - [ ] Consider fused QKV projection and fused MLP
 - [x] Eliminate need for HF tokenizer (use SentencePiece library directly)
