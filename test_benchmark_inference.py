@@ -177,7 +177,7 @@ with torch.no_grad():
 
             wrapper.begin()
 
-            ids = wrapper.tokenize(ex).cuda()
+            ids = wrapper.tokenize(ex)
             ids = ids[:, :max_seq_len + 1]
             input_ids = ids[:, :-1]
             target_ids = ids[:, 1:]

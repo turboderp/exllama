@@ -3,10 +3,14 @@ from torch import nn
 import torch.nn.functional as F
 from safetensors import safe_open
 import quant_util
-from torch.cuda.amp import custom_bwd, custom_fwd
 import json
 import math
 from enum import Enum
+
+# Magic numbers
+
+optimal_switch_thd = 6  # Model mostly runs one token at a time, or many. So this probably doesn't matter too much.
+
 
 class ParsedEnum(Enum):
 
@@ -35,7 +39,8 @@ class ExLlamaConfig:
     class MatmulMethod(ParsedEnum):
 
         QUANT_ONLY = 1
-        SWITCHED = 2  # Much faster but allocates up to 500M of VRAM for reconstructing float tensors from quants
+        SWITCHED = 2  # Best
+        PYTORCH_ONLY = 3
 
 
     # Load config from Llama config.json
@@ -77,59 +82,6 @@ class ExLlamaConfig:
         self.device_map = ExLlamaDeviceMap(self.num_hidden_layers)
 
 
-# The only parts we need from autograd_4bit. The autograd function would be needed for backpropagation, but that is
-# currently completely untested.
-
-class ExAutogradMatmul4bitCuda(torch.autograd.Function):
-
-    # TODO: Test backpropagattion
-
-    @staticmethod
-    @custom_fwd  # (cast_inputs = torch.float16)
-    def forward(ctx, x, qweight, scales, zeros, g_idx, bits, maxq):
-        ctx.save_for_backward(qweight, scales, zeros, g_idx)
-        if g_idx is None: output = quant_util._matmul4bit_v1_recons(x, qweight, scales, zeros)
-        else: output = quant_util._matmul4bit_v2_recons(x, qweight, scales, zeros, g_idx)
-        output = output.clone()
-        return output
-
-    @staticmethod
-    @custom_bwd
-    def backward(ctx, grad_output):
-        qweight, scales, zeros, g_idx = ctx.saved_tensors
-        if ctx.needs_input_grad[0]:
-            if g_idx is None: grad = quant_util._matmul4bit_v1_recons(grad_output, qweight, scales, zeros, transpose = True)
-            else: grad = quant_util._matmul4bit_v2_recons(grad_output, qweight, scales, zeros, g_idx, transpose = True)
-        return grad, None, None, None, None, None, None
-
-
-def matmul4bit(x, qweight, scales, zeros, g_idx = None, auto_switch = False):
-
-    # Select appropriate matmul approach for the quantized weights.
-
-    xdp = 1
-    for y in x.shape[:-1]: xdp *= y
-    auto_switch_thd = 8
-
-    if zeros.dtype != torch.int32:
-
-        if auto_switch and xdp > auto_switch_thd:
-            output = quant_util._matmul4bit_v1_recons(x.to(scales.dtype), qweight, scales, zeros.float()).half()
-        else:
-            output = quant_util._matmul4bit_v1(x, qweight, scales, zeros.float())
-
-    else:
-
-        if g_idx is None: g_idx = torch.zeros(qweight.shape[0] * 8, dtype = torch.int32, device = x.device)  # Hmm
-
-        if auto_switch and xdp > auto_switch_thd:
-            output = quant_util._matmul4bit_v2_recons(x.to(scales.dtype), qweight, scales, zeros, g_idx).half()
-        else:
-            output = quant_util._matmul4bit_v2(x, qweight, scales, zeros, g_idx)
-
-    return output
-
-
 # 4-bit linear layer implementation
 
 class Ex4bitLinear(nn.Module):
@@ -165,15 +117,22 @@ class Ex4bitLinear(nn.Module):
 
         self.register_buffer('qweight', tensors[key + ".qweight"])
 
-
     def forward(self, x):
 
         zeros = self.qzeros if not self.config.is_v1_model else self.zeros
 
         if torch.is_grad_enabled():
-            out = ExAutogradMatmul4bitCuda.apply(x, self.qweight, self.scales, zeros, self.g_idx, self.bits, self.maxq)
+
+            out = quant_util.ExAutogradMatmul4bitCuda.apply(x, self.qweight, self.scales, zeros, self.g_idx, self.bits, self.maxq)
+
         else:
-            out = matmul4bit(x, self.qweight, self.scales, zeros, self.g_idx, auto_switch = (self.config.matmul_method == ExLlamaConfig.MatmulMethod.SWITCHED))
+
+            if self.config.matmul_method == ExLlamaConfig.MatmulMethod.QUANT_ONLY: auto_switch_thd = -1
+            elif self.config.matmul_method == ExLlamaConfig.MatmulMethod.SWITCHED: auto_switch_thd = optimal_switch_thd
+            elif self.config.matmul_method == ExLlamaConfig.MatmulMethod.PYTORCH_ONLY: auto_switch_thd = 0
+            else: raise ValueError("Wut?")
+
+            out = quant_util.matmul4bit(x, self.qweight, self.scales, zeros, self.g_idx, auto_switch_thd = auto_switch_thd)
 
         if self.has_bias: out += self.bias
         return out
