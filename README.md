@@ -18,6 +18,7 @@ This list might be incomplete:
 * `torch` tested on 2.1.0 (nightly) with cu118
 * `safetensors` 0.3.1
 * `sentencepiece`
+* `ninja`
 
 ## Results so far
 
