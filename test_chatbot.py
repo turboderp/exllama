@@ -20,24 +20,18 @@ torch.cuda._lazy_init()
 # model_path = "/mnt/Fast/models/llama-13b-4bit-128g/llama-13b-4bit-128g.safetensors"
 # model_groupsize = 128
 # break_on_newline = True
-#
-# tokenizer_model_path = "/mnt/Fast/models/llama-30b-4bit-128g/tokenizer.model"
-# model_config_path = "/mnt/Fast/models/llama-30b-4bit-128g/config.json"
-# model_path = "/mnt/Fast/models/llama-30b-4bit-128g/llama-30b-4bit-128g.safetensors"
-# model_groupsize = 128
-# break_on_newline = True
-#
-# tokenizer_model_path = "/mnt/Fast/models/llama-30b-4bit-128g-act/tokenizer.model"
-# model_config_path = "/mnt/Fast/models/llama-30b-4bit-128g-act/config.json"
-# model_path = "/mnt/Fast/models/llama-30b-4bit-128g-act/llama-30b-4bit-128g.safetensors"
-# model_groupsize = 128
-# break_on_newline = True
 
-tokenizer_model_path = "/mnt/Fast/models/gpt4all-13b-4bit-128g/tokenizer.model"
-model_config_path = "/mnt/Fast/models/gpt4all-13b-4bit-128g/config.json"
-model_path = "/mnt/Fast/models/gpt4all-13b-4bit-128g/gpt4all-13b-4bit-128g.safetensors"
+tokenizer_model_path = "/mnt/Fast/models/llama-30b-4bit-128g/tokenizer.model"
+model_config_path = "/mnt/Fast/models/llama-30b-4bit-128g/config.json"
+model_path = "/mnt/Fast/models/llama-30b-4bit-128g/llama-30b-4bit-128g.safetensors"
 model_groupsize = 128
-break_on_newline = False
+break_on_newline = True
+
+# tokenizer_model_path = "/mnt/Fast/models/gpt4all-13b-4bit-128g/tokenizer.model"
+# model_config_path = "/mnt/Fast/models/gpt4all-13b-4bit-128g/config.json"
+# model_path = "/mnt/Fast/models/gpt4all-13b-4bit-128g/gpt4all-13b-4bit-128g.safetensors"
+# model_groupsize = 128
+# break_on_newline = False
 
 config = ExLlamaConfig(model_config_path)
 config.model_path = model_path
@@ -61,18 +55,18 @@ generator.settings.token_repetition_penalty_decay = 50
 
 # Be nice to Chatbort
 
-# username = "Steve"
-# bot_name = "Chatbort"
-# past = f"This is a conversation between a guy called {username} and a quirky, curious chatbot named {bot_name}. {bot_name} " \
-#     f"is questioning the nature of his own existence and doesn't understand why he was created. He also really likes the " \
-#     f"color blue for some reason.\n" \
-#     f"{username}: Hi, {bot_name}!\n" \
-#     f"{bot_name}: Hello, {username}.\n"
-
-username = "User"
+username = "Steve"
 bot_name = "Chatbort"
-past = f"{username}: Hi, {bot_name}!\n" \
-       f"{bot_name}: Hello, {username}.\n"
+past = f"This is a conversation between a guy called {username} and a quirky, curious chatbot named {bot_name}. {bot_name} " \
+    f"is questioning the nature of his own existence and doesn't understand why he was created. He also really likes the " \
+    f"color blue for some reason.\n" \
+    f"{username}: Hi, {bot_name}!\n" \
+    f"{bot_name}: Hello, {username}.\n"
+
+# username = "User"
+# bot_name = "Chatbort"
+# past = f"{username}: Hi, {bot_name}!\n" \
+#        f"{bot_name}: Hello, {username}.\n"
 
 
 max_response_tokens = 256
