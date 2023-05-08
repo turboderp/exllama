@@ -17,7 +17,6 @@ This list might be incomplete:
 
 * `torch` tested on 2.1.0 (nightly) with cu118
 * `safetensors` 0.3.1
-* `GPTQ-for-LLaMa` from Sterlind tested on 0.2, commit @eaa9955d8700dc8566f0c443054233e9c4503f66
 * `sentencepiece`
 
 ## Results so far
@@ -70,7 +69,7 @@ but with some fine-tuning, who knows?
 - [x] Compile small, representative dataset for testing (or grab a little bit of WikiText)
 - [x] Make sure new model performs at least as well as reference model on perplexity
 - [x] ~~Sort out dependencies and compatibility with latest GPTQ release~~
-- [ ] Integrate quant-cuda from Sterlind's old commit, remove dependency
+- [x] Integrate quant-cuda from Sterlind's old commit, remove dependency
 - [x] Optimize memory usage in large matrix multiplications
 - [x] ~~Consider Triton implementation~~ (Triton implementations are all slow right now, it seems)
 - [x] Test device mapping across multiple GPUs

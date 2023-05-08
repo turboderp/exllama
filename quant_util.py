@@ -1,12 +1,13 @@
-from abc import ABC
-
+# from abc import ABC
 import torch
 from torch.cuda.amp import custom_bwd, custom_fwd
+from torch.utils.cpp_extension import load
+exllama_ext = load(name = "exllama_ext", sources = ["exllama_ext/exllama_ext.cpp", "exllama_ext/exllama_ext.cu"], verbose=True)
 
-# TODO: Integrate the quant_cuda module and get rid of dependency on git+https://github.com/sterlind/GPTQ-for-LLaMa@eaa9955d8700dc8566f0c443054233e9c4503f66
-
-from gptq_llama import quant_cuda
-
+from exllama_ext import vecquant4matmul_v1
+from exllama_ext import vecquant4matmul_v2
+from exllama_ext import vecquant4recons_v1
+from exllama_ext import vecquant4recons_v2
 
 def _matmul4bit_v1(x, qweight, scales, zeros):
 
@@ -17,7 +18,7 @@ def _matmul4bit_v1(x, qweight, scales, zeros):
     y = torch.zeros((x.shape[0], qweight.shape[-1]), dtype = torch.float32, device = x.device)
     dtype = x.dtype
     x = x.half()
-    quant_cuda.vecquant4matmul_v1_faster(x, qweight, y, scales, zeros)
+    vecquant4matmul_v1(x, qweight, y, scales, zeros)
     y = y.to(dtype)
 
     return y.reshape(outshape)
@@ -32,7 +33,7 @@ def _matmul4bit_v2(x, qweight, scales, zeros, g_idx):
     y = torch.zeros((x.shape[0], qweight.shape[-1]), dtype = torch.float32, device = x.device)
     dtype = x.dtype
     x = x.half()
-    quant_cuda.vecquant4matmul_faster(x, qweight, y, scales.float(), zeros, g_idx, x.shape[-1] // 2)
+    vecquant4matmul_v2(x, qweight, y, scales.float(), zeros, g_idx, x.shape[-1] // 2)
     y = y.to(dtype)
 
     return y.reshape(outshape)
@@ -44,7 +45,7 @@ def _matmul4bit_v1_recons(x, qweight, scales, zeros, transpose = False):
     else: assert qweight.shape[1] == x.shape[-1]
 
     buffer = torch.zeros((qweight.shape[0] * 8, qweight.shape[1]), dtype = scales.dtype, device = qweight.device)
-    quant_cuda.vecquant4recons_v1(qweight, buffer, scales, zeros)
+    vecquant4recons_v1(qweight, buffer, scales, zeros)
 
     return torch.matmul(x, buffer.T if transpose else buffer)
 
@@ -55,7 +56,7 @@ def _matmul4bit_v2_recons(x, qweight, scales, zeros, g_idx, transpose=False):
     else: assert qweight.shape[1] == x.shape[-1]
 
     buffer = torch.zeros((qweight.shape[0] * 8, qweight.shape[1]), dtype = scales.dtype, device = qweight.device)
-    quant_cuda.vecquant4recons_v2(qweight, buffer, scales, zeros, g_idx)
+    vecquant4recons_v2(qweight, buffer, scales, zeros, g_idx)
 
     return torch.matmul(x, buffer.T if transpose else buffer)
 
