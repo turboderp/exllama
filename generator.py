@@ -11,8 +11,8 @@ class ExLlamaGenerator:
         min_p = 0.02  # Do not consider tokens with probability less than this
 
         token_repetition_penalty_max = 1.2  # Repetition penalty for most recent tokens
-        token_repetition_penalty_sustain = 50  # No. most recent tokens to repeat penalty for
-        token_repetition_penalty_decay = 50  # Gradually decrease penalty over this many tokens
+        token_repetition_penalty_sustain = 150  # No. most recent tokens to repeat penalty for
+        token_repetition_penalty_decay = 150  # Gradually decrease penalty over this many tokens
 
 
     def __init__(self, model, tokenizer, cache):
@@ -111,6 +111,12 @@ class ExLlamaGenerator:
     def gen_accept_token(self, token):
 
         self.sequence = torch.cat((self.sequence, token), dim = 1)
+
+
+    def gen_rewind(self, num_tokens):
+
+        self.sequence = self.sequence[:, :-num_tokens]
+        self.cache.current_seq_len -= num_tokens
 
 
     def gen_prune_right(self, tokens):

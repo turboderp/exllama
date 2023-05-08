@@ -55,7 +55,7 @@ generator.settings = ExLlamaGenerator.Settings()
 generator.settings.top_k = 20
 generator.settings.top_p = 0.65
 generator.settings.min_p = 0.02
-generator.settings.token_repetition_penalty_max = 1.2
+generator.settings.token_repetition_penalty_max = 1.15
 generator.settings.token_repetition_penalty_sustain = 50
 generator.settings.token_repetition_penalty_decay = 50
 
@@ -82,12 +82,16 @@ print(past, end = "")
 ids = tokenizer.encode(past)
 generator.gen_begin(ids)
 
+next_userprompt = username + ": "
+
 while True:
 
     # Read and format input
 
-    in_line = input(username + ": ")
+    in_line = input(next_userprompt)
     in_line = username + ": " + in_line.strip() + "\n"
+
+    next_userprompt = username + ": "
 
     # No need for this, really
 
@@ -141,5 +145,14 @@ while True:
 
         if break_on_newline and gen_token.item() == tokenizer.newline_token_id: break
         if gen_token.item() == tokenizer.eos_token_id: break
+
+        # GPT4All isn't always good at emitting an EOS token but will usually spit out the user prompt in any case,
+        # so as a fallback, catch that and roll back a few tokens.
+
+        if res_line.endswith(f"{username}:"):
+            plen = tokenizer.encode(f"{username}:").shape[-1]
+            generator.gen_rewind(plen)
+            next_userprompt = " "
+            break
 
     past += res_line
