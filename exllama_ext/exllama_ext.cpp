@@ -1,6 +1,7 @@
 #include <torch/all.h>
 #include <torch/python.h>
 #include <c10/cuda/CUDAGuard.h>
+#include <cuda_fp16.h>
 
 // V1
 

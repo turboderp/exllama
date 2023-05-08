@@ -38,9 +38,9 @@ updated, to avoid having to maintain superfluous code. Here are runs on the new 
 
 |                                     | Seq. len. | VRAM      | Long seq. | Ind.   | Ppl  |
 |-------------------------------------|-----------|-----------|-----------|--------|------|
-| 7B 4bit 128g, ExLlama               | 2,048 t   | 5,191 MB  | 2,827 t/s | 95 t/s | 6.45 |
-| 13B 4bit 128g, ExLlama              | 2,048 t   | 9,119 MB  | 1,463 t/s | 61 t/s | 5.62 |
-| 30B 4bit 128g, ExLlama              | 2,048 t   | 21,047 MB | 633 t/s   | 30 t/s | 4.60 |
+| 7B 4bit 128g, ExLlama               | 2,048 t   | 5,096 MB  | 2,580 t/s | 81 t/s | 6.45 |
+| 13B 4bit 128g, ExLlama              | 2,048 t   | 8,982 MB  | 1,938 t/s | 50 t/s | 5.62 |
+| 30B 4bit 128g, ExLlama              | 2,048 t   | 20,558 MB | 1,142 t/s | 21 t/s | 4.60 |
 
 All tests done on stock RTX 4090, running with a desktop environment, with a few other apps also using VRAM.
 

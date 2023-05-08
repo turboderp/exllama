@@ -30,11 +30,9 @@ def _matmul4bit_v2(x, qweight, scales, zeros, g_idx):
 
     outshape = x.shape[:-1] + (qweight.shape[1],)
     x = x.reshape(-1, x.shape[-1])
-    y = torch.zeros((x.shape[0], qweight.shape[-1]), dtype = torch.float32, device = x.device)
-    dtype = x.dtype
+    y = torch.zeros((x.shape[0], qweight.shape[-1]), dtype = torch.float16, device = x.device)
     x = x.half()
-    vecquant4matmul_v2(x, qweight, y, scales.float(), zeros, g_idx, x.shape[-1] // 2)
-    y = y.to(dtype)
+    vecquant4matmul_v2(x, qweight, y, scales, zeros, g_idx, x.shape[-1] // 2)
 
     return y.reshape(outshape)
 
@@ -55,7 +53,7 @@ def _matmul4bit_v2_recons(x, qweight, scales, zeros, g_idx, transpose=False):
     if not transpose: assert qweight.shape[0] * 8 == x.shape[-1]
     else: assert qweight.shape[1] == x.shape[-1]
 
-    buffer = torch.zeros((qweight.shape[0] * 8, qweight.shape[1]), dtype = scales.dtype, device = qweight.device)
+    buffer = torch.zeros((qweight.shape[0] * 8, qweight.shape[1]), dtype = torch.float16, device = qweight.device)
     vecquant4recons_v2(qweight, buffer, scales, zeros, g_idx)
 
     return torch.matmul(x, buffer.T if transpose else buffer)
@@ -113,7 +111,7 @@ def matmul4bit(x, qweight, scales, zeros, g_idx = None, auto_switch_thd = 8):
 
         if g_idx is None: g_idx = torch.zeros(qweight.shape[0] * 8, dtype = torch.int32, device = x.device)  # Hmm
 
-        if switch: output = _matmul4bit_v2_recons(x.to(scales.dtype), qweight, scales, zeros, g_idx).half()
+        if switch: output = _matmul4bit_v2_recons(x, qweight, scales, zeros, g_idx)
         else: output = _matmul4bit_v2(x, qweight, scales, zeros, g_idx)
 
     return output

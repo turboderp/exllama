@@ -384,7 +384,7 @@ class ExLlama(nn.Module):
                 device = self.config.device_map.map(key)
                 tensor = f.get_tensor(key)
 
-                if key.endswith(".scales"): tensor = tensor
+                if key.endswith(".scales"): tensor = tensor.half()
 
                 tensor = tensor.to(device, non_blocking = True)
                 tensors[key] = tensor
