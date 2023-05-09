@@ -2,7 +2,19 @@
 import torch
 from torch.cuda.amp import custom_bwd, custom_fwd
 from torch.utils.cpp_extension import load
-exllama_ext = load(name = "exllama_ext", sources = ["exllama_ext/exllama_ext.cpp", "exllama_ext/exllama_ext.cu"], verbose=True)
+
+exllama_ext = load(
+    name = "exllama_ext",
+    sources = [
+        "exllama_ext/exllama_ext.cpp",
+        "exllama_ext/exllama_ext_v1_recons.cu",
+        "exllama_ext/exllama_ext_v1_matmul.cu",
+        "exllama_ext/exllama_ext_v2_recons.cu",
+        "exllama_ext/exllama_ext_v2_matmul.cu"
+    ],
+    verbose = True,
+    extra_cflags = ["-ftime-report"]
+)
 
 from exllama_ext import vecquant4matmul_v1
 from exllama_ext import vecquant4matmul_v2

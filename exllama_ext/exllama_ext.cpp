@@ -1,9 +1,12 @@
-#include <torch/all.h>
-#include <torch/python.h>
+//#include <torch/all.h>
+//#include <torch/python.h>
+//#include <c10/cuda/CUDAGuard.h>
+//#include <cuda_fp16.h>
+//#include <torch/types.h>
+#include <torch/extension.h>
 #include <c10/cuda/CUDAGuard.h>
-#include <cuda_fp16.h>
 
-// V1
+// v1
 
 void vecquant4matmul_v1_cuda(torch::Tensor vec, torch::Tensor mat, torch::Tensor mul, torch::Tensor scales, torch::Tensor zeros);
 void vecquant4matmul_v1(torch::Tensor vec, torch::Tensor mat, torch::Tensor mul, torch::Tensor scales, torch::Tensor zeros)
@@ -19,7 +22,7 @@ void vecquant4recons_v1(torch::Tensor mat, torch::Tensor res, torch::Tensor scal
   vecquant4recons_v1_cuda(mat, res, scales, zeros);
 }
 
-// V2
+// v2
 
 void vecquant4matmul_v2_cuda(torch::Tensor vec, torch::Tensor mat, torch::Tensor mul, torch::Tensor scales, torch::Tensor zeros, torch::Tensor g_idx, int vec_height);
 void vecquant4matmul_v2(torch::Tensor vec, torch::Tensor mat, torch::Tensor mul, torch::Tensor scales, torch::Tensor zeros, torch::Tensor g_idx, int vec_height)
