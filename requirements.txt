@@ -1,4 +1,4 @@
 torch~=2.1.0.dev20230505+cu118
-gptq-llama @ git+https://github.com/sterlind/GPTQ-for-LLaMa@eaa9955d8700dc8566f0c443054233e9c4503f66
 safetensors>=0.3.1
 sentencepiece
+ninja
