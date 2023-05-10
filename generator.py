@@ -88,8 +88,13 @@ class ExLlamaGenerator:
     def gen_feed_tokens(self, in_tokens):
 
         start = self.sequence.shape[-1] - 1
-        self.sequence = torch.cat((self.sequence, in_tokens), dim = 1)
+        if start < 0:
+            start = 0
+            self.sequence = in_tokens
+        else:
+            self.sequence = torch.cat((self.sequence, in_tokens), dim = 1)
         self.model(self.sequence[:, start:-1], self.cache, preprocess_only = True)
+
 
     def gen_single_token(self):
 
