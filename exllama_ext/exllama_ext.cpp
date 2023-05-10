@@ -24,18 +24,18 @@ void vecquant4recons_v1(torch::Tensor mat, torch::Tensor res, torch::Tensor scal
 
 // v2
 
-void vecquant4matmul_v2_cuda(torch::Tensor vec, torch::Tensor mat, torch::Tensor mul, torch::Tensor scales, torch::Tensor zeros, torch::Tensor g_idx, int vec_height);
-void vecquant4matmul_v2(torch::Tensor vec, torch::Tensor mat, torch::Tensor mul, torch::Tensor scales, torch::Tensor zeros, torch::Tensor g_idx, int vec_height)
+void vecquant4matmul_v2_cuda(torch::Tensor vec, torch::Tensor mat, torch::Tensor mul, torch::Tensor scales, torch::Tensor zeros, int groupsize, int vec_height);
+void vecquant4matmul_v2(torch::Tensor vec, torch::Tensor mat, torch::Tensor mul, torch::Tensor scales, torch::Tensor zeros, int groupsize, int vec_height)
 {
   const at::cuda::OptionalCUDAGuard device_guard(device_of(vec));
-  vecquant4matmul_v2_cuda(vec, mat, mul, scales, zeros, g_idx, vec_height);
+  vecquant4matmul_v2_cuda(vec, mat, mul, scales, zeros, groupsize, vec_height);
 }
 
-void vecquant4recons_v2_cuda(torch::Tensor mat, torch::Tensor res, torch::Tensor scales, torch::Tensor zeros, torch::Tensor g_idx);
-void vecquant4recons_v2(torch::Tensor mat, torch::Tensor res, torch::Tensor scales, torch::Tensor zeros, torch::Tensor g_idx)
+void vecquant4recons_v2_cuda(torch::Tensor mat, torch::Tensor res, torch::Tensor scales, torch::Tensor zeros, int groupsize);
+void vecquant4recons_v2(torch::Tensor mat, torch::Tensor res, torch::Tensor scales, torch::Tensor zeros, int groupsize)
 {
   const at::cuda::OptionalCUDAGuard device_guard(device_of(scales));
-  vecquant4recons_v2_cuda(mat, res, scales, zeros, g_idx);
+  vecquant4recons_v2_cuda(mat, res, scales, zeros, groupsize);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)

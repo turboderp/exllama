@@ -105,13 +105,11 @@ class Ex4bitLinear(nn.Module):
 
             self.register_buffer('zeros', tensors[key + ".zeros"])
             self.register_buffer('scales', tensors[key + ".scales"])
-            self.g_idx = None
 
         else:
 
             self.register_buffer('qzeros', tensors[key + ".qzeros"])
             self.register_buffer('scales', tensors[key + ".scales"])
-            self.register_buffer('g_idx', torch.tensor([i // self.groupsize for i in range(in_features)], device = self.config.device_map.map(key), dtype = torch.int32))
 
         if self.has_bias: self.register_buffer('bias', tensors[key + ".bias"])
 
@@ -123,7 +121,7 @@ class Ex4bitLinear(nn.Module):
 
         if torch.is_grad_enabled():
 
-            out = quant_util.ExAutogradMatmul4bitCuda.apply(x, self.qweight, self.scales, zeros, self.g_idx, self.bits, self.maxq)
+            out = quant_util.ExAutogradMatmul4bitCuda.apply(x, self.qweight, self.scales, zeros, self.groupsize, self.bits, self.maxq)
 
         else:
 
@@ -132,7 +130,7 @@ class Ex4bitLinear(nn.Module):
             elif self.config.matmul_method == ExLlamaConfig.MatmulMethod.PYTORCH_ONLY: auto_switch_thd = 0
             else: raise ValueError("Wut?")
 
-            out = quant_util.matmul4bit(x, self.qweight, self.scales, zeros, self.g_idx, auto_switch_thd = auto_switch_thd)
+            out = quant_util.matmul4bit(x, self.qweight, self.scales, zeros, self.groupsize, auto_switch_thd = auto_switch_thd)
 
         if self.has_bias: out += self.bias
         return out

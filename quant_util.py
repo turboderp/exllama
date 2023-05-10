@@ -2,15 +2,21 @@
 import torch
 from torch.cuda.amp import custom_bwd, custom_fwd
 from torch.utils.cpp_extension import load
+import os
+
+# TODO: This is a kludge to make the C++ extension load when the library is imported elsewhere. May not be needed
+# with the package installed, if so maybe find better solution.
+
+library_dir = "../exllama/"
 
 exllama_ext = load(
     name = "exllama_ext",
     sources = [
-        "exllama_ext/exllama_ext.cpp",
-        "exllama_ext/exllama_ext_v1_recons.cu",
-        "exllama_ext/exllama_ext_v1_matmul.cu",
-        "exllama_ext/exllama_ext_v2_recons.cu",
-        "exllama_ext/exllama_ext_v2_matmul.cu"
+        os.path.join(library_dir, "exllama_ext/exllama_ext.cpp"),
+        os.path.join(library_dir, "exllama_ext/exllama_ext_v1_recons.cu"),
+        os.path.join(library_dir, "exllama_ext/exllama_ext_v1_matmul.cu"),
+        os.path.join(library_dir, "exllama_ext/exllama_ext_v2_recons.cu"),
+        os.path.join(library_dir, "exllama_ext/exllama_ext_v2_matmul.cu")
     ],
     verbose = True,
     extra_cflags = ["-ftime-report"]
@@ -60,7 +66,7 @@ def _matmul4bit_v1_recons(x, qweight, scales, zeros, transpose = False):
     return torch.matmul(x, buffer.T if transpose else buffer)
 
 
-def _matmul4bit_v2_recons(x, qweight, scales, zeros, g_idx, transpose=False):
+def _matmul4bit_v2_recons(x, qweight, scales, zeros, g_idx, transpose = False):
 
     if not transpose: assert qweight.shape[0] * 8 == x.shape[-1]
     else: assert qweight.shape[1] == x.shape[-1]
@@ -99,7 +105,7 @@ class ExAutogradMatmul4bitCuda(torch.autograd.Function):
 
 # Matrix multiplication, returns x @ 4-bit matrix (qweight, scales, zeros, g_idx)
 
-def matmul4bit(x, qweight, scales, zeros, g_idx = None, auto_switch_thd = 8):
+def matmul4bit(x, qweight, scales, zeros, groupsize, auto_switch_thd = 8):
 
     # Switch over to reconstruction and PyTorch matmul for large enough matrices
 
@@ -121,9 +127,7 @@ def matmul4bit(x, qweight, scales, zeros, g_idx = None, auto_switch_thd = 8):
 
     else:
 
-        if g_idx is None: g_idx = torch.zeros(qweight.shape[0] * 8, dtype = torch.int32, device = x.device)  # Hmm
-
-        if switch: output = _matmul4bit_v2_recons(x, qweight, scales, zeros, g_idx)
-        else: output = _matmul4bit_v2(x, qweight, scales, zeros, g_idx)
+        if switch: output = _matmul4bit_v2_recons(x, qweight, scales, zeros, groupsize)
+        else: output = _matmul4bit_v2(x, qweight, scales, zeros, groupsize)
 
     return output

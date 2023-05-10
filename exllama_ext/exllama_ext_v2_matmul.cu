@@ -24,7 +24,7 @@ __global__ void VecQuant4MatMulKernel_v2
     c10::Half* __restrict__ mul,
     const c10::Half* __restrict__ scales,
     const int* __restrict__ zeros,
-    const int* __restrict__ g_idx,
+    int groupsize,
 	int batch,
 	int vec_height,
     int height,
@@ -60,7 +60,7 @@ __global__ void VecQuant4MatMulKernel_v2
     #pragma unroll
     while (k < blockwidth2)
     {
-        int g = g_idx[g_h + (k * 2)];
+        int g = (g_h + (k << 1)) / groupsize;
         half scale_half = scales_half[g * width + w];
         half scale_half_neg = __hmul(scale_half, __int2half_rn(-1));
         half2 scale_half2 = __half2half2(scale_half);
@@ -70,16 +70,10 @@ __global__ void VecQuant4MatMulKernel_v2
         unsigned char val1, val2;
         half2 deq2_val;
 
-        #pragma unroll
-        for (int shift = 0; shift < 4; shift ++)
-        {
-            val1 = tmp & 0x0f;
-            tmp >>= 4;
-            val2 = tmp & 0x0f;
-            tmp >>= 4;
-            deq2_val = __halves2half2(__int2half_rn(val1), __int2half_rn(val2));
-            res_acc = __hfma2(__hfma2(deq2_val, scale_half2, zero), blockvec[k++], res_acc);
-        }
+        res_acc = __hfma2(__hfma2(__halves2half2(__int2half_rn((tmp      ) & 0x0f), __int2half_rn((tmp >>  4) & 0x0f)), scale_half2, zero), blockvec[k++], res_acc);
+        res_acc = __hfma2(__hfma2(__halves2half2(__int2half_rn((tmp >>  8) & 0x0f), __int2half_rn((tmp >> 12) & 0x0f)), scale_half2, zero), blockvec[k++], res_acc);
+        res_acc = __hfma2(__hfma2(__halves2half2(__int2half_rn((tmp >> 16) & 0x0f), __int2half_rn((tmp >> 20) & 0x0f)), scale_half2, zero), blockvec[k++], res_acc);
+        res_acc = __hfma2(__hfma2(__halves2half2(__int2half_rn((tmp >> 24) & 0x0f), __int2half_rn((tmp >> 28) & 0x0f)), scale_half2, zero), blockvec[k++], res_acc);
 
         i += width;
     }
@@ -96,7 +90,7 @@ void vecquant4matmul_v2_cuda
     torch::Tensor mul,
     torch::Tensor scales,
     torch::Tensor zeros,
-    torch::Tensor g_idx,
+    int groupsize,
     int vec_height
 )
 {
@@ -120,8 +114,7 @@ void vecquant4matmul_v2_cuda
         mul.data_ptr<c10::Half>(),
         scales.data_ptr<c10::Half>(),
         zeros.data_ptr<int>(),
-        g_idx.data_ptr<int>(),
+        groupsize,
         batch, vec_height, height, width, zero_width
     );
 }
-
