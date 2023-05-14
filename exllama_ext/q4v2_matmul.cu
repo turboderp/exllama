@@ -158,7 +158,7 @@ __global__ void q4v2_matmul_kernel
 // Shape of w is [dim, width], dtype = q4 (packed columns)
 // Output shape is [height, width], dtyle = half
 //
-// Shape of w_scales is [height / groupsize, width], dtype = q4 (packed col)
+// Shape of w_scales is [height / groupsize, width], dtype = q4 (packed rows)
 // Shape of w_zeros is [height / groupsize, width], dtype = half
 
 void q4v2_matmul_cuda
