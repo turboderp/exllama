@@ -81,14 +81,15 @@ Perplexity is measured only to verify the accuracy of the output. The dataset us
 scores are not necessarily comparable to other Llama benchmarks.
 
 ### Testing long sequences
-The following tests were all done on 30B 4bit 128g with various settings, just to test the max sequence length and get
-a sense of what can be achieved with multiple GPUs right now. Llama goes incoherent generating past 2048 tokens anyway,
+The following tests were all done on **30B 4bit 128g** with various settings, just to test the max sequence length and get a sense of what
+can be achieved with different or multiple GPUs right now. Llama goes incoherent generating past 2048 tokens anyway,
 but with some fine-tuning, who knows? 
 
 |                        | Seq. len. | VRAM                 | Long seq. | Ind.   | 
 |------------------------|-----------|----------------------|-----------|--------|
 | 4090/24GB              | 2,516 t   | 22,145 MB            | 1140 t/s  | 28 t/s |
 | 4090/24GB + 3070Ti/8GB | 3,932 t   | 22,055 MB + 7,377 MB | 840 t/s   | 22 t/s |
+| A6000/48GB (headless)  | 9,032 t   | 46,863 MB            | 645 t/s   | 12 t/s |
 
 ### Comparisons
 
