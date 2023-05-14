@@ -8,9 +8,10 @@ import os
 # with the package installed, if so maybe find better solution.
 
 library_dir = "../exllama/"
+extension_name = "exllama_ext"
 
 exllama_ext = load(
-    name = "exllama_ext",
+    name = extension_name,
     sources = [
         os.path.join(library_dir, "exllama_ext/exllama_ext.cpp"),
         # os.path.join(library_dir, "exllama_ext/exllama_ext_v1_recons.cu"),
@@ -18,8 +19,8 @@ exllama_ext = load(
         os.path.join(library_dir, "exllama_ext/q4v2_recons.cu"),
         os.path.join(library_dir, "exllama_ext/q4v2_matmul.cu")
     ],
-    verbose = True,
-    extra_cflags = ["-ftime-report"]
+    # verbose = True,
+    # extra_cflags = ["-ftime-report"]
 )
 
 # from exllama_ext import vecquant4recons_v1

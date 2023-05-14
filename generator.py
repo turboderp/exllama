@@ -5,14 +5,14 @@ class ExLlamaGenerator:
 
     class Settings:
 
-        temperature = 0.80
+        temperature = 0.95
         top_k = 20
         top_p = 0.65
-        min_p = 0.02  # Do not consider tokens with probability less than this
+        min_p = 0.06  # Do not consider tokens with probability less than this
 
         token_repetition_penalty_max = 1.15  # Repetition penalty for most recent tokens
-        token_repetition_penalty_sustain = 150  # No. most recent tokens to repeat penalty for
-        token_repetition_penalty_decay = 150  # Gradually decrease penalty over this many tokens
+        token_repetition_penalty_sustain = 256  # No. most recent tokens to repeat penalty for
+        token_repetition_penalty_decay = 128  # Gradually decrease penalty over this many tokens
 
 
     def __init__(self, model, tokenizer, cache):
