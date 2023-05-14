@@ -8,17 +8,56 @@ A rewrite of the HF transformers implementation of Llama with the following goal
 * Built-in (multi) LoRA support
 * Companion library of funky sampling functions
 
-Disclaimer: This is currently a preview of a work in progress. Or maybe a proof of concept. Either way it will all
-change, a lot. More to be added, much will be removed, etc. Don't use this yet.
+Disclaimer: This is currently a preview of a work in progress. Or maybe a proof of concept. Either way any part of it
+is subject to change.
+
+## Hardware/software requirements
+
+I am developing on an RTX 4090 and an RTX 3070-Ti. Both cards support the CUDA kernel, but there might be
+incompatibilities with older cards. I have no way of testing that right now.
+
+I have no idea if this works on Windows/WSL, but feel free to try and contribute/give feedback.
 
 ## Dependencies
 
 This list might be incomplete:
 
-* `torch` tested on 2.1.0 (nightly) with cu118
+* `torch` tested on 2.1.0 (nightly) with cu118, might work with older CUDA versions also
 * `safetensors` 0.3.1
 * `sentencepiece`
 * `ninja`
+
+## Limitations
+
+As of currently (working on it):
+
+- No support for v1 models without groupsize
+- All the models I've tested are groupsize 128. Other groupsizes should work in theory, though
+- Models converted with act-order won't work yet. They may load but output will be garbage
+- I've enountered models with nonstandard layouts and datatypes (e.g. float32 embedding table). It'll take a while
+to make sure all the possible permutations are supported.
+
+## How to
+
+There is no installer or package at the moment, but try this:
+
+    pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu118
+    
+    pip install safetensors sentencepiece ninja
+
+    git clone https://github.com/turboderp/exllama
+    cd exllama
+
+    python test_benchmark_inference.py -t <path_to_tokenizer.model> -c <path_to_config.json> \ 
+      -m <path_to_model.safetensors> -g <groupsize> -p -ppl
+
+The CUDA extension is loaded at runtime so there's no need to install it separately. It will be compiled on the first
+run and cached to `~/.cache/torch_extensions/` which could take a little while.
+
+Chatbot example:
+
+    python test_chatbot.py -t <path_to_tokenizer.model> -c <path_to_config.json> \
+      -m <path_to_model.safetensors> -g <groupsize> -un "Jeff" -p prompt_chatbort.txt
 
 ## Results so far
 
