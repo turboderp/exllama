@@ -52,7 +52,8 @@ There is no installer or package at the moment, but try this:
       -m <path_to_model.safetensors> -g <groupsize> -p -ppl
 
 The CUDA extension is loaded at runtime so there's no need to install it separately. It will be compiled on the first
-run and cached to `~/.cache/torch_extensions/` which could take a little while.
+run and cached to `~/.cache/torch_extensions/` which could take a little while. If nothing happens at first, give it
+a minute to compile.
 
 Chatbot example:
 
@@ -61,21 +62,7 @@ Chatbot example:
 
 ## Results so far
 
-|                                         | Seq. len. | VRAM          | Long seq.     | Ind.       | Ppl      |
-|-----------------------------------------|-----------|---------------|---------------|------------|----------|
-| 7B 4bit 128g, HF                        | 2,048 t   | 8,940 MB      | 2,218 t/s     | 45 t/s     | 6.44     |
-| 13B 4bit 128g, HF                       | 2,048 t   | 14,902 MB     | 1,413 t/s     | 36 t/s     | 5.61     |
-| 30B 4bit 128g, HF <sup>1</sup>          | 256 t     | 21,063 MB     | 168 t/s       | 26 t/s     | 4.61     |
-| 7B 4bit 128g, HF, 16-bit                | 2,048 t   | 6,058 MB      | 2,887 t/s     | 45 t/s     | 6.45     |
-| 13B 4bit 128g, HF, 16-bit               | 2,048 t   | 10,563 MB     | 2,212 t/s     | 36 t/s     | 5.62     |
-| 30B 4bit 128g, HF, 16-bit <sup>1</sup>  | 1,024 t   | 20,715 MB     | 850 t/s       | 23 t/s     | 4.60     |
-
-<sup>1</sup> Max sequence length reduced to avoid OoM
-
-Tests above are on a reference implementation based on Sterlind's repo
-[here](https://github.com/sterlind/GPTQ-for-LLaMa/tree/eaa9955d8700dc8566f0c443054233e9c4503f66). They will not be
-updated, to avoid having to maintain superfluous code. Here are runs on the new implementation. which will be updated:
-
+### New implementation:
 |                                     | Seq. len. | VRAM      | Long seq. | Ind.   | Ppl  |
 |-------------------------------------|-----------|-----------|-----------|--------|------|
 | 7B 4bit 128g, ExLlama               | 2,048 t   | 5,092 MB  | 2,571 t/s | 96 t/s | 6.45 |
@@ -93,6 +80,7 @@ internals.
 Perplexity is measured only to verify the accuracy of the output. The dataset used is a small sample from WikiText, and
 scores are not necessarily comparable to other Llama benchmarks.
 
+### Testing long sequences
 The following tests were all done on 30B 4bit 128g with various settings, just to test the max sequence length and get
 a sense of what can be achieved with multiple GPUs right now. Llama goes incoherent generating past 2048 tokens anyway,
 but with some fine-tuning, who knows? 
@@ -102,6 +90,23 @@ but with some fine-tuning, who knows?
 | 4090/24GB              | 2,516 t   | 22,145 MB            | 1140 t/s  | 28 t/s |
 | 4090/24GB + 3070Ti/8GB | 3,932 t   | 22,055 MB + 7,377 MB | 840 t/s   | 22 t/s |
 
+### Comparisons
+
+For reference, here are the best results I was able to achieve with GPTQ-for-LLaMa for the same task, using 
+Sterlind's repo [here](https://github.com/sterlind/GPTQ-for-LLaMa/tree/eaa9955d8700dc8566f0c443054233e9c4503f66) which
+appears to be the fastest. The new Triton branch is, as far as I can tell, slower, and the CUDA versions have gotten
+slower as well over time.
+
+|                                         | Seq. len. | VRAM          | Long seq.     | Ind.       | Ppl      |
+|-----------------------------------------|-----------|---------------|---------------|------------|----------|
+| 7B 4bit 128g, HF                        | 2,048 t   | 8,940 MB      | 2,218 t/s     | 45 t/s     | 6.44     |
+| 13B 4bit 128g, HF                       | 2,048 t   | 14,902 MB     | 1,413 t/s     | 36 t/s     | 5.61     |
+| 30B 4bit 128g, HF <sup>1</sup>          | 256 t     | 21,063 MB     | 168 t/s       | 26 t/s     | 4.61     |
+| 7B 4bit 128g, HF, 16-bit                | 2,048 t   | 6,058 MB      | 2,887 t/s     | 45 t/s     | 6.45     |
+| 13B 4bit 128g, HF, 16-bit               | 2,048 t   | 10,563 MB     | 2,212 t/s     | 36 t/s     | 5.62     |
+| 30B 4bit 128g, HF, 16-bit <sup>1</sup>  | 1,024 t   | 20,715 MB     | 850 t/s       | 23 t/s     | 4.60     |
+
+<sup>1</sup> Max sequence length reduced to avoid OoM
 
 ## Todo
 

@@ -4,8 +4,8 @@
 
 // Block size
 
-const int THREADS_X = 64;     // Block size and thread count along columns in out, each thread converts 2 columns
-const int THREADS_Y = 4;       // Block size and thread count along rows in x and out, each thread converts BLOCK_SIZE_Y * 8 rows
+const int THREADS_X = 64;      // Block size and thread count along columns in w, each thread converts 2 columns
+const int THREADS_Y = 4;       // Block size and thread count along rows in w, each thread converts BLOCK_SIZE_Y * 8 rows
 const int BLOCK_SIZE_Y = 1;    // * 8 rows
 
 __global__ void q4v2_recons_kernel
