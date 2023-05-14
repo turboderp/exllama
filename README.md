@@ -39,9 +39,9 @@ updated, to avoid having to maintain superfluous code. Here are runs on the new 
 
 |                                     | Seq. len. | VRAM      | Long seq. | Ind.   | Ppl  |
 |-------------------------------------|-----------|-----------|-----------|--------|------|
-| 7B 4bit 128g, ExLlama               | 2,048 t   | 5,092 MB  | 2,612 t/s | 83 t/s | 6.45 |
-| 13B 4bit 128g, ExLlama              | 2,048 t   | 8,975 MB  | 1,957 t/s | 47 t/s | 5.62 |
-| 30B 4bit 128g, ExLlama              | 2,048 t   | 20,544 MB | 1,149 t/s | 22 t/s | 4.60 |
+| 7B 4bit 128g, ExLlama               | 2,048 t   | 5,092 MB  | 2,571 t/s | 96 t/s | 6.45 |
+| 13B 4bit 128g, ExLlama              | 2,048 t   | 8,975 MB  | 1,957 t/s | 60 t/s | 5.62 |
+| 30B 4bit 128g, ExLlama              | 2,048 t   | 20,544 MB | 1,149 t/s | 32 t/s | 4.55 |
 
 All tests done on stock RTX 4090, running with a desktop environment, with a few other apps also using VRAM.
 
@@ -58,10 +58,10 @@ The following tests were all done on 30B 4bit 128g with various settings, just t
 a sense of what can be achieved with multiple GPUs right now. Llama goes incoherent generating past 2048 tokens anyway,
 but with some fine-tuning, who knows? 
 
-|                        | Seq. len.  | VRAM                 | Long seq. | Ind.   | Ppl  |
-|------------------------|------------|----------------------|-----------|--------|------|
-| 4090/24GB              | 2,454 t    | 22,145 MB            | 648 t/s   | 28 t/s | 4.60 |
-| 4090/24GB + 3070Ti/8GB | 3,932 t    | 22,055 MB + 7,377 MB | 467 t/s   | 22 t/s | 4.60 |
+|                        | Seq. len. | VRAM                 | Long seq. | Ind.   | 
+|------------------------|-----------|----------------------|-----------|--------|
+| 4090/24GB              | 2,516 t   | 22,145 MB            | 1140 t/s  | 28 t/s |
+| 4090/24GB + 3070Ti/8GB | 3,932 t   | 22,055 MB + 7,377 MB | 840 t/s   | 22 t/s |
 
 
 ## Todo
@@ -74,8 +74,9 @@ but with some fine-tuning, who knows?
 - [x] Optimize memory usage in large matrix multiplications
 - [x] ~~Consider Triton implementation~~ (Triton implementations are all slow right now, it seems)
 - [x] Test device mapping across multiple GPUs
+- [ ] Support for act-order models with g_idx
 - [ ] Provide alternative backend to allow layers on CPU
-- [ ] Consider fused QKV projection and fused MLP
+- [ ] Fused QKV projection and fused MLP
 - [x] Eliminate need for HF tokenizer (use SentencePiece library directly)
 - [x] Basic sampling methods
 - [ ] Memory-efficient beam search implementation
