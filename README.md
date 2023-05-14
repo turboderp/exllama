@@ -34,7 +34,7 @@ As of currently (working on it):
 - No support for v1 models without groupsize
 - All the models I've tested are groupsize 128. Other groupsizes should work in theory, though
 - Models converted with act-order won't work yet. They may load but output will be garbage
-- I've enountered models with nonstandard layouts and datatypes (e.g. float32 embedding table). It'll take a while
+- I've encountered models with nonstandard layouts and datatypes (e.g. float32 embedding table). It'll take a while
 to make sure all the possible permutations are supported.
 
 ## How to
@@ -111,20 +111,17 @@ slower as well over time.
 
 ## Todo
 
-- [x] Rudimentary test harness
-- [x] Compile small, representative dataset for testing (or grab a little bit of WikiText)
-- [x] Make sure new model performs at least as well as reference model on perplexity
-- [x] ~~Sort out dependencies and compatibility with latest GPTQ release~~
-- [x] Integrate quant-cuda from Sterlind's old commit, remove dependency
-- [x] Optimize memory usage in large matrix multiplications
-- [x] ~~Consider Triton implementation~~ (Triton implementations are all slow right now, it seems)
-- [x] Test device mapping across multiple GPUs
 - [ ] Support for act-order models with g_idx
+- [ ] Support for v1 models without groupsize
+- [ ] Tests on a wider range of models and variants
+- [ ] Consider support for loading GGML models
+- [ ] Figure out an apples-to-apples way of comparing perplexity with other implementations
+- [ ] Options for trading off memory usage for more performance (e.g. float32 tensors)
 - [ ] Provide alternative backend to allow layers on CPU
 - [ ] Fused QKV projection and fused MLP
-- [x] Eliminate need for HF tokenizer (use SentencePiece library directly)
-- [x] Basic sampling methods
+- [ ] A web interface maybe?
 - [ ] Memory-efficient beam search implementation
+- [ ] More sampling features
 - [ ] (Multi) LoRA support for inference
 - [ ] Allow for backpropagation
 - [ ] LoRA training features
