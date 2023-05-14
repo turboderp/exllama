@@ -10,7 +10,7 @@ class ExLlamaGenerator:
         top_p = 0.65
         min_p = 0.02  # Do not consider tokens with probability less than this
 
-        token_repetition_penalty_max = 1.2  # Repetition penalty for most recent tokens
+        token_repetition_penalty_max = 1.15  # Repetition penalty for most recent tokens
         token_repetition_penalty_sustain = 150  # No. most recent tokens to repeat penalty for
         token_repetition_penalty_decay = 150  # Gradually decrease penalty over this many tokens
 
@@ -36,7 +36,7 @@ class ExLlamaGenerator:
 
         while i > beg:
 
-            t = self.sequence[0, i]
+            t = self.sequence[0, i].item()
             rep_mask[t] = torch.max(rep_mask[t], torch.tensor(v))
 
             sustain -= 1

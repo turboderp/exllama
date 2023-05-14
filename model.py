@@ -6,6 +6,7 @@ import quant_util
 import json
 import math
 from enum import Enum
+import sys
 
 # Magic numbers
 
@@ -84,12 +85,21 @@ class ExLlamaConfig:
 
 # 4-bit linear layer implementation
 
+def _dump_tensor(t, name):
+
+    t.cpu().numpy().tofile(name)
+
+    # with open(name, "wb") as f:
+    #     torch.save(t.contiguous().storage(), f)
+
+
 class Ex4bitLinear(nn.Module):
 
     def __init__(self, config, in_features, out_features, has_bias, tensors, key):
         super().__init__()
 
         self.config = config
+        self.key = key
 
         self.in_features = in_features
         self.out_features = out_features
@@ -132,11 +142,46 @@ class Ex4bitLinear(nn.Module):
 
             out = quant_util.matmul4bit(x, self.qweight, self.scales, zeros, self.groupsize, auto_switch_thd = auto_switch_thd)
 
+            # if self.key == "model.layers.0.mlp.gate_proj":
+            #
+            #     _dump_tensor(x, "cuda_test/model.layers.0.mlp.gate_proj.x")
+            #     _dump_tensor(self.qweight, "cuda_test/model.layers.0.mlp.gate_proj.qweight")
+            #     _dump_tensor(self.scales, "cuda_test/model.layers.0.mlp.gate_proj.scales")
+            #     _dump_tensor(self.qzeros, "cuda_test/model.layers.0.mlp.gate_proj.qzeros")
+            #     _dump_tensor(out, "cuda_test/model.layers.0.mlp.gate_proj.out")
+            #     sys.exit()
+
+
         if self.has_bias: out += self.bias
         return out
 
 
-# Llama MLP
+# Llama MLP, fused: down(act(gate(x)) * up(x))
+
+class ExLlamaFusedMLP(nn.Module):
+
+    def __init__(self, config, tensors, key):
+        super().__init__()
+
+        self.config = config
+
+        self.gate_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".gate_proj")
+        self.down_proj = Ex4bitLinear(config, self.config.intermediate_size, self.config.hidden_size, False, tensors, key + ".down_proj")
+        self.up_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".up_proj")
+
+        self.act_fn = nn.SiLU()
+
+    def forward(self, x):
+
+        y = self.gate_proj(x)
+        y = self.act_fn(y)
+        y *= self.up_proj(x)
+        y = self.down_proj(y)
+
+        return y
+
+
+# Llama MLP, regular version
 
 class ExLlamaMLP(nn.Module):
 
@@ -282,7 +327,7 @@ class ExLlamaDecoderLayer(nn.Module):
         self.index = index
 
         self.self_attn = ExLlamaAttention(self.config, tensors, key + ".self_attn", sin, cos, self.index)
-        self.mlp = ExLlamaMLP(self.config, tensors, key + ".mlp")
+        self.mlp = ExLlamaFusedMLP(self.config, tensors, key + ".mlp")
 
         self.input_layernorm = ExLlamaRMSNorm(self.config, tensors, key + ".input_layernorm.weight")
         self.post_attention_layernorm = ExLlamaRMSNorm(self.config, tensors, key + ".post_attention_layernorm.weight")
@@ -383,6 +428,11 @@ class ExLlama(nn.Module):
                 tensor = f.get_tensor(key)
 
                 if key.endswith(".scales"): tensor = tensor.half()
+                if key == "lm_head.weight" and device == "cpu": tensor = tensor.float()
+
+                if key.endswith(".embed_tokens.weight"): tensor = tensor.half()
+                if key.endswith(".input_layernorm.weight"): tensor = tensor.half()
+                if key.endswith(".post_attention_layernorm.weight"): tensor = tensor.half()
 
                 tensor = tensor.to(device, non_blocking = True)
                 tensors[key] = tensor
@@ -477,6 +527,7 @@ class ExLlama(nn.Module):
         if last_id_only: hidden_states = hidden_states[:, -1:, :]
 
         hidden_states = hidden_states.to(self.config.device_map.lm_head)
+        if self.config.device_map.lm_head == "cpu": hidden_states = hidden_states.float()
         logits = self.lm_head(hidden_states)
 
         return logits.to(self.config.device_map.embed_tokens).float()
