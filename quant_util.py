@@ -19,14 +19,76 @@ exllama_ext = load(
         os.path.join(library_dir, "exllama_ext/q4v2_recons.cu"),
         os.path.join(library_dir, "exllama_ext/q4v2_matmul.cu")
     ],
-    # verbose = True,
-    # extra_cflags = ["-ftime-report"]
+    verbose = True,
+    extra_cflags = ["-ftime-report"]
 )
 
 # from exllama_ext import vecquant4recons_v1
 # from exllama_ext import vecquant4matmul_v1
 from exllama_ext import q4v2_recons
 from exllama_ext import q4v2_matmul
+
+# Dummy tensor to pass instead of g_idx since there is no way to pass "None" to a C++ extension
+
+none_tensor = torch.empty((1, 1), device = "meta")
+
+def _q4v2_matmul(x, qweight, scales, zeros, groupsize, g_idx):
+
+    outshape = x.shape[:-1] + (qweight.shape[1],)
+    x = x.view(-1, x.shape[-1])
+    y = torch.zeros((x.shape[0], qweight.shape[-1]), dtype = torch.float16, device = x.device)
+    q4v2_matmul(x, qweight, y, scales, zeros, groupsize, g_idx if g_idx is not None else none_tensor)
+
+    return y.reshape(outshape)
+
+
+def _q4v2_recons(x, qweight, scales, zeros, groupsize, g_idx, transpose = False):
+
+    if not transpose: assert qweight.shape[0] * 8 == x.shape[-1]
+    else: assert qweight.shape[1] == x.shape[-1]
+
+    buffer = torch.zeros((qweight.shape[0] * 8, qweight.shape[1]), dtype = torch.float16, device = qweight.device)
+    q4v2_recons(qweight, buffer, scales, zeros, groupsize, g_idx if g_idx is not None else none_tensor)
+
+    return torch.matmul(x, buffer.T if transpose else buffer)
+
+
+# Matrix multiplication, returns x @ 4-bit matrix (qweight, scales, zeros, g_idx)
+
+def matmul4bit(x, qweight, scales, zeros, groupsize, g_idx, auto_switch_thd = 8):
+
+    # Switch over to reconstruction and PyTorch matmul for large enough matrices
+
+    if auto_switch_thd == -1: switch = False
+    elif auto_switch_thd == 0: switch = True
+    else:
+        xdp = 1
+        for y in x.shape[:-1]: xdp *= y
+        switch = (xdp > auto_switch_thd)
+
+
+    if switch: output = _q4v2_recons(x, qweight, scales, zeros, groupsize, g_idx)
+    else: output = _q4v2_matmul(x, qweight, scales, zeros, groupsize, g_idx)
+
+    return output
+
+
+
+
+
+
+    # V1 weights,
+
+    # if zeros.dtype != torch.int32:
+    #
+    #     if switch: output = _matmul4bit_v1_recons(x.to(scales.dtype), qweight, scales, zeros.float()).half()
+    #     else: output = _matmul4bit_v1(x, qweight, scales, zeros.float())
+    #
+    # # V2 weights
+    #
+    # else:
+
+# TODO: Implement these
 
 # def _matmul4bit_v1(x, qweight, scales, zeros):
 #
@@ -42,17 +104,6 @@ from exllama_ext import q4v2_matmul
 #
 #     return y.reshape(outshape)
 
-
-def _matmul4bit_v2(x, qweight, scales, zeros, groupsize):
-
-    outshape = x.shape[:-1] + (qweight.shape[1],)
-    x = x.view(-1, x.shape[-1])
-    y = torch.zeros((x.shape[0], qweight.shape[-1]), dtype = torch.float16, device = x.device)
-    q4v2_matmul(x, qweight, y, scales, zeros, groupsize)
-
-    return y.reshape(outshape)
-
-
 # def _matmul4bit_v1_recons(x, qweight, scales, zeros, transpose = False):
 #
 #     if not transpose: assert qweight.shape[0] * 8 == x.shape[-1]
@@ -62,17 +113,6 @@ def _matmul4bit_v2(x, qweight, scales, zeros, groupsize):
 #     vecquant4recons_v1(qweight, buffer, scales, zeros)
 #
 #     return torch.matmul(x, buffer.T if transpose else buffer)
-
-
-def _matmul4bit_v2_recons(x, qweight, scales, zeros, groupsize, transpose = False):
-
-    if not transpose: assert qweight.shape[0] * 8 == x.shape[-1]
-    else: assert qweight.shape[1] == x.shape[-1]
-
-    buffer = torch.zeros((qweight.shape[0] * 8, qweight.shape[1]), dtype = torch.float16, device = qweight.device)
-    q4v2_recons(qweight, buffer, scales, zeros, groupsize)
-
-    return torch.matmul(x, buffer.T if transpose else buffer)
 
 
 # Backpropagation still untested.
@@ -103,33 +143,3 @@ class ExAutogradMatmul4bitCuda(torch.autograd.Function):
         # else:
             grad = _matmul4bit_v2_recons(grad_output, qweight, scales, zeros, g_idx, transpose = True)
         return grad, None, None, None, None, None, None
-
-
-# Matrix multiplication, returns x @ 4-bit matrix (qweight, scales, zeros, g_idx)
-
-def matmul4bit(x, qweight, scales, zeros, groupsize, auto_switch_thd = 8):
-
-    # Switch over to reconstruction and PyTorch matmul for large enough matrices
-
-    if auto_switch_thd == -1: switch = False
-    elif auto_switch_thd == 0: switch = True
-    else:
-        xdp = 1
-        for y in x.shape[:-1]: xdp *= y
-        switch = (xdp > auto_switch_thd)
-
-    # V1 weights, TODO: Test
-
-    # if zeros.dtype != torch.int32:
-    #
-    #     if switch: output = _matmul4bit_v1_recons(x.to(scales.dtype), qweight, scales, zeros.float()).half()
-    #     else: output = _matmul4bit_v1(x, qweight, scales, zeros.float())
-    #
-    # # V2 weights
-    #
-    # else:
-
-    if switch: output = _matmul4bit_v2_recons(x, qweight, scales, zeros, groupsize)
-    else: output = _matmul4bit_v2(x, qweight, scales, zeros, groupsize)
-
-    return output

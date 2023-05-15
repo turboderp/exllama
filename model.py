@@ -106,6 +106,7 @@ class Ex4bitLinear(nn.Module):
         self.bits = 4  # quant_cuda provides functions for 2 and 3 bits as well, but they will be unsupported for now
         self.maxq = 2 ** self.bits - 1
         self.has_bias = has_bias
+        self.has_g_idx = False
 
         self.groupsize = self.config.groupsize if self.config.groupsize != -1 else in_features
 
@@ -120,6 +121,10 @@ class Ex4bitLinear(nn.Module):
 
             self.register_buffer('qzeros', tensors[key + ".qzeros"])
             self.register_buffer('scales', tensors[key + ".scales"])
+
+            if key + ".g_idx" in tensors:
+                self.register_buffer('g_idx', tensors[key + ".g_idx"])
+                self.has_g_idx = True
 
         if self.has_bias: self.register_buffer('bias', tensors[key + ".bias"])
 
@@ -140,7 +145,13 @@ class Ex4bitLinear(nn.Module):
             elif self.config.matmul_method == ExLlamaConfig.MatmulMethod.PYTORCH_ONLY: auto_switch_thd = 0
             else: raise ValueError("Wut?")
 
-            out = quant_util.matmul4bit(x, self.qweight, self.scales, zeros, self.groupsize, auto_switch_thd = auto_switch_thd)
+            out = quant_util.matmul4bit(x,
+                                        self.qweight,
+                                        self.scales,
+                                        zeros,
+                                        self.groupsize,
+                                        self.g_idx if self.has_g_idx else None,
+                                        auto_switch_thd = auto_switch_thd)
 
             # if self.key == "model.layers.0.mlp.gate_proj":
             #
@@ -156,7 +167,7 @@ class Ex4bitLinear(nn.Module):
         return out
 
 
-# Llama MLP, fused: down(act(gate(x)) * up(x))
+# Llama MLP, fused: down(act(gate(x)) * up(x))  # TODO: This.
 
 class ExLlamaFusedMLP(nn.Module):
 

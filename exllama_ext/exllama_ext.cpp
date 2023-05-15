@@ -36,7 +36,8 @@ void q4v2_matmul_cuda
     const int height,
     const int dim,
     const int width,
-    const int groupsize
+    const int groupsize,
+    const uint32_t* g_idx
 );
 
 void q4v2_matmul
@@ -46,7 +47,8 @@ void q4v2_matmul
     torch::Tensor out,
     torch::Tensor w_scales,
     torch::Tensor w_zeros,
-    int groupsize
+    int groupsize,
+    torch::Tensor g_idx
 )
 {
     TORCH_CHECK(x.dtype() == torch::kHalf, "x must be a half tensor");
@@ -55,7 +57,7 @@ void q4v2_matmul
     TORCH_CHECK(w_scales.dtype() == torch::kHalf, "w_scales must be a half tensor");
     TORCH_CHECK(w_zeros.dtype() == torch::kInt, "w_zeros must be an int tensor");
     TORCH_CHECK(x.size(1) == w.size(0) * 8, "x and w have incompatible shapes");
-    TORCH_CHECK(x.size(1) % 256 == 0, "x.shape[1] must be multiple of 512");
+    TORCH_CHECK(x.size(1) % 256 == 0, "x.shape[1] must be multiple of 256");
 
     const at::cuda::OptionalCUDAGuard device_guard(device_of(w_scales));
 
@@ -73,7 +75,8 @@ void q4v2_matmul
         height,
         dim,
         width,
-        groupsize
+        groupsize,
+        g_idx.device().is_meta() ? NULL : (uint32_t*) g_idx.data_ptr()
     );
 }
 
@@ -85,7 +88,8 @@ void q4v2_recons_cuda
     const uint32_t* w_zeros,
     const int height,
     const int width,
-    const int groupsize
+    const int groupsize,
+    const uint32_t* g_idx
 );
 
 void q4v2_recons
@@ -94,7 +98,8 @@ void q4v2_recons
     torch::Tensor out,
     torch::Tensor w_scales,
     torch::Tensor w_zeros,
-    int groupsize
+    int groupsize,
+    torch::Tensor g_idx
 )
 {
     TORCH_CHECK(w.dtype() == torch::kInt, "w must be an int (q4) tensor");
@@ -115,7 +120,8 @@ void q4v2_recons
         (uint32_t*) w_zeros.data_ptr(),
         height,
         width,
-        groupsize
+        groupsize,
+        g_idx.device().is_meta() ? NULL : (uint32_t*) g_idx.data_ptr()
     );
 }
 

@@ -111,7 +111,7 @@ slower as well over time.
 
 ## Todo
 
-- [ ] Support for act-order models with g_idx
+- [x] Support for act-order models with g_idx (a bit slow for now)
 - [ ] Support for v1 models without groupsize
 - [ ] Tests on a wider range of models and variants
 - [ ] Consider support for loading GGML models
