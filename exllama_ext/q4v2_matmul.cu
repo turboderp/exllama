@@ -1,6 +1,5 @@
-#include <cuda_runtime.h>
-#include <cuda_fp16.h>
-#include <cstdint>
+#include "q4v2_matmul.h"
+#include "column_remap.h"
 
 // Block size
 
@@ -20,7 +19,7 @@ __global__ void q4v2_matmul_kernel
     const int dim,
     const int width,
     const int groupsize,
-    const uint32_t* g_idx
+    const uint16_t* seq_g_idx
 )
 {
     // Start of block
@@ -43,7 +42,7 @@ __global__ void q4v2_matmul_kernel
 
     // Group for zeros and scales
 
-    int g_idx_idx = x_column;
+    int g_idx_idx = x_column * 2;
 
     int group_idx = x_column / groupsize;
     int next_group = group_idx * groupsize;  // first iteration will advance to first group
@@ -95,38 +94,95 @@ __global__ void q4v2_matmul_kernel
             uint32_t w_read = w[w_idx];
             w_idx += w_stride;
 
-            #pragma unroll
-            for (int k = 0; k < 4; ++k)
+            int group_rem = seq_g_idx[g_idx_idx + 1];
+            if (group_rem >= 8)
             {
-                // Get scale and zero
+                // Faster version if next 8 groups are the same
 
-                int groupl = g_idx[g_idx_idx++];
-                int groupr = g_idx[g_idx_idx++];
+                int group = seq_g_idx[g_idx_idx];
+                g_idx_idx += 8 * 2;
 
-                int w_scales_idx0 = groupl * w_scales_stride + w_scales_column;
-                int w_scales_idx1 = groupr * w_scales_stride + w_scales_column;
-                w_scale = __halves2half2(w_scales[w_scales_idx0], w_scales[w_scales_idx1]);
 
-                uint32_t w_zero_packedl = w_zeros[groupl * w_zeros_stride + w_zeros_column];
-                uint32_t w_zero_packedr = w_zeros[groupr * w_zeros_stride + w_zeros_column];
-                int w_zero_ql = ((w_zero_packedl >> w_zeros_shift) & 0x0f) + 0x01;
-                int w_zero_qr = ((w_zero_packedr >> w_zeros_shift) & 0x0f) + 0x01;
+                int w_scales_idx_g = group * w_scales_stride + w_scales_column;
+                w_scale = __half2half2(w_scales[w_scales_idx_g]);
 
-                // Reconstruct
+                uint32_t w_zero_packed_g = w_zeros[group * w_zeros_stride + w_zeros_column];
+                w_zero_q = ((w_zero_packed_g >> w_zeros_shift) & 0x0f) + 1;
 
-                half2 w_01 = __halves2half2(__int2half_rn((int)(w_read & 0x0f) - w_zero_ql), __int2half_rn((int)((w_read >> 4) & 0x0f) - w_zero_qr));
-                w_read >>= 8;
+                // Convert quants to half2
+
+                half w_0 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
+                half w_1 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
+                half w_2 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
+                half w_3 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
+                half w_4 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
+                half w_5 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
+                half w_6 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
+                half w_7 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q);
+
+                half2 w_01 = __halves2half2(w_0, w_1);
+                half2 w_23 = __halves2half2(w_2, w_3);
+                half2 w_45 = __halves2half2(w_4, w_5);
+                half2 w_67 = __halves2half2(w_6, w_7);
 
                 w_01 = __hmul2(w_01, w_scale);
+                w_23 = __hmul2(w_23, w_scale);
+                w_45 = __hmul2(w_45, w_scale);
+                w_67 = __hmul2(w_67, w_scale);
+
+                // Read 8 halves from x
+
+                half2* x_h2 = (half2*) (x + x_idx);
+                x_idx += 8;
+
+                half2 x_01 = x_h2[0];
+                half2 x_23 = x_h2[1];
+                half2 x_45 = x_h2[2];
+                half2 x_67 = x_h2[3];
 
                 // Multiply and accumulate
 
-                half2* x_h2 = (half2*) (x + x_idx);
-                x_idx += 2;
-
-                half2 x_01 = x_h2[0];
-
                 acc = __hfma2(x_01, w_01, acc);
+                acc = __hfma2(x_23, w_23, acc);
+                acc = __hfma2(x_45, w_45, acc);
+                acc = __hfma2(x_67, w_67, acc);
+
+            }
+            else
+            {
+                #pragma unroll
+                for (int k = 0; k < 4; ++k)
+                {
+                    // Get scale and zero
+
+                    int groupl = seq_g_idx[g_idx_idx]; seq_g_idx += 2;
+                    int groupr = seq_g_idx[g_idx_idx]; seq_g_idx += 2;
+
+                    int w_scales_idx0 = groupl * w_scales_stride + w_scales_column;
+                    int w_scales_idx1 = groupr * w_scales_stride + w_scales_column;
+                    w_scale = __halves2half2(w_scales[w_scales_idx0], w_scales[w_scales_idx1]);
+
+                    uint32_t w_zero_packedl = w_zeros[groupl * w_zeros_stride + w_zeros_column];
+                    uint32_t w_zero_packedr = w_zeros[groupr * w_zeros_stride + w_zeros_column];
+                    int w_zero_ql = ((w_zero_packedl >> w_zeros_shift) & 0x0f) + 0x01;
+                    int w_zero_qr = ((w_zero_packedr >> w_zeros_shift) & 0x0f) + 0x01;
+
+                    // Reconstruct
+
+                    half2 w_01 = __halves2half2(__int2half_rn((int)(w_read & 0x0f) - w_zero_ql), __int2half_rn((int)((w_read >> 4) & 0x0f) - w_zero_qr));
+                    w_read >>= 8;
+
+                    w_01 = __hmul2(w_01, w_scale);
+
+                    // Multiply and accumulate
+
+                    half2* x_h2 = (half2*) (x + x_idx);
+                    x_idx += 2;
+
+                    half2 x_01 = x_h2[0];
+
+                    acc = __hfma2(x_01, w_01, acc);
+                }
             }
         }
         else
@@ -223,9 +279,21 @@ void q4v2_matmul_cuda
     const int dim,
     const int width,
     const int groupsize,
-    const uint32_t* g_idx
+    const uint16_t* seq_g_idx,
+    const uint32_t* x_map
 )
 {
+    // Remap x if x_map given
+
+    half* x_mapped = NULL;
+    if (x_map)
+    {
+        cudaMalloc(&x_mapped, height * dim * sizeof(half));
+        column_remap_cuda(x, x_mapped, height, dim, x_map);
+    }
+
+    // Multiply
+
     dim3 threads
     (
         THREADS_X,
@@ -240,6 +308,11 @@ void q4v2_matmul_cuda
         (dim + BLOCK_SIZE_Z - 1) / BLOCK_SIZE_Z
     );
 
-    if (g_idx) q4v2_matmul_kernel <true>  <<<blocks, threads>>>(x, w, out, w_scales, w_zeros, height, dim, width, groupsize, g_idx);
-    else       q4v2_matmul_kernel <false> <<<blocks, threads>>>(x, w, out, w_scales, w_zeros, height, dim, width, groupsize, g_idx);
+    if (seq_g_idx) q4v2_matmul_kernel <true>  <<<blocks, threads>>>(x_map ? x_mapped : x, w, out, w_scales, w_zeros, height, dim, width, groupsize, seq_g_idx);
+    else           q4v2_matmul_kernel <false> <<<blocks, threads>>>(x_map ? x_mapped : x, w, out, w_scales, w_zeros, height, dim, width, groupsize, seq_g_idx);
+
+    // Clean up
+
+    if (x_mapped) cudaFree(x_mapped);
+
 }

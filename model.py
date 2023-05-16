@@ -89,9 +89,6 @@ def _dump_tensor(t, name):
 
     t.cpu().numpy().tofile(name)
 
-    # with open(name, "wb") as f:
-    #     torch.save(t.contiguous().storage(), f)
-
 
 class Ex4bitLinear(nn.Module):
 
@@ -106,9 +103,12 @@ class Ex4bitLinear(nn.Module):
         self.bits = 4  # quant_cuda provides functions for 2 and 3 bits as well, but they will be unsupported for now
         self.maxq = 2 ** self.bits - 1
         self.has_bias = has_bias
-        self.has_g_idx = False
+        self.has_x_map = False
+        self.has_seq_g_idx = False
 
         self.groupsize = self.config.groupsize if self.config.groupsize != -1 else in_features
+
+        self.register_buffer('qweight', tensors[key + ".qweight"])
 
         if self.config.is_v1_model:
 
@@ -123,12 +123,36 @@ class Ex4bitLinear(nn.Module):
             self.register_buffer('scales', tensors[key + ".scales"])
 
             if key + ".g_idx" in tensors:
-                self.register_buffer('g_idx', tensors[key + ".g_idx"])
-                self.has_g_idx = True
+
+                # Rearrange groups sequentially for act-order matrices
+
+                g_idx = tensors[key + ".g_idx"]
+                num_groups = self.qzeros.shape[0];
+                seq_g_idx, x_map = quant_util.sequential_q4v2(self.qweight, g_idx, num_groups)
+
+                self.register_buffer('x_map', x_map)
+                self.has_x_map = True
+
+                # Discard group index if sequential groups all have the same groupsize. Treat as regular groupsize
+                # matrix but keep the x_map
+
+                i = 0
+                j = 0
+                discard = True
+                while i < seq_g_idx.shape[-1]:
+                    if seq_g_idx[i].item() != j or seq_g_idx[i + 1].item() != self.groupsize:
+                        discard = False
+                        break
+                    i += self.groupsize * 2
+                    j += 1
+
+                if not discard:
+
+                    self.has_seq_g_idx = True
+                    self.register_buffer('seq_g_idx', seq_g_idx)
+
 
         if self.has_bias: self.register_buffer('bias', tensors[key + ".bias"])
-
-        self.register_buffer('qweight', tensors[key + ".qweight"])
 
     def forward(self, x):
 
@@ -145,13 +169,14 @@ class Ex4bitLinear(nn.Module):
             elif self.config.matmul_method == ExLlamaConfig.MatmulMethod.PYTORCH_ONLY: auto_switch_thd = 0
             else: raise ValueError("Wut?")
 
-            out = quant_util.matmul4bit(x,
-                                        self.qweight,
-                                        self.scales,
-                                        zeros,
-                                        self.groupsize,
-                                        self.g_idx if self.has_g_idx else None,
-                                        auto_switch_thd = auto_switch_thd)
+            out = quant_util.matmul_q4v2(x,
+                                         self.qweight,
+                                         self.scales,
+                                         zeros,
+                                         self.groupsize,
+                                         self.seq_g_idx if self.has_seq_g_idx else None,
+                                         self.x_map if self.has_x_map else None,
+                                         auto_switch_thd = auto_switch_thd)
 
             # if self.key == "model.layers.0.mlp.gate_proj":
             #
@@ -160,6 +185,7 @@ class Ex4bitLinear(nn.Module):
             #     _dump_tensor(self.scales, "cuda_test/model.layers.0.mlp.gate_proj.scales")
             #     _dump_tensor(self.qzeros, "cuda_test/model.layers.0.mlp.gate_proj.qzeros")
             #     _dump_tensor(out, "cuda_test/model.layers.0.mlp.gate_proj.out")
+            #     _dump_tensor(self.g_idx, "cuda_test/model.layers.0.mlp.gate_proj.g_idx")
             #     sys.exit()
 
 

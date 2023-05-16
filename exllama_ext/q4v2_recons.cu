@@ -1,11 +1,9 @@
-#include <cuda_runtime.h>
-#include <cuda_fp16.h>
-#include <cstdint>
+#include "q4v2_recons.h"
 
 // Block size
 
-const int THREADS_X = 64;      // Block size and thread count along columns in w, each thread converts 2 columns
-const int THREADS_Y = 4;       // Block size and thread count along rows in w, each thread converts BLOCK_SIZE_Y * 8 rows
+const int THREADS_X = 64;     // Block size and thread count along columns in out, each thread converts 2 columns
+const int THREADS_Y = 4;       // Block size and thread count along rows in x and out, each thread converts BLOCK_SIZE_Y * 8 rows
 const int BLOCK_SIZE_Y = 1;    // * 8 rows
 
 template<bool use_g_idx>
@@ -18,7 +16,7 @@ __global__ void q4v2_recons_kernel
     const int height,
     const int width,
     const int groupsize,
-    const uint32_t* g_idx
+    const uint16_t* seq_g_idx
 )
 {
     // Start of input
@@ -39,7 +37,7 @@ __global__ void q4v2_recons_kernel
 
     // Grouping
 
-    int g_idx_idx = w2_row << 3;
+    int g_idx_idx = w2_row << 4;  // << 3 << 1
 
     int groupsize8 = groupsize >> 3;
     int group_idx = w2_row / groupsize8;
@@ -93,7 +91,8 @@ __global__ void q4v2_recons_kernel
             {
                 // Get scale and zero
 
-                int group = g_idx[g_idx_idx++];
+                int group = seq_g_idx[g_idx_idx];
+                int group_rem = seq_g_idx[g_idx_idx + 1];
 
                 int w_scales_idxl = group * w_scales_stride + w_scales_column;
                 int w_scales_idxr = group * w_scales_stride + w_scales_column + 1;
@@ -105,11 +104,16 @@ __global__ void q4v2_recons_kernel
 
                 // Reconstruct and store
 
-                half2 w2 = __halves2half2(__int2half_rn((int)(w2_read & 0x0f) - w_zero_ql), __int2half_rn((int)((w2_read >> 32) & 0x0f) - w_zero_qr));
-                out2[out2_idx] = __hmul2(w2, w_scale2);
+                for (; k < 8 && group_rem > 0; k++, group_rem--)
+                {
+                    half2 w2 = __halves2half2(__int2half_rn((int)(w2_read & 0x0f) - w_zero_ql), __int2half_rn((int)((w2_read >> 32) & 0x0f) - w_zero_qr));
+                    out2[out2_idx] = __hmul2(w2, w_scale2);
 
-                w2_read >>= 4;
-                out2_idx += out2_stride;
+                    w2_read >>= 4;
+                    out2_idx += out2_stride;
+
+                    g_idx_idx += 2;
+                }
             }
         }
         else
@@ -177,7 +181,7 @@ void q4v2_recons_cuda
     const int height,
     const int width,
     const int groupsize,
-    const uint32_t* g_idx
+    const uint16_t* seq_g_idx
 )
 {
     dim3 threads
@@ -189,13 +193,13 @@ void q4v2_recons_cuda
 
     dim3 blocks
     (
-        (width + threads.x - 1) / threads.x / 2, // (g_idx ? 2 : 1), // _g version can't do two columns at once zxc
+        (width + threads.x - 1) / threads.x / 2,
         (height + threads.y - 1) / threads.y / BLOCK_SIZE_Y,
         1
     );
 
-    if (g_idx) q4v2_recons_kernel <true>  <<<blocks, threads>>>(w, out, w_scales, w_zeros, height, width, groupsize, g_idx);
-    else       q4v2_recons_kernel <false> <<<blocks, threads>>>(w, out, w_scales, w_zeros, height, width, groupsize, g_idx);
+    if (seq_g_idx) q4v2_recons_kernel <true>  <<<blocks, threads>>>(w, out, w_scales, w_zeros, height, width, groupsize, seq_g_idx);
+    else           q4v2_recons_kernel <false> <<<blocks, threads>>>(w, out, w_scales, w_zeros, height, width, groupsize, seq_g_idx);
 
 }
 
