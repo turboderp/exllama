@@ -3,7 +3,7 @@
 A rewrite of the HF transformers implementation of Llama with the following goals, among others:
 
 * Designed for use with quantized weights
-* Memory-efficient inference (not just attention)
+* Fast and memory-efficient inference (not just attention)
 * Mapping across multiple devices
 * Built-in (multi) LoRA support
 * Companion library of funky sampling functions
@@ -33,7 +33,6 @@ As of currently (working on it):
 
 - No support for v1 models without groupsize
 - All the models I've tested are groupsize 128. Other groupsizes should work in theory, though
-- Models converted with act-order won't work yet. They may load but output will be garbage
 - I've encountered models with nonstandard layouts and datatypes (e.g. float32 embedding table). It'll take a while
 to make sure all the possible permutations are supported.
 
@@ -63,11 +62,12 @@ Chatbot example:
 ## Results so far
 
 ### New implementation:
-|                                     | Seq. len. | VRAM      | Long seq. | Ind.   | Ppl  |
-|-------------------------------------|-----------|-----------|-----------|--------|------|
-| 7B 4bit 128g, ExLlama               | 2,048 t   | 5,092 MB  | 2,571 t/s | 96 t/s | 6.45 |
-| 13B 4bit 128g, ExLlama              | 2,048 t   | 8,975 MB  | 1,957 t/s | 60 t/s | 5.62 |
-| 30B 4bit 128g, ExLlama              | 2,048 t   | 20,544 MB | 1,149 t/s | 32 t/s | 4.55 |
+|                          | Seq. len. | VRAM      | Long seq. | Ind.   | Ppl  |
+|--------------------------|-----------|-----------|-----------|--------|------|
+| 7B 4bit 128g             | 2,048 t   | 5,092 MB  | 2,501 t/s | 97 t/s | 6.45 |
+| 13B 4bit 128g            | 2,048 t   | 8,975 MB  | 1,696 t/s | 60 t/s | 5.62 |
+| 30B 4bit 128g            | 2,048 t   | 20,544 MB | 1,204 t/s | 32 t/s | 4.60 |
+| 30B 4bit 128g act-order  | 2,048 t   | 20,544 MB | 1,110 t/s | 31 t/s | 4.55 |
 
 All tests done on stock RTX 4090, running with a desktop environment, with a few other apps also using VRAM.
 
@@ -119,9 +119,18 @@ slower as well over time.
 - [ ] Options for trading off memory usage for more performance (e.g. float32 tensors)
 - [ ] Provide alternative backend to allow layers on CPU
 - [ ] Fused QKV projection and fused MLP
+- [ ] Support for de-quantizing select matrices at load time
 - [ ] A web interface maybe?
 - [ ] Memory-efficient beam search implementation
 - [ ] More sampling features
 - [ ] (Multi) LoRA support for inference
 - [ ] Allow for backpropagation
 - [ ] LoRA training features
+
+## Recent updates
+
+**2023-05-16**: Decided to keep a short update log.
+
+**2023-05-16**: Reworked the way act-order models are handled. Rows are now shuffled at load time so zeros and scales
+can be scanned sequentially. Left-hand side of the matmul is shuffled column-wise accordingly. Performance cost for 
+act-order is quite small now.
