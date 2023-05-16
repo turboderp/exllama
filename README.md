@@ -57,7 +57,7 @@ a minute to compile.
 Chatbot example:
 
     python test_chatbot.py -t <path_to_tokenizer.model> -c <path_to_config.json> \
-      -m <path_to_model.safetensors> -g <groupsize> -un "Jeff" -p prompt_chatbort.txt
+      -m <path_to_model.safetensors> -un "Jeff" -p prompt_chatbort.txt
 
 ## Results so far
 
