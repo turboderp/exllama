@@ -11,12 +11,9 @@ import torch
 tokenizer_model_path = "/mnt/Fast/models/llama-7b-4bit-128g/tokenizer.model"
 model_config_path = "/mnt/Fast/models/llama-7b-4bit-128g/config.json"
 model_path = "/mnt/Fast/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
-model_groupsize = 128
 
 config = ExLlamaConfig(model_config_path)
 config.model_path = model_path
-config.groupsize = 128
-config.model_groupsize = model_groupsize
 config.attention_method = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP
 model = ExLlama(config)
 cache = ExLlamaCache(model)

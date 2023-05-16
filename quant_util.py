@@ -23,8 +23,8 @@ exllama_ext = load(
         os.path.join(library_dir, "exllama_ext/q4v2_sequential.cu"),
         os.path.join(library_dir, "exllama_ext/column_remap.cu")
     ],
-    verbose = True,
-    extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
+    # verbose = True,
+    # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
 )
 
 # from exllama_ext import vecquant4recons_v1
@@ -43,7 +43,7 @@ def _dump_tensor(t, name):
     t.cpu().numpy().tofile(name)
 
 
-def _matmul_q4v2_matmul(x, w, scales, zeros, groupsize, seq_g_idx, x_map):
+def _matmul_q4v2_matmul(x, w, scales, zeros, seq_g_idx, x_map):
 
     if x_map is not None:
 
@@ -65,20 +65,19 @@ def _matmul_q4v2_matmul(x, w, scales, zeros, groupsize, seq_g_idx, x_map):
                 output,
                 scales,
                 zeros,
-                groupsize,
                 seq_g_idx if seq_g_idx is not None else none_tensor,
                 none_tensor)
 
     return output.reshape(outshape)
 
 
-def _matmul_q4v2_recons(x, w, scales, zeros, groupsize, seq_g_idx, x_map, transpose = False):
+def _matmul_q4v2_recons(x, w, scales, zeros, seq_g_idx, x_map, transpose = False):
 
     if not transpose: assert w.shape[0] * 8 == x.shape[-1]
     else: assert w.shape[1] == x.shape[-1]
 
     qweight_recons = torch.empty((w.shape[0] * 8, w.shape[1]), dtype = torch.float16, device = w.device)
-    q4v2_recons(w, qweight_recons, scales, zeros, groupsize, seq_g_idx if seq_g_idx is not None else none_tensor)
+    q4v2_recons(w, qweight_recons, scales, zeros, seq_g_idx if seq_g_idx is not None else none_tensor)
 
     # if buffer.shape[-1] > 10000: _dump_tensor(buffer, "cuda_test/model.layers.0.mlp.gate_proj.recons")
 
@@ -97,7 +96,7 @@ def _matmul_q4v2_recons(x, w, scales, zeros, groupsize, seq_g_idx, x_map, transp
 
 # Matrix multiplication, returns x @ 4-bit matrix (qweight, scales, zeros, g_idx)
 
-def matmul_q4v2(x, w, scales, zeros, groupsize, seq_g_idx, x_map, auto_switch_thd = 8):
+def matmul_q4v2(x, w, scales, zeros, seq_g_idx, x_map, auto_switch_thd = 8):
 
     # Switch over to reconstruction and PyTorch matmul for tall enough left-hand matrices
 
@@ -108,8 +107,8 @@ def matmul_q4v2(x, w, scales, zeros, groupsize, seq_g_idx, x_map, auto_switch_th
         for y in x.shape[:-1]: xdp *= y
         switch = (xdp > auto_switch_thd)
 
-    if switch: output = _matmul_q4v2_recons(x, w, scales, zeros, groupsize, seq_g_idx, x_map)
-    else: output = _matmul_q4v2_matmul(x, w, scales, zeros, groupsize, seq_g_idx, x_map)
+    if switch: output = _matmul_q4v2_recons(x, w, scales, zeros, seq_g_idx, x_map)
+    else: output = _matmul_q4v2_matmul(x, w, scales, zeros, seq_g_idx, x_map)
 
     return output
 

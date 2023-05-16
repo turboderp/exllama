@@ -18,7 +18,7 @@ torch_devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
 
 class ModelWrapper:
 
-    def __init__(self, tokenizer_model_path, model_config_path, model_path, model_groupsize, attention, matmul, length):
+    def __init__(self, tokenizer_model_path, model_config_path, model_path, attention, matmul, length):
 
         self.tokenizer_model_path = tokenizer_model_path
         self.model_config_path = model_config_path
@@ -29,8 +29,7 @@ class ModelWrapper:
         config = ExLlamaConfig(model_config_path)
         config.model_path = model_path
         config.max_seq_len = length
-        config.is_v1_model = (model_groupsize == -1)
-        config.groupsize = model_groupsize
+        config.is_v1_model = False
 
         # config.device_map.layers[-10:] = ["cuda:1"] * 10
         # config.device_map.lm_head = "cuda:1"
@@ -98,7 +97,6 @@ parser = argparse.ArgumentParser(description = "Benchmark tests for ExLlama")
 parser.add_argument("-t", "--tokenizer", type = str, help = "Tokenizer model path", required = True)
 parser.add_argument("-c", "--config", type = str, help = "Model config path (config.json)", required = True)
 parser.add_argument("-m", "--model", type = str, help = "Model weights path (.pt or .safetensors file)", required = True)
-parser.add_argument("-g", "--groupsize", type = int, help = "Groupsize for quantized weights", default = -1)
 
 parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP)
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
@@ -115,7 +113,6 @@ print(f" -- Loading model")
 print(f" -- Tokenizer: {args.tokenizer}")
 print(f" -- Model config: {args.config}")
 print(f" -- Model: {args.model}")
-print(f" -- Groupsize: {args.groupsize if args.groupsize != -1 else 'none'}")
 print(f" -- Sequence length: {args.length}")
 
 print_opts = []
@@ -128,7 +125,9 @@ print(f" -- Options: {print_opts}")
 
 # Instantiate model
 
-wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer, args.config, args.model, args.groupsize, args.attention, args.matmul, args.length))
+wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer, args.config, args.model, args.attention, args.matmul, args.length))
+
+print(f" -- Groupsize (inferred): {wrapper.model.config.groupsize if wrapper.model.config.groupsize is not None else 'None'}")
 
 torch.cuda.reset_peak_memory_stats("cuda")
 mem("Model")

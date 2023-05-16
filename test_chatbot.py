@@ -18,7 +18,6 @@ parser = argparse.ArgumentParser(description = "Simple chatbot example for ExLla
 parser.add_argument("-t", "--tokenizer", type = str, help = "Tokenizer model path", required = True)
 parser.add_argument("-c", "--config", type = str, help = "Model config path (config.json)", required = True)
 parser.add_argument("-m", "--model", type = str, help = "Model weights path (.pt or .safetensors file)", required = True)
-parser.add_argument("-g", "--groupsize", type = int, help = "Groupsize for quantized weights", default = -1)
 
 parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP)
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
@@ -46,7 +45,6 @@ print(f" -- Loading model")
 print(f" -- Tokenizer: {args.tokenizer}")
 print(f" -- Model config: {args.config}")
 print(f" -- Model: {args.model}")
-print(f" -- Groupsize: {args.groupsize if args.groupsize != -1 else 'none'}")
 print(f" -- Sequence length: {args.length}")
 print(f" -- Temperature: {args.temperature:.2f}")
 print(f" -- Top-K: {args.top_k}")
@@ -78,15 +76,15 @@ else:
 
 config = ExLlamaConfig(args.config)
 config.model_path = args.model
-config.groupsize = args.groupsize
 config.attention_method = args.attention
 config.matmul_method = args.matmul
 if args.length is not None: config.max_seq_len = args.length
 
 model = ExLlama(config)
 cache = ExLlamaCache(model)
-
 tokenizer = ExLlamaTokenizer(args.tokenizer)
+
+print(f" -- Groupsize (inferred): {model.config.groupsize if model.config.groupsize is not None else 'None'}")
 
 generator = ExLlamaGenerator(model, tokenizer, cache)
 generator.settings = ExLlamaGenerator.Settings()

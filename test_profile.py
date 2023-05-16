@@ -9,14 +9,11 @@ from pstats import SortKey
 tokenizer_model_path = "/mnt/Fast/models/llama-7b-4bit-128g/tokenizer.model"
 model_config_path = "/mnt/Fast/models/llama-7b-4bit-128g/config.json"
 model_path = "/mnt/Fast/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
-model_groupsize = 128
 
 tokenizer = ExLlamaTokenizer(tokenizer_model_path)
 
 config = ExLlamaConfig(model_config_path)
 config.model_path = model_path
-config.groupsize = 128
-config.groupsize = model_groupsize
 model = ExLlama(config)
 cache = ExLlamaCache(model)
 

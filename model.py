@@ -69,10 +69,11 @@ class ExLlamaConfig:
         self.rotary_embedding_base = 10000  # Constant used for pretrained models, leave as is unless retraining
         self.head_dim = self.hidden_size // self.num_attention_heads
 
+        self.groupsize = None  # Inferred automatically
+
         # Required settings
 
         self.model_path = None
-        self.groupsize = None  # Group size used for quantized model, specify -1 for v1 model
 
         # Optional settings
 
@@ -106,8 +107,6 @@ class Ex4bitLinear(nn.Module):
         self.has_x_map = False
         self.has_seq_g_idx = False
 
-        self.groupsize = self.config.groupsize if self.config.groupsize != -1 else in_features
-
         self.register_buffer('qweight', tensors[key + ".qweight"])
 
         if self.config.is_v1_model:
@@ -122,12 +121,25 @@ class Ex4bitLinear(nn.Module):
             self.register_buffer('qzeros', tensors[key + ".qzeros"])
             self.register_buffer('scales', tensors[key + ".scales"])
 
+            # Infer groupsize from height of qzeros
+            # TODO: Figure out if there are quantized models with irregular groupsize
+
+            self.groupsize = (self.qweight.shape[0] * 8) // self.qzeros.shape[0]
+
+            if self.config.groupsize is None:
+                self.config.groupsize = self.groupsize
+            else:
+                if self.config.groupsize != self.groupsize:
+                    raise ValueError("Irregular groupsize for matrix: " + key)
+
+            # Handle act-order matrix
+
             if key + ".g_idx" in tensors:
 
                 # Rearrange groups sequentially for act-order matrices
 
                 g_idx = tensors[key + ".g_idx"]
-                num_groups = self.qzeros.shape[0];
+                num_groups = self.qzeros.shape[0]
                 seq_g_idx, x_map = quant_util.sequential_q4v2(self.qweight, g_idx, num_groups)
 
                 self.register_buffer('x_map', x_map)
@@ -151,8 +163,10 @@ class Ex4bitLinear(nn.Module):
                     self.has_seq_g_idx = True
                     self.register_buffer('seq_g_idx', seq_g_idx)
 
+        # Bias
 
         if self.has_bias: self.register_buffer('bias', tensors[key + ".bias"])
+
 
     def forward(self, x):
 
@@ -173,7 +187,6 @@ class Ex4bitLinear(nn.Module):
                                          self.qweight,
                                          self.scales,
                                          zeros,
-                                         self.groupsize,
                                          self.seq_g_idx if self.has_seq_g_idx else None,
                                          self.x_map if self.has_x_map else None,
                                          auto_switch_thd = auto_switch_thd)
