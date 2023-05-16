@@ -48,7 +48,7 @@ There is no installer or package at the moment, but try this:
     cd exllama
 
     python test_benchmark_inference.py -t <path_to_tokenizer.model> -c <path_to_config.json> \ 
-      -m <path_to_model.safetensors> -g <groupsize> -p -ppl
+      -m <path_to_model.safetensors> -p -ppl
 
 The CUDA extension is loaded at runtime so there's no need to install it separately. It will be compiled on the first
 run and cached to `~/.cache/torch_extensions/` which could take a little while. If nothing happens at first, give it
