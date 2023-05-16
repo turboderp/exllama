@@ -67,7 +67,7 @@ Chatbot example:
 | 7B 4bit 128g             | 2,048 t   | 5,092 MB  | 2,501 t/s | 97 t/s | 6.45 |
 | 13B 4bit 128g            | 2,048 t   | 8,975 MB  | 1,696 t/s | 60 t/s | 5.62 |
 | 30B 4bit 128g            | 2,048 t   | 20,544 MB | 1,204 t/s | 32 t/s | 4.60 |
-| 30B 4bit 128g act-order  | 2,048 t   | 20,544 MB | 1,110 t/s | 31 t/s | 4.55 |
+| 30B 4bit 128g act-order  | 2,048 t   | 20,558 MB | 1,110 t/s | 31 t/s | 4.55 |
 
 All tests done on stock RTX 4090, running with a desktop environment, with a few other apps also using VRAM.
 
