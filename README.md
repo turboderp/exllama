@@ -33,7 +33,8 @@ As of currently (working on it):
 
 - No support for v1 models without groupsize
 - All the models I've tested are groupsize 128. Other groupsizes should work in theory, though
-- Models converted with act-order won't work yet. They may load but output will be garbage
+- Models converted with act-order work now but they're a bit slower. There's a rewrite of the CUDA extension in the
+works to address that.
 - I've encountered models with nonstandard layouts and datatypes (e.g. float32 embedding table). It'll take a while
 to make sure all the possible permutations are supported.
 
