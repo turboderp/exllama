@@ -34,3 +34,12 @@ python test_benchmark_inference.py \
 -m /mnt/Fast/models/llama-30b-4bit-128g-act/llama-30b-4bit-128g.safetensors \
 -l 2048 \
 -p
+
+echo "-----------------------------------------"
+
+python test_benchmark_inference.py \
+-t /mnt/Fast/models/llama-30b-4bit-32g-act-ts/tokenizer.model \
+-c /mnt/Fast/models/llama-30b-4bit-32g-act-ts/config.json \
+-m /mnt/Fast/models/llama-30b-4bit-32g-act-ts/llama-30b-4bit-32g.safetensors \
+-l 1650 \
+-p

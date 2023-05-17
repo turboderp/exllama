@@ -1,4 +1,5 @@
 #include "q4v2_recons.h"
+#include "util.h"
 
 // Block size
 
@@ -172,7 +173,7 @@ __global__ void q4v2_recons_kernel
 // Shape of w_scales is [height / groupsize, width], dtype = 4-bit quant (packed rows)
 // Shape of w_zeros is [height / groupsize, width], dtype = half
 
-void q4v2_recons_cuda
+cudaError_t q4v2_recons_cuda
 (
     const uint32_t* w,
     half* out,  // y
@@ -184,6 +185,8 @@ void q4v2_recons_cuda
     const uint16_t* seq_g_idx
 )
 {
+    cudaError_t _cuda_err = cudaSuccess;
+
     dim3 threads
     (
         THREADS_X,
@@ -201,5 +204,11 @@ void q4v2_recons_cuda
     if (seq_g_idx) q4v2_recons_kernel <true>  <<<blocks, threads>>>(w, out, w_scales, w_zeros, height, width, groupsize, seq_g_idx);
     else           q4v2_recons_kernel <false> <<<blocks, threads>>>(w, out, w_scales, w_zeros, height, width, groupsize, seq_g_idx);
 
+//     cudaDeviceSynchronize();
+//     _cuda_check(cudaGetLastError());
+//
+// _cuda_fail:
+
+    return _cuda_err;
 }
 

@@ -61,13 +61,16 @@ Chatbot example:
 
 ## Results so far
 
-### New implementation:
-|                          | Seq. len. | VRAM      | Long seq. | Ind.   | Ppl  |
-|--------------------------|-----------|-----------|-----------|--------|------|
-| 7B 4bit 128g             | 2,048 t   | 5,092 MB  | 2,501 t/s | 97 t/s | 6.45 |
-| 13B 4bit 128g            | 2,048 t   | 8,975 MB  | 1,696 t/s | 60 t/s | 5.62 |
-| 30B 4bit 128g            | 2,048 t   | 20,544 MB | 1,204 t/s | 32 t/s | 4.60 |
-| 30B 4bit 128g act-order  | 2,048 t   | 20,558 MB | 1,110 t/s | 31 t/s | 4.55 |
+### New implementation
+|                                     | Seq. len. | VRAM      | Long seq. | Ind.   | Ppl  |
+|-------------------------------------|-----------|-----------|-----------|--------|------|
+| 7B 4bit 128g                        | 2,048 t   | 5,092 MB  | 2,501 t/s | 97 t/s | 6.45 |
+| 13B 4bit 128g                       | 2,048 t   | 8,975 MB  | 1,696 t/s | 60 t/s | 5.62 |
+| 30B 4bit 128g                       | 2,048 t   | 20,544 MB | 1,204 t/s | 32 t/s | 4.60 |
+| 30B 4bit 128g act-order             | 2,048 t   | 20,558 MB | 1,110 t/s | 31 t/s | 4.55 |
+| 30B 4bit 32g act-order <sup>1</sup> | 1,650 t    | 21,617 MB | 1,042 t/s | 30 t/s | 4.52 |
+
+<sup>1</sup> Can not achieve full sequence length without OoM (yet)
 
 All tests done on stock RTX 4090, running with a desktop environment, with a few other apps also using VRAM.
 
@@ -111,7 +114,7 @@ slower as well over time.
 
 ## Todo
 
-- [x] Support for act-order models with g_idx (a bit slow for now)
+- [x] Support for act-order models ~~(a bit slow for now)~~
 - [ ] Support for v1 models without groupsize
 - [ ] Tests on a wider range of models and variants
 - [ ] Consider support for loading GGML models
@@ -134,3 +137,8 @@ slower as well over time.
 **2023-05-16**: Reworked the way act-order models are handled. Rows are now shuffled at load time so zeros and scales
 can be scanned sequentially. Left-hand side of the matmul is shuffled column-wise accordingly. Performance cost for 
 act-order is quite small now.
+
+**2023-05-16**: Removed the need to specify groupsize.
+
+**2023-05-17**: Tested 32g models (30B weights take up a bit too much space still to work on 24 GB of VRAM with full
+context.) Added error handling to C++/CUDA parts. 

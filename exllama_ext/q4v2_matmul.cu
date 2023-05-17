@@ -1,5 +1,6 @@
 #include "q4v2_matmul.h"
 #include "column_remap.h"
+#include "util.h"
 
 // Block size
 
@@ -268,7 +269,7 @@ __global__ void q4v2_matmul_kernel
 // Shape of w_scales is [height / groupsize, width], dtype = q4 (packed rows)
 // Shape of w_zeros is [height / groupsize, width], dtype = half
 
-void q4v2_matmul_cuda
+cudaError_t q4v2_matmul_cuda
 (
     const half* x,
     const uint32_t* w,
@@ -283,36 +284,52 @@ void q4v2_matmul_cuda
     const uint32_t* x_map
 )
 {
-    // Remap x if x_map given
+    cudaError_t _cuda_err = cudaSuccess;
+
+    // Temp buffers
 
     half* x_mapped = NULL;
+
+    // Remap x if x_map given
+
     if (x_map)
     {
-        cudaMalloc(&x_mapped, height * dim * sizeof(half));
-        column_remap_cuda(x, x_mapped, height, dim, x_map);
+        _cuda_check(cudaMalloc(&x_mapped, height * dim * sizeof(half)));
+        _cuda_check(column_remap_cuda(x, x_mapped, height, dim, x_map));
+
+        cudaDeviceSynchronize();
+        _cuda_check(cudaGetLastError());
     }
 
     // Multiply
 
-    dim3 threads
-    (
-        THREADS_X,
-        THREADS_Y,
-        1
-    );
+    {
+        dim3 threads
+        (
+            THREADS_X,
+            THREADS_Y,
+            1
+        );
 
-    dim3 blocks
-    (
-        (width + threads.x - 1) / threads.x,
-        (height + threads.y - 1) / threads.y,
-        (dim + BLOCK_SIZE_Z - 1) / BLOCK_SIZE_Z
-    );
+        dim3 blocks
+        (
+            (width + threads.x - 1) / threads.x,
+            (height + threads.y - 1) / threads.y,
+            (dim + BLOCK_SIZE_Z - 1) / BLOCK_SIZE_Z
+        );
 
-    if (seq_g_idx) q4v2_matmul_kernel <true>  <<<blocks, threads>>>(x_map ? x_mapped : x, w, out, w_scales, w_zeros, height, dim, width, groupsize, seq_g_idx);
-    else           q4v2_matmul_kernel <false> <<<blocks, threads>>>(x_map ? x_mapped : x, w, out, w_scales, w_zeros, height, dim, width, groupsize, seq_g_idx);
+        if (seq_g_idx) q4v2_matmul_kernel <true>  <<<blocks, threads>>>(x_map ? x_mapped : x, w, out, w_scales, w_zeros, height, dim, width, groupsize, seq_g_idx);
+        else           q4v2_matmul_kernel <false> <<<blocks, threads>>>(x_map ? x_mapped : x, w, out, w_scales, w_zeros, height, dim, width, groupsize, seq_g_idx);
+
+//         cudaDeviceSynchronize();
+//         _cuda_check(cudaGetLastError());
+    }
 
     // Clean up
 
+_cuda_fail:
+
     if (x_mapped) cudaFree(x_mapped);
 
+    return _cuda_err;
 }

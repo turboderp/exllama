@@ -5,7 +5,7 @@
 #include <cuda_fp16.h>
 #include <cstdint>
 
-void q4v2_recons_cuda
+cudaError_t q4v2_recons_cuda
 (
     const uint32_t* w,
     half* out,  // y

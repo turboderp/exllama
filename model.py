@@ -101,7 +101,10 @@ class Ex4bitLinear(nn.Module):
 
         self.in_features = in_features
         self.out_features = out_features
-        self.bits = 4  # quant_cuda provides functions for 2 and 3 bits as well, but they will be unsupported for now
+        self.bits = 4  # Only support 4 bits for now
+
+
+
         self.maxq = 2 ** self.bits - 1
         self.has_bias = has_bias
         self.has_x_map = False

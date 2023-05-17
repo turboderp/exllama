@@ -16,8 +16,6 @@ exllama_ext = load(
     name = extension_name,
     sources = [
         os.path.join(library_dir, "exllama_ext/exllama_ext.cpp"),
-        # os.path.join(library_dir, "exllama_ext/exllama_ext_v1_recons.cu"),
-        # os.path.join(library_dir, "exllama_ext/exllama_ext_v1_matmul.cu"),
         os.path.join(library_dir, "exllama_ext/q4v2_recons.cu"),
         os.path.join(library_dir, "exllama_ext/q4v2_matmul.cu"),
         os.path.join(library_dir, "exllama_ext/q4v2_sequential.cu"),
@@ -27,8 +25,6 @@ exllama_ext = load(
     # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
 )
 
-# from exllama_ext import vecquant4recons_v1
-# from exllama_ext import vecquant4matmul_v1
 from exllama_ext import q4v2_recons
 from exllama_ext import q4v2_matmul
 from exllama_ext import q4v2_sequential
@@ -96,7 +92,7 @@ def _matmul_q4v2_recons(x, w, scales, zeros, seq_g_idx, x_map, transpose = False
 
 # Matrix multiplication, returns x @ 4-bit matrix (qweight, scales, zeros, g_idx)
 
-def matmul_q4v2(x, w, scales, zeros, seq_g_idx, x_map, auto_switch_thd = 8):
+def matmul_q4v2(x, w, scales, zeros, seq_g_idx, x_map, auto_switch_thd = 6):
 
     # Switch over to reconstruction and PyTorch matmul for tall enough left-hand matrices
 

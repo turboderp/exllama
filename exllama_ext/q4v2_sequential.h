@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 
-void q4v2_sequential_cuda
+cudaError_t q4v2_sequential_cuda
 (
     uint32_t* w,
     const int w_height,

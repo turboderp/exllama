@@ -6,8 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 
-
-void q4v2_matmul_cuda
+cudaError_t q4v2_matmul_cuda
 (
     const half* x,
     const uint32_t* w,
