@@ -128,7 +128,7 @@ cudaError_t q4v2_sequential_cuda
     // Move to CUDA
 
     _cuda_check(cudaMemcpy(x_map_cuda, x_map, w_height * 8 * sizeof(uint32_t), cudaMemcpyHostToDevice));
-    cudaDeviceSynchronize();
+//     cudaDeviceSynchronize();
 
     // Rearrange rows in w
 
@@ -138,14 +138,14 @@ cudaError_t q4v2_sequential_cuda
 
         q4v2_sequential_kernel<<<blocks, threads>>>(w, w_new, x_map_cuda, w_height, w_width);
 
-        cudaDeviceSynchronize();
-        _cuda_check(cudaGetLastError());
+//         cudaDeviceSynchronize();
+//         _cuda_check(cudaGetLastError());
     }
 
     _cuda_check(cudaMemcpy(w, w_new, w_height * w_width * sizeof(uint32_t), cudaMemcpyDeviceToDevice));
     _cuda_check(cudaMemcpy(seq_g_idx, seq_g_idx_cpu, w_height * 8 * 2 * sizeof(uint16_t), cudaMemcpyHostToDevice));
 
-    cudaDeviceSynchronize();
+//     cudaDeviceSynchronize();
 
 _cuda_fail:
 

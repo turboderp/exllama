@@ -128,6 +128,7 @@ print(f" -- Options: {print_opts}")
 wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer, args.config, args.model, args.attention, args.matmul, args.length))
 
 print(f" -- Groupsize (inferred): {wrapper.model.config.groupsize if wrapper.model.config.groupsize is not None else 'None'}")
+print(f" -- Act-order (inferred): {'yes' if wrapper.model.config.act_order else 'no'}")
 
 torch.cuda.reset_peak_memory_stats("cuda")
 mem("Model")

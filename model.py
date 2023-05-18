@@ -69,7 +69,8 @@ class ExLlamaConfig:
         self.rotary_embedding_base = 10000  # Constant used for pretrained models, leave as is unless retraining
         self.head_dim = self.hidden_size // self.num_attention_heads
 
-        self.groupsize = None  # Inferred automatically
+        self.groupsize = None  # Autodetected
+        self.act_order = False  # Autodetected
 
         # Required settings
 
@@ -102,8 +103,6 @@ class Ex4bitLinear(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
         self.bits = 4  # Only support 4 bits for now
-
-
 
         self.maxq = 2 ** self.bits - 1
         self.has_bias = has_bias
@@ -138,6 +137,8 @@ class Ex4bitLinear(nn.Module):
             # Handle act-order matrix
 
             if key + ".g_idx" in tensors:
+
+                self.config.act_order = True
 
                 # Rearrange groups sequentially for act-order matrices
 

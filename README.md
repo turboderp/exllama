@@ -64,11 +64,11 @@ Chatbot example:
 ### New implementation
 |                                     | Seq. len. | VRAM      | Long seq. | Ind.   | Ppl  |
 |-------------------------------------|-----------|-----------|-----------|--------|------|
-| 7B 4bit 128g                        | 2,048 t   | 5,092 MB  | 2,501 t/s | 97 t/s | 6.45 |
-| 13B 4bit 128g                       | 2,048 t   | 8,975 MB  | 1,696 t/s | 60 t/s | 5.62 |
-| 30B 4bit 128g                       | 2,048 t   | 20,544 MB | 1,204 t/s | 32 t/s | 4.60 |
-| 30B 4bit 128g act-order             | 2,048 t   | 20,558 MB | 1,110 t/s | 31 t/s | 4.55 |
-| 30B 4bit 32g act-order <sup>1</sup> | 1,650 t    | 21,617 MB | 1,042 t/s | 30 t/s | 4.52 |
+| 7B 4bit 128g                        | 2,048 t   | 5,092 MB  | 2,458 t/s | 95 t/s | 6.45 |
+| 13B 4bit 128g                       | 2,048 t   | 8,975 MB  | 1,483 t/s | 62 t/s | 5.62 |
+| 30B 4bit 128g                       | 2,048 t   | 20,544 MB | 1,174 t/s | 31 t/s | 4.60 |
+| 30B 4bit 128g act-order             | 2,048 t   | 20,558 MB | 1,087 t/s | 30 t/s | 4.55 |
+| 30B 4bit 32g act-order <sup>1</sup> | 1,650 t   | 21,437 MB | 908 t/s   | 29 t/s | 4.52 |
 
 <sup>1</sup> Can not achieve full sequence length without OoM (yet)
 
@@ -141,4 +141,6 @@ act-order is quite small now.
 **2023-05-16**: Removed the need to specify groupsize.
 
 **2023-05-17**: Tested 32g models (30B weights take up a bit too much space still to work on 24 GB of VRAM with full
-context.) Added error handling to C++/CUDA parts. 
+context.) Added error handling to C++/CUDA parts. Cleaned up and simplified the CUDA code a lot, preparing for fused
+layers.
+

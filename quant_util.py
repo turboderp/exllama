@@ -53,8 +53,9 @@ def _matmul_q4v2_matmul(x, w, scales, zeros, seq_g_idx, x_map):
     x = x.view(-1, x.shape[-1])
     output = torch.zeros((x.shape[0], w.shape[-1]), dtype = torch.float16, device = x.device)
 
-    # We can pass x_map here instead of allocating a temporary tensor, but it's weirdly slow to call column_remap
-    # directly, for some reason. TODO: Figure out the reason.
+    # We could pass x_map here instead of allocating a temporary tensor, but it's weirdly slow to call column_remap
+    # directly, presumably due to the memory allocation. Torch is probably using a cache of buffers for the allocation
+    # above.
 
     q4v2_matmul(x,
                 w,
@@ -117,47 +118,6 @@ def sequential_q4v2(w, g_idx, num_groups):
     q4v2_sequential(w, g_idx, seq_g_idx, x_map, num_groups)
 
     return seq_g_idx, x_map
-
-
-
-
-
-    # V1 weights,
-
-    # if zeros.dtype != torch.int32:
-    #
-    #     if switch: output = _matmul4bit_v1_recons(x.to(scales.dtype), qweight, scales, zeros.float()).half()
-    #     else: output = _matmul4bit_v1(x, qweight, scales, zeros.float())
-    #
-    # # V2 weights
-    #
-    # else:
-
-# TODO: Implement these
-
-# def _matmul4bit_v1(x, qweight, scales, zeros):
-#
-#     assert qweight.shape[0] * 8 == x.shape[-1]
-#
-#     outshape = x.shape[:-1] + (qweight.shape[1],)
-#     x = x.view(-1, x.shape[-1])
-#     y = torch.zeros((x.shape[0], qweight.shape[-1]), dtype = torch.float32, device = x.device)
-#     dtype = x.dtype
-#     x = x.half()
-#     vecquant4matmul_v1(x, qweight, y, scales, zeros)
-#     y = y.to(dtype)
-#
-#     return y.reshape(outshape)
-
-# def _matmul4bit_v1_recons(x, qweight, scales, zeros, transpose = False):
-#
-#     if not transpose: assert qweight.shape[0] * 8 == x.shape[-1]
-#     else: assert qweight.shape[1] == x.shape[-1]
-#
-#     buffer = torch.zeros((qweight.shape[0] * 8, qweight.shape[1]), dtype = scales.dtype, device = qweight.device)
-#     vecquant4recons_v1(qweight, buffer, scales, zeros)
-#
-#     return torch.matmul(x, buffer.T if transpose else buffer)
 
 
 # Backpropagation still untested.

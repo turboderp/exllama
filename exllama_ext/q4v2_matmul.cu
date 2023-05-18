@@ -1,12 +1,13 @@
 #include "q4v2_matmul.h"
 #include "column_remap.h"
 #include "util.h"
+#include "matrix.h"
 
 // Block size
 
 const int THREADS_X = 32;       // Block size and thread count along columns in w and out
 const int THREADS_Y = 1;        // Block size and thread count along rows in x and out
-const int BLOCK_SIZE_Z = 256;   // Block size (1 thread per block) along columns in x, rows in w
+const int BLOCK_SIZE_Z = 512;   // Block size (1 thread per block) along columns in x, rows in w
 
 template<bool use_g_idx>
 __global__ void q4v2_matmul_kernel
@@ -26,127 +27,50 @@ __global__ void q4v2_matmul_kernel
     // Start of block
 
     int x_column = BLOCK_SIZE_Z * blockIdx.z;
+    int x_column_end = min(dim, BLOCK_SIZE_Z * (blockIdx.z + 1));
+
     int w_column = THREADS_X * blockIdx.x + threadIdx.x;
     int x_row = THREADS_Y * blockIdx.y + threadIdx.y;
+    int w_row = x_column;
 
-    int x_stride = dim;
+    int iterations = (x_column_end - x_column) / 8;
 
-    // Row index in w, which packs quants vertically, i.e.:
-    //
-    // w[width * 0 + 0] = little_endian_packed(r0c0, r1c0,  r2c0,  r3c0,  r4c0,  r5c0,  r6c0,  r7c0)
-    // w[width * 1 + 0] = little_endian_packed(r8c0, r9c0, r10c0, r11c0, r12c0, r13c0, r14c0, r15c0)
-    // w[width * 0 + 1] = little_endian_packed(r0c1, r1c1,  r2c1,  r3c1,  r4c1,  r5c1,  r6c1,  r7c1)
-    // w[width * 1 + 1] = little_endian_packed(r8c1, r9c1, r10c1, r11c1, r12c1, r13c1, r14c1, r15c1)
+    // Views
 
-    int w_row = x_column >> 3;
-    int w_stride = width;
+    MatrixView_half x_(x, height, dim);
+    MatrixView_half w_scales_(w_scales, dim / groupsize, width);
+    MatrixView_q4_row w_zeros_(w_zeros, dim / groupsize, width);
+    MatrixView_q4_column w_(w, dim, width);
+    MatrixView_half_rw out_(out, height, width);
 
     // Group for zeros and scales
 
     int g_idx_idx = x_column * 2;
 
-    int group_idx = x_column / groupsize;
-    int next_group = group_idx * groupsize;  // first iteration will advance to first group
-
-    // w_scales is half types in groups:
-    //
-    // w_scales[width * 0 + 4] = r[0             .. 1 * groupsize] c4
-    // w_scales[width * 1 + 4] = r[1 * groupsize .. 2 * groupsize] c4
-    // w_scales[width * 2 + 4] = r[2 * groupsize .. 3 * groupsize] c4
-    //
-    // w_scales_row = group_idx;
-
-    int w_scales_column = w_column;
-    int w_scales_stride = width;
-
-    // w_zeros packs zeros horizontally, groups vertically:
-    //
-    // w_zeros[width/8 * 0 + 0] = little_endian_packed(r0c0, r0c1,  r0c2,  r0c3,  r0c4,  r0c5,  r0c6,  r0c7)
-    // w_zeros[width/8 * 1 + 1] = little_endian_packed(rgc8, rgc9, rgc10, rgc11, rgc12, rgc13, rgc14, rgc15) where g = groupsize
-    //
-    // w_zeros_row = group_idx;
-
-    int w_zeros_column = w_column >> 3;
-    int w_zeros_shift = (w_column & 0x07) << 2;
-    int w_zeros_stride = (width >> 3);
-
-    // Indices
-
-    int x_idx = x_row * x_stride + x_column;
-    int w_idx = w_row * w_stride + w_column;
-    int w_scales_idx = group_idx * w_scales_stride + w_scales_column;
-    int w_zeros_idx = group_idx * w_zeros_stride + w_zeros_column;
-
-    int out_idx = x_row * width + w_column;
-
     // Loop over part of x row (and w column)
 
-    int x_column_end = x_column + BLOCK_SIZE_Z;
     half2 acc = {};
-    half2 w_scale;
-    int w_zero_q;
 
-    while (x_column < x_column_end)
+    if constexpr (use_g_idx)
     {
-        if constexpr (use_g_idx)
+        // Group index version
+
+        for (int k = 0; k < iterations; k++)
         {
-            // Group index version
-
-            uint32_t w_read = w[w_idx];
-            w_idx += w_stride;
-
             int group_rem = seq_g_idx[g_idx_idx + 1];
             if (group_rem >= 8)
             {
-                // Faster version if next 8 groups are the same
+                // Go faster if next 8 group indices are the same
 
                 int group = seq_g_idx[g_idx_idx];
-                g_idx_idx += 8 * 2;
+                int group_len = seq_g_idx[g_idx_idx + 1];
+                int group_len_8 = group_len / 8;
+                g_idx_idx += group_len_8 * 8 * 2;
 
+                half2 w_scale = w_scales_.item_half2half2(group, w_column);
+                uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
 
-                int w_scales_idx_g = group * w_scales_stride + w_scales_column;
-                w_scale = __half2half2(w_scales[w_scales_idx_g]);
-
-                uint32_t w_zero_packed_g = w_zeros[group * w_zeros_stride + w_zeros_column];
-                w_zero_q = ((w_zero_packed_g >> w_zeros_shift) & 0x0f) + 1;
-
-                // Convert quants to half2
-
-                half w_0 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
-                half w_1 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
-                half w_2 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
-                half w_3 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
-                half w_4 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
-                half w_5 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
-                half w_6 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
-                half w_7 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q);
-
-                half2 w_01 = __halves2half2(w_0, w_1);
-                half2 w_23 = __halves2half2(w_2, w_3);
-                half2 w_45 = __halves2half2(w_4, w_5);
-                half2 w_67 = __halves2half2(w_6, w_7);
-
-                w_01 = __hmul2(w_01, w_scale);
-                w_23 = __hmul2(w_23, w_scale);
-                w_45 = __hmul2(w_45, w_scale);
-                w_67 = __hmul2(w_67, w_scale);
-
-                // Read 8 halves from x
-
-                half2* x_h2 = (half2*) (x + x_idx);
-                x_idx += 8;
-
-                half2 x_01 = x_h2[0];
-                half2 x_23 = x_h2[1];
-                half2 x_45 = x_h2[2];
-                half2 x_67 = x_h2[3];
-
-                // Multiply and accumulate
-
-                acc = __hfma2(x_01, w_01, acc);
-                acc = __hfma2(x_23, w_23, acc);
-                acc = __hfma2(x_45, w_45, acc);
-                acc = __hfma2(x_67, w_67, acc);
+                acc = dot_product_8(acc, x_, x_row, x_column + k * 8, w_, w_row + k * 8, w_column, w_scale, w_zero, group_len_8);
 
             }
             else
@@ -154,109 +78,42 @@ __global__ void q4v2_matmul_kernel
                 #pragma unroll
                 for (int k = 0; k < 4; ++k)
                 {
-                    // Get scale and zero
+                    // Reconstruct two values from w with independent group indices
 
-                    int groupl = seq_g_idx[g_idx_idx]; seq_g_idx += 2;
-                    int groupr = seq_g_idx[g_idx_idx]; seq_g_idx += 2;
-
-                    int w_scales_idx0 = groupl * w_scales_stride + w_scales_column;
-                    int w_scales_idx1 = groupr * w_scales_stride + w_scales_column;
-                    w_scale = __halves2half2(w_scales[w_scales_idx0], w_scales[w_scales_idx1]);
-
-                    uint32_t w_zero_packedl = w_zeros[groupl * w_zeros_stride + w_zeros_column];
-                    uint32_t w_zero_packedr = w_zeros[groupr * w_zeros_stride + w_zeros_column];
-                    int w_zero_ql = ((w_zero_packedl >> w_zeros_shift) & 0x0f) + 0x01;
-                    int w_zero_qr = ((w_zero_packedr >> w_zeros_shift) & 0x0f) + 0x01;
-
-                    // Reconstruct
-
-                    half2 w_01 = __halves2half2(__int2half_rn((int)(w_read & 0x0f) - w_zero_ql), __int2half_rn((int)((w_read >> 4) & 0x0f) - w_zero_qr));
-                    w_read >>= 8;
-
+                    int group_l = seq_g_idx[g_idx_idx]; seq_g_idx += 2;
+                    int group_r = seq_g_idx[g_idx_idx]; seq_g_idx += 2;
+                    int w_zero_l = w_zeros_.item(group_l, w_column) + 1;
+                    int w_zero_r = w_zeros_.item(group_r, w_column) + 1;
+                    half2 w_scale = __halves2half2(w_scales_.item(group_l, w_column), w_scales_.item(group_r, w_column));
+                    half w_0 = __int2half_rn(w_.item(w_row + k * 8 + 0, w_column) - w_zero_l);
+                    half w_1 = __int2half_rn(w_.item(w_row + k * 8 + 1, w_column) - w_zero_r);
+                    half2 w_01 = __halves2half2(w_0, w_1);
                     w_01 = __hmul2(w_01, w_scale);
 
-                    // Multiply and accumulate
-
-                    half2* x_h2 = (half2*) (x + x_idx);
-                    x_idx += 2;
-
-                    half2 x_01 = x_h2[0];
-
+                    half2 x_01 = x_.item_half2(x_row, x_column + k * 8 + 0);
                     acc = __hfma2(x_01, w_01, acc);
                 }
             }
         }
-        else
+    }
+    else
+    {
+        // Assume groupsize divides BLOCK_SIZE_Z so we always start on a group boundary
+
+        for (int k = x_column, group = x_column / groupsize; k < x_column + iterations * 8; group++)
         {
-            // Groupsize version
+            half2 w_scale = w_scales_.item_half2half2(group, w_column);
+            uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
 
-            // Only extract scale and zero at group boundary
-
-            if (x_column >= next_group)
-            {
-                w_scale = __half2half2(w_scales[w_scales_idx]);
-
-                uint32_t w_zero_packed = w_zeros[w_zeros_idx];
-                w_zero_q = ((w_zero_packed >> w_zeros_shift) & 0x0f) + 1;
-
-                w_scales_idx += w_scales_stride;
-                w_zeros_idx += w_zeros_stride;
-                next_group += groupsize;
-            }
-
-            // Read 8 packed quants from w
-
-            uint32_t w_read = w[w_idx];
-            w_idx += w_stride;
-
-            // Convert quants to half2
-
-            half w_0 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
-            half w_1 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
-            half w_2 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
-            half w_3 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
-            half w_4 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
-            half w_5 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
-            half w_6 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q); w_read >>= 4;
-            half w_7 = __int2half_rn((int)((w_read) & 0x0f) - w_zero_q);
-
-            half2 w_01 = __halves2half2(w_0, w_1);
-            half2 w_23 = __halves2half2(w_2, w_3);
-            half2 w_45 = __halves2half2(w_4, w_5);
-            half2 w_67 = __halves2half2(w_6, w_7);
-
-            w_01 = __hmul2(w_01, w_scale);
-            w_23 = __hmul2(w_23, w_scale);
-            w_45 = __hmul2(w_45, w_scale);
-            w_67 = __hmul2(w_67, w_scale);
-
-            // Read 8 halves from x
-
-            half2* x_h2 = (half2*) (x + x_idx);
-            x_idx += 8;
-
-            half2 x_01 = x_h2[0];
-            half2 x_23 = x_h2[1];
-            half2 x_45 = x_h2[2];
-            half2 x_67 = x_h2[3];
-
-            // Multiply and accumulate
-
-            acc = __hfma2(x_01, w_01, acc);
-            acc = __hfma2(x_23, w_23, acc);
-            acc = __hfma2(x_45, w_45, acc);
-            acc = __hfma2(x_67, w_67, acc);
-
+            acc = dot_product_8(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8);
+            k += groupsize;
         }
-
-        x_column += 8;
     }
 
     // Add to block result
 
     half result = __hadd(acc.x, acc.y);
-    atomicAdd(&out[out_idx], result);
-    //out[out_idx] = result;
+    atomicAdd(out_.item_ptr(x_row, w_column), result);
 }
 
 
@@ -297,8 +154,8 @@ cudaError_t q4v2_matmul_cuda
         _cuda_check(cudaMalloc(&x_mapped, height * dim * sizeof(half)));
         _cuda_check(column_remap_cuda(x, x_mapped, height, dim, x_map));
 
-        cudaDeviceSynchronize();
-        _cuda_check(cudaGetLastError());
+//         cudaDeviceSynchronize();
+//         _cuda_check(cudaGetLastError());
     }
 
     // Multiply

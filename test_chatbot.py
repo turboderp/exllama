@@ -85,6 +85,7 @@ cache = ExLlamaCache(model)
 tokenizer = ExLlamaTokenizer(args.tokenizer)
 
 print(f" -- Groupsize (inferred): {model.config.groupsize if model.config.groupsize is not None else 'None'}")
+print(f" -- Act-order (inferred): {'yes' if model.config.act_order else 'no'}")
 
 generator = ExLlamaGenerator(model, tokenizer, cache)
 generator.settings = ExLlamaGenerator.Settings()
