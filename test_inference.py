@@ -8,21 +8,21 @@ import torch
 torch.set_grad_enabled(False)
 torch.cuda._lazy_init()
 
-# tokenizer_model_path = "/mnt/Fast/models/llama-7b-4bit-128g/tokenizer.model"
-# model_config_path = "/mnt/Fast/models/llama-7b-4bit-128g/config.json"
-# model_path = "/mnt/Fast/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
+# tokenizer_model_path = "/mnt/str/models/llama-7b-4bit-128g/tokenizer.model"
+# model_config_path = "/mnt/str/models/llama-7b-4bit-128g/config.json"
+# model_path = "/mnt/str/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
 #
-tokenizer_model_path = "/mnt/Fast/models/llama-13b-4bit-128g/tokenizer.model"
-model_config_path = "/mnt/Fast/models/llama-13b-4bit-128g/config.json"
-model_path = "/mnt/Fast/models/llama-13b-4bit-128g/llama-13b-4bit-128g.safetensors"
+tokenizer_model_path = "/mnt/str/models/llama-13b-4bit-128g/tokenizer.model"
+model_config_path = "/mnt/str/models/llama-13b-4bit-128g/config.json"
+model_path = "/mnt/str/models/llama-13b-4bit-128g/llama-13b-4bit-128g.safetensors"
 #
-# tokenizer_model_path = "/mnt/Fast/models/llama-30b-4bit-128g/tokenizer.model"
-# model_config_path = "/mnt/Fast/models/llama-30b-4bit-128g/config.json"
-# model_path = "/mnt/Fast/models/llama-30b-4bit-128g/llama-30b-4bit-128g.safetensors"
+# tokenizer_model_path = "/mnt/str/models/llama-30b-4bit-128g/tokenizer.model"
+# model_config_path = "/mnt/str/models/llama-30b-4bit-128g/config.json"
+# model_path = "/mnt/str/models/llama-30b-4bit-128g/llama-30b-4bit-128g.safetensors"
 
-# tokenizer_model_path = "/mnt/Fast/models/llama-30b-4bit-128g-act/tokenizer.model"
-# model_config_path = "/mnt/Fast/models/llama-30b-4bit-128g-act/config.json"
-# model_path = "/mnt/Fast/models/llama-30b-4bit-128g-act/llama-30b-4bit-128g.safetensors"
+# tokenizer_model_path = "/mnt/str/models/llama-30b-4bit-128g-act/tokenizer.model"
+# model_config_path = "/mnt/str/models/llama-30b-4bit-128g-act/config.json"
+# model_path = "/mnt/str/models/llama-30b-4bit-128g-act/llama-30b-4bit-128g.safetensors"
 
 config = ExLlamaConfig(model_config_path)
 config.model_path = model_path

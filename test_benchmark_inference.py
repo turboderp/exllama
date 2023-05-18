@@ -31,7 +31,7 @@ class ModelWrapper:
         config.max_seq_len = length
         config.is_v1_model = False
 
-        # config.device_map.layers[-10:] = ["cuda:1"] * 10
+        # config.device_map.layers[:] = ["cuda:1"] * 40
         # config.device_map.lm_head = "cuda:1"
         # config.device_map.norm = "cuda:1"
 

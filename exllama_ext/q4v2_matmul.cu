@@ -76,7 +76,7 @@ __global__ void q4v2_matmul_kernel
             else
             {
                 #pragma unroll
-                for (int k = 0; k < 4; ++k)
+                for (int l = 0; l < 8; l += 2)
                 {
                     // Reconstruct two values from w with independent group indices
 
@@ -85,12 +85,12 @@ __global__ void q4v2_matmul_kernel
                     int w_zero_l = w_zeros_.item(group_l, w_column) + 1;
                     int w_zero_r = w_zeros_.item(group_r, w_column) + 1;
                     half2 w_scale = __halves2half2(w_scales_.item(group_l, w_column), w_scales_.item(group_r, w_column));
-                    half w_0 = __int2half_rn(w_.item(w_row + k * 8 + 0, w_column) - w_zero_l);
-                    half w_1 = __int2half_rn(w_.item(w_row + k * 8 + 1, w_column) - w_zero_r);
+                    half w_0 = __int2half_rn(w_.item(w_row + k * 8 + l + 0, w_column) - w_zero_l);
+                    half w_1 = __int2half_rn(w_.item(w_row + k * 8 + l + 1, w_column) - w_zero_r);
                     half2 w_01 = __halves2half2(w_0, w_1);
                     w_01 = __hmul2(w_01, w_scale);
 
-                    half2 x_01 = x_.item_half2(x_row, x_column + k * 8 + 0);
+                    half2 x_01 = x_.item_half2(x_row, x_column + k * 8 + l + 0);
                     acc = __hfma2(x_01, w_01, acc);
                 }
             }
@@ -115,7 +115,6 @@ __global__ void q4v2_matmul_kernel
     half result = __hadd(acc.x, acc.y);
     atomicAdd(out_.item_ptr(x_row, w_column), result);
 }
-
 
 // Compute y = x @ w
 //
@@ -161,12 +160,7 @@ cudaError_t q4v2_matmul_cuda
     // Multiply
 
     {
-        dim3 threads
-        (
-            THREADS_X,
-            THREADS_Y,
-            1
-        );
+        dim3 threads(THREADS_X, THREADS_Y, 1);
 
         dim3 blocks
         (

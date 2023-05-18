@@ -129,4 +129,182 @@ __device__ inline half2 dot_product_8
     return result;
 }
 
+// Accumulated dot product of 8-element row vectors in h and quantized column vectors in v1 and v2, constant zero/scale
+
+__device__ inline half2 dot_product_8_dual
+(
+    const half2 acc,
+    MatrixView_half& h_,
+    const int h_row,
+    const int h_column,                 // divisible by 8
+    MatrixView_q4_column& v1_,
+    MatrixView_q4_column& v2_,
+    const int v_row,                    // divisible by 8
+    const int v_column,
+    const half2 v1_scale_2,
+    const uint32_t v1_zero,             // + 1 (!!)
+    const half2 v2_scale_2,
+    const uint32_t v2_zero,             // + 1 (!!)
+    const int count
+)
+{
+    const half2* h_ptr = (const half2*) h_.item_ptr(h_row, h_column);
+    const uint32_t* v1_ptr = (const uint32_t*) v1_.item_uint32_ptr(v_row, v_column);
+    const uint32_t* v2_ptr = (const uint32_t*) v2_.item_uint32_ptr(v_row, v_column);
+    half2 result1 = {};
+    half2 result2 = {};
+
+    for (int i = 0; i < count; i++)
+    {
+        uint32_t v1_read = *v1_ptr; v1_ptr += v1_.width;
+        uint32_t v2_read = *v2_ptr; v2_ptr += v2_.width;
+
+        half v1_0 = __int2half_rn((int)((v1_read      ) & 0x0f) - v1_zero);
+        half v1_1 = __int2half_rn((int)((v1_read >>  4) & 0x0f) - v1_zero);
+        half v1_2 = __int2half_rn((int)((v1_read >>  8) & 0x0f) - v1_zero);
+        half v1_3 = __int2half_rn((int)((v1_read >> 12) & 0x0f) - v1_zero);
+        half v1_4 = __int2half_rn((int)((v1_read >> 16) & 0x0f) - v1_zero);
+        half v1_5 = __int2half_rn((int)((v1_read >> 20) & 0x0f) - v1_zero);
+        half v1_6 = __int2half_rn((int)((v1_read >> 24) & 0x0f) - v1_zero);
+        half v1_7 = __int2half_rn((int)((v1_read >> 28)       ) - v1_zero);
+
+        half v2_0 = __int2half_rn((int)((v2_read      ) & 0x0f) - v2_zero);
+        half v2_1 = __int2half_rn((int)((v2_read >>  4) & 0x0f) - v2_zero);
+        half v2_2 = __int2half_rn((int)((v2_read >>  8) & 0x0f) - v2_zero);
+        half v2_3 = __int2half_rn((int)((v2_read >> 12) & 0x0f) - v2_zero);
+        half v2_4 = __int2half_rn((int)((v2_read >> 16) & 0x0f) - v2_zero);
+        half v2_5 = __int2half_rn((int)((v2_read >> 20) & 0x0f) - v2_zero);
+        half v2_6 = __int2half_rn((int)((v2_read >> 24) & 0x0f) - v2_zero);
+        half v2_7 = __int2half_rn((int)((v2_read >> 28)       ) - v2_zero);
+
+        half2 v1_01 = __halves2half2(v1_0, v1_1);
+        half2 v1_23 = __halves2half2(v1_2, v1_3);
+        half2 v1_45 = __halves2half2(v1_4, v1_5);
+        half2 v1_67 = __halves2half2(v1_6, v1_7);
+
+        half2 v2_01 = __halves2half2(v2_0, v2_1);
+        half2 v2_23 = __halves2half2(v2_2, v2_3);
+        half2 v2_45 = __halves2half2(v2_4, v2_5);
+        half2 v2_67 = __halves2half2(v2_6, v2_7);
+
+        v1_01 = __hmul2(v1_01, v1_scale_2);
+        v1_23 = __hmul2(v1_23, v1_scale_2);
+        v1_45 = __hmul2(v1_45, v1_scale_2);
+        v1_67 = __hmul2(v1_67, v1_scale_2);
+
+        v2_01 = __hmul2(v2_01, v2_scale_2);
+        v2_23 = __hmul2(v2_23, v2_scale_2);
+        v2_45 = __hmul2(v2_45, v2_scale_2);
+        v2_67 = __hmul2(v2_67, v2_scale_2);
+
+        half2 h_01 = *h_ptr++;
+        half2 h_23 = *h_ptr++;
+        half2 h_45 = *h_ptr++;
+        half2 h_67 = *h_ptr++;
+
+        result1 = __hfma2(h_01, v1_01, result1);
+        result1 = __hfma2(h_23, v1_23, result1);
+        result1 = __hfma2(h_45, v1_45, result1);
+        result1 = __hfma2(h_67, v1_67, result1);
+
+        result2 = __hfma2(h_01, v2_01, result2);
+        result2 = __hfma2(h_23, v2_23, result2);
+        result2 = __hfma2(h_45, v2_45, result2);
+        result2 = __hfma2(h_67, v2_67, result2);
+    }
+
+    half result1_ = __hadd(result1.x, result1.y);
+    half result2_ = __hadd(result2.x, result2.y);
+
+    return __hadd2(acc, __halves2half2(result1_, result2_));
+}
+
+__device__ inline half2 dot_product_8_dual_buffered
+(
+    const half2 acc,
+    const half* x_row_buffer,
+    const int h_row,
+    const int h_column,                 // divisible by 8
+    MatrixView_q4_column& v1_,
+    MatrixView_q4_column& v2_,
+    const int v_row,                    // divisible by 8
+    const int v_column,
+    const half2 v1_scale_2,
+    const uint32_t v1_zero,             // + 1 (!!)
+    const half2 v2_scale_2,
+    const uint32_t v2_zero,             // + 1 (!!)
+    const int count
+)
+{
+    const half2* h_ptr = (const half2*) &x_row_buffer[h_column];
+    const uint32_t* v1_ptr = (const uint32_t*) v1_.item_uint32_ptr(v_row, v_column);
+    const uint32_t* v2_ptr = (const uint32_t*) v2_.item_uint32_ptr(v_row, v_column);
+    half2 result1 = {};
+    half2 result2 = {};
+
+    for (int i = 0; i < count; i++)
+    {
+        uint32_t v1_read = *v1_ptr; v1_ptr += v1_.width;
+        uint32_t v2_read = *v2_ptr; v2_ptr += v2_.width;
+
+        half v1_0 = __int2half_rn((int)((v1_read      ) & 0x0f) - v1_zero);
+        half v1_1 = __int2half_rn((int)((v1_read >>  4) & 0x0f) - v1_zero);
+        half v1_2 = __int2half_rn((int)((v1_read >>  8) & 0x0f) - v1_zero);
+        half v1_3 = __int2half_rn((int)((v1_read >> 12) & 0x0f) - v1_zero);
+        half v1_4 = __int2half_rn((int)((v1_read >> 16) & 0x0f) - v1_zero);
+        half v1_5 = __int2half_rn((int)((v1_read >> 20) & 0x0f) - v1_zero);
+        half v1_6 = __int2half_rn((int)((v1_read >> 24) & 0x0f) - v1_zero);
+        half v1_7 = __int2half_rn((int)((v1_read >> 28)       ) - v1_zero);
+
+        half v2_0 = __int2half_rn((int)((v2_read      ) & 0x0f) - v2_zero);
+        half v2_1 = __int2half_rn((int)((v2_read >>  4) & 0x0f) - v2_zero);
+        half v2_2 = __int2half_rn((int)((v2_read >>  8) & 0x0f) - v2_zero);
+        half v2_3 = __int2half_rn((int)((v2_read >> 12) & 0x0f) - v2_zero);
+        half v2_4 = __int2half_rn((int)((v2_read >> 16) & 0x0f) - v2_zero);
+        half v2_5 = __int2half_rn((int)((v2_read >> 20) & 0x0f) - v2_zero);
+        half v2_6 = __int2half_rn((int)((v2_read >> 24) & 0x0f) - v2_zero);
+        half v2_7 = __int2half_rn((int)((v2_read >> 28)       ) - v2_zero);
+
+        half2 v1_01 = __halves2half2(v1_0, v1_1);
+        half2 v1_23 = __halves2half2(v1_2, v1_3);
+        half2 v1_45 = __halves2half2(v1_4, v1_5);
+        half2 v1_67 = __halves2half2(v1_6, v1_7);
+
+        half2 v2_01 = __halves2half2(v2_0, v2_1);
+        half2 v2_23 = __halves2half2(v2_2, v2_3);
+        half2 v2_45 = __halves2half2(v2_4, v2_5);
+        half2 v2_67 = __halves2half2(v2_6, v2_7);
+
+        v1_01 = __hmul2(v1_01, v1_scale_2);
+        v1_23 = __hmul2(v1_23, v1_scale_2);
+        v1_45 = __hmul2(v1_45, v1_scale_2);
+        v1_67 = __hmul2(v1_67, v1_scale_2);
+
+        v2_01 = __hmul2(v2_01, v2_scale_2);
+        v2_23 = __hmul2(v2_23, v2_scale_2);
+        v2_45 = __hmul2(v2_45, v2_scale_2);
+        v2_67 = __hmul2(v2_67, v2_scale_2);
+
+        half2 h_01 = *h_ptr++;
+        half2 h_23 = *h_ptr++;
+        half2 h_45 = *h_ptr++;
+        half2 h_67 = *h_ptr++;
+
+        result1 = __hfma2(h_01, v1_01, result1);
+        result1 = __hfma2(h_23, v1_23, result1);
+        result1 = __hfma2(h_45, v1_45, result1);
+        result1 = __hfma2(h_67, v1_67, result1);
+
+        result2 = __hfma2(h_01, v2_01, result2);
+        result2 = __hfma2(h_23, v2_23, result2);
+        result2 = __hfma2(h_45, v2_45, result2);
+        result2 = __hfma2(h_67, v2_67, result2);
+    }
+
+    half result1_ = __hadd(result1.x, result1.y);
+    half result2_ = __hadd(result2.x, result2.y);
+
+    return __hadd2(acc, __halves2half2(result1_, result2_));
+}
+
 #endif

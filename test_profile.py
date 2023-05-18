@@ -6,9 +6,9 @@ import torch
 import cProfile, pstats, io
 from pstats import SortKey
 
-tokenizer_model_path = "/mnt/Fast/models/llama-7b-4bit-128g/tokenizer.model"
-model_config_path = "/mnt/Fast/models/llama-7b-4bit-128g/config.json"
-model_path = "/mnt/Fast/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
+tokenizer_model_path = "/mnt/str/models/llama-7b-4bit-128g/tokenizer.model"
+model_config_path = "/mnt/str/models/llama-7b-4bit-128g/config.json"
+model_path = "/mnt/str/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
 
 tokenizer = ExLlamaTokenizer(tokenizer_model_path)
 
@@ -17,20 +17,16 @@ config.model_path = model_path
 model = ExLlama(config)
 cache = ExLlamaCache(model)
 
-gen_tokens = 128
-ids = torch.randint(0, 31999, (1, config.max_seq_len - gen_tokens))
+ids = torch.randint(0, 31999, (1, 1024))
 
 pr = cProfile.Profile()
 pr.enable()
 
 with torch.no_grad():
-    model.forward(ids, cache)
+    for i in range(128):
+        model.forward(ids, cache)
+        ids = torch.randint(0, 31999, (1, 1))
     cache.current_seq_len = 0
-    model.forward(ids, cache)
-    cache.current_seq_len = 0
-    model.forward(ids, cache)
-    cache.current_seq_len = 0
-    model.forward(ids, cache)
 
 pr.disable()
 s = io.StringIO()

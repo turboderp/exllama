@@ -8,9 +8,9 @@ import torch
 # correct mask at least works for SDP, although it probably leaves some performance on the table.
 # TODO: Make it not be the way that it is but so that it works instead.
 
-tokenizer_model_path = "/mnt/Fast/models/llama-7b-4bit-128g/tokenizer.model"
-model_config_path = "/mnt/Fast/models/llama-7b-4bit-128g/config.json"
-model_path = "/mnt/Fast/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
+tokenizer_model_path = "/mnt/str/models/llama-7b-4bit-128g/tokenizer.model"
+model_config_path = "/mnt/str/models/llama-7b-4bit-128g/config.json"
+model_path = "/mnt/str/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
 
 config = ExLlamaConfig(model_config_path)
 config.model_path = model_path

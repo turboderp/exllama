@@ -7,28 +7,28 @@ import os
 # TODO: This is a kludge to make the C++ extension load when the library is imported elsewhere. May not be needed
 # with the package installed, if so maybe find better solution.
 
-# TODO: All the CUDA stuff needs some cleanup
-
 library_dir = "../exllama/"
 extension_name = "exllama_ext"
 
 exllama_ext = load(
     name = extension_name,
     sources = [
+        os.path.join(library_dir, "exllama_ext/column_remap.cu"),
         os.path.join(library_dir, "exllama_ext/exllama_ext.cpp"),
-        os.path.join(library_dir, "exllama_ext/q4v2_recons.cu"),
         os.path.join(library_dir, "exllama_ext/q4v2_matmul.cu"),
-        os.path.join(library_dir, "exllama_ext/q4v2_sequential.cu"),
-        os.path.join(library_dir, "exllama_ext/column_remap.cu")
+        os.path.join(library_dir, "exllama_ext/q4v2_mlp.cu"),
+        os.path.join(library_dir, "exllama_ext/q4v2_recons.cu"),
+        os.path.join(library_dir, "exllama_ext/q4v2_sequential.cu")
     ],
-    # verbose = True,
-    # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
+    verbose = True,
+    # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA", "-keep"]
 )
 
-from exllama_ext import q4v2_recons
-from exllama_ext import q4v2_matmul
-from exllama_ext import q4v2_sequential
 from exllama_ext import column_remap
+from exllama_ext import q4v2_matmul
+from exllama_ext import q4v2_mlp
+from exllama_ext import q4v2_recons
+from exllama_ext import q4v2_sequential
 
 # Dummy tensor to pass instead of g_idx since there is no way to pass "None" to a C++ extension
 
@@ -93,22 +93,21 @@ def _matmul_q4v2_recons(x, w, scales, zeros, seq_g_idx, x_map, transpose = False
 
 # Matrix multiplication, returns x @ 4-bit matrix (qweight, scales, zeros, g_idx)
 
-def matmul_q4v2(x, w, scales, zeros, seq_g_idx, x_map, auto_switch_thd = 6):
+def matmul_q4v2(x, quant_args, switch):
 
-    # Switch over to reconstruction and PyTorch matmul for tall enough left-hand matrices
-
-    if auto_switch_thd == -1: switch = False
-    elif auto_switch_thd == 0: switch = True
-    else:
-        xdp = 1
-        for y in x.shape[:-1]: xdp *= y
-        switch = (xdp > auto_switch_thd)
+    w = quant_args["qweight"]
+    scales = quant_args["scales"]
+    zeros = quant_args["zeros"]
+    seq_g_idx = quant_args["seq_g_idx"]
+    x_map = quant_args["x_map"]
 
     if switch: output = _matmul_q4v2_recons(x, w, scales, zeros, seq_g_idx, x_map)
     else: output = _matmul_q4v2_matmul(x, w, scales, zeros, seq_g_idx, x_map)
 
     return output
 
+
+# Sequentialize groups
 
 def sequential_q4v2(w, g_idx, num_groups):
 
@@ -120,7 +119,49 @@ def sequential_q4v2(w, g_idx, num_groups):
     return seq_g_idx, x_map
 
 
-# Backpropagation still untested.
+# Llama MLP, compute: (SiLU(x @ gate_proj) * (x @ up_proj)) @ down_proj
+
+def mlp_q4v2(x, gate_proj, up_proj): #, down_proj):
+
+    gate_proj_w = gate_proj["qweight"]
+    gate_proj_scales = gate_proj["scales"]
+    gate_proj_zeros = gate_proj["zeros"]
+    gate_proj_seq_g_idx = gate_proj["seq_g_idx"]
+    gate_proj_x_map = gate_proj["x_map"]
+
+    up_proj_w = up_proj["qweight"]
+    up_proj_scales = up_proj["scales"]
+    up_proj_zeros = up_proj["zeros"]
+    up_proj_seq_g_idx = up_proj["seq_g_idx"]
+    up_proj_x_map = up_proj["x_map"]
+
+    # down_proj_w = down_proj["qweight"]
+    # down_proj_scales = down_proj["scales"]
+    # down_proj_zeros = down_proj["zeros"]
+    # down_proj_seq_g_idx = down_proj["seq_g_idx"]
+    # down_proj_x_map = down_proj["x_map"]
+
+    outshape = x.shape[:-1] + (gate_proj_w.shape[1],)
+    x = x.view(-1, x.shape[-1])
+    output = torch.zeros((x.shape[0], gate_proj_w.shape[-1]), dtype = torch.float16, device = x.device)
+
+    q4v2_mlp(x,
+             output,
+             gate_proj_w,
+             gate_proj_scales,
+             gate_proj_zeros,
+             gate_proj_seq_g_idx if gate_proj_seq_g_idx is not None else none_tensor,
+             gate_proj_x_map if gate_proj_x_map is not None else none_tensor,
+             up_proj_w,
+             up_proj_scales,
+             up_proj_zeros,
+             up_proj_seq_g_idx if up_proj_seq_g_idx is not None else none_tensor,
+             up_proj_x_map if up_proj_x_map is not None else none_tensor)
+
+    return output
+
+
+# Backpropagation still untested. Must be very broken at this point
 
 class ExAutogradMatmul4bitCuda(torch.autograd.Function):
 

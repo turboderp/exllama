@@ -71,6 +71,7 @@ class ExLlamaConfig:
 
         self.groupsize = None  # Autodetected
         self.act_order = False  # Autodetected
+        self.auto_switch_thd = optimal_switch_thd  # Determined by matmul_method during model load
 
         # Required settings
 
@@ -91,6 +92,15 @@ def _dump_tensor(t, name):
 
     t.cpu().numpy().tofile(name)
 
+def _matmul_switch(config, x):
+
+    if config.auto_switch_thd == -1: return False
+    elif config.auto_switch_thd == 0: return True
+    else:
+        xdp = 1
+        for y in x.shape[:-1]: xdp *= y
+        return xdp > config.auto_switch_thd
+
 
 class Ex4bitLinear(nn.Module):
 
@@ -109,19 +119,19 @@ class Ex4bitLinear(nn.Module):
         self.has_x_map = False
         self.has_seq_g_idx = False
 
-        self.register_buffer('qweight', tensors[key + ".qweight"])
+        self.qweight = tensors[key + ".qweight"]
 
         if self.config.is_v1_model:
 
             # TODO: v1 models are currently untested. Test some. Maybe? Are they still relevant?
 
-            self.register_buffer('zeros', tensors[key + ".zeros"])
-            self.register_buffer('scales', tensors[key + ".scales"])
+            self.zeros = tensors[key + ".zeros"]
+            self.scales = tensors[key + ".scales"]
 
         else:
 
-            self.register_buffer('qzeros', tensors[key + ".qzeros"])
-            self.register_buffer('scales', tensors[key + ".scales"])
+            self.qzeros = tensors[key + ".qzeros"]
+            self.scales = tensors[key + ".scales"]
 
             # Infer groupsize from height of qzeros
             # TODO: Figure out if there are quantized models with irregular groupsize
@@ -144,9 +154,8 @@ class Ex4bitLinear(nn.Module):
 
                 g_idx = tensors[key + ".g_idx"]
                 num_groups = self.qzeros.shape[0]
-                seq_g_idx, x_map = quant_util.sequential_q4v2(self.qweight, g_idx, num_groups)
+                seq_g_idx, self.x_map = quant_util.sequential_q4v2(self.qweight, g_idx, num_groups)
 
-                self.register_buffer('x_map', x_map)
                 self.has_x_map = True
 
                 # Discard group index if sequential groups all have the same groupsize. Treat as regular groupsize
@@ -165,52 +174,50 @@ class Ex4bitLinear(nn.Module):
                 if not discard:
 
                     self.has_seq_g_idx = True
-                    self.register_buffer('seq_g_idx', seq_g_idx)
+                    self.seq_g_idx = seq_g_idx
 
         # Bias
 
-        if self.has_bias: self.register_buffer('bias', tensors[key + ".bias"])
+        if self.has_bias: self.bias = tensors[key + ".bias"]
+
+        # Quant args dict
+
+        zeros = self.qzeros if not self.config.is_v1_model else self.zeros
+        self.quant_args = {"qweight": self.qweight,
+                           "scales": self.scales,
+                           "zeros": zeros,
+                           "seq_g_idx": self.seq_g_idx if self.has_seq_g_idx else None,
+                           "x_map": self.x_map if self.has_x_map else None}
 
 
     def forward(self, x):
 
-        zeros = self.qzeros if not self.config.is_v1_model else self.zeros
-
         if torch.is_grad_enabled():
 
+            # Untested
             out = quant_util.ExAutogradMatmul4bitCuda.apply(x, self.qweight, self.scales, zeros, self.groupsize, self.bits, self.maxq)
 
         else:
 
-            if self.config.matmul_method == ExLlamaConfig.MatmulMethod.QUANT_ONLY: auto_switch_thd = -1
-            elif self.config.matmul_method == ExLlamaConfig.MatmulMethod.SWITCHED: auto_switch_thd = optimal_switch_thd
-            elif self.config.matmul_method == ExLlamaConfig.MatmulMethod.PYTORCH_ONLY: auto_switch_thd = 0
-            else: raise ValueError("Wut?")
+            out = quant_util.matmul_q4v2(x, self.quant_args, _matmul_switch(self.config, x))
+            if self.has_bias: out += self.bias
 
-            out = quant_util.matmul_q4v2(x,
-                                         self.qweight,
-                                         self.scales,
-                                         zeros,
-                                         self.seq_g_idx if self.has_seq_g_idx else None,
-                                         self.x_map if self.has_x_map else None,
-                                         auto_switch_thd = auto_switch_thd)
+        # if self.key == "model.layers.0.mlp.gate_proj":
+        #
+        #     _dump_tensor(x, "cuda_test/model.layers.0.mlp.gate_proj.x")
+        #     _dump_tensor(self.qweight, "cuda_test/model.layers.0.mlp.gate_proj.qweight")
+        #     _dump_tensor(self.scales, "cuda_test/model.layers.0.mlp.gate_proj.scales")
+        #     _dump_tensor(self.qzeros, "cuda_test/model.layers.0.mlp.gate_proj.qzeros")
+        #     _dump_tensor(out, "cuda_test/model.layers.0.mlp.gate_proj.out")
+        #     _dump_tensor(self.g_idx, "cuda_test/model.layers.0.mlp.gate_proj.g_idx")
+        #     sys.exit()
 
-            # if self.key == "model.layers.0.mlp.gate_proj":
-            #
-            #     _dump_tensor(x, "cuda_test/model.layers.0.mlp.gate_proj.x")
-            #     _dump_tensor(self.qweight, "cuda_test/model.layers.0.mlp.gate_proj.qweight")
-            #     _dump_tensor(self.scales, "cuda_test/model.layers.0.mlp.gate_proj.scales")
-            #     _dump_tensor(self.qzeros, "cuda_test/model.layers.0.mlp.gate_proj.qzeros")
-            #     _dump_tensor(out, "cuda_test/model.layers.0.mlp.gate_proj.out")
-            #     _dump_tensor(self.g_idx, "cuda_test/model.layers.0.mlp.gate_proj.g_idx")
-            #     sys.exit()
-
-
-        if self.has_bias: out += self.bias
         return out
 
 
-# Llama MLP, fused: down(act(gate(x)) * up(x))  # TODO: This.
+# Llama MLP, fused: down(act(gate(x)) * up(x))
+#
+# Only supports no-act-order models and is currently about 5% slower than regular MLP, so disabled for now.
 
 class ExLlamaFusedMLP(nn.Module):
 
@@ -220,17 +227,24 @@ class ExLlamaFusedMLP(nn.Module):
         self.config = config
 
         self.gate_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".gate_proj")
-        self.down_proj = Ex4bitLinear(config, self.config.intermediate_size, self.config.hidden_size, False, tensors, key + ".down_proj")
         self.up_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".up_proj")
+        self.down_proj = Ex4bitLinear(config, self.config.intermediate_size, self.config.hidden_size, False, tensors, key + ".down_proj")
 
         self.act_fn = nn.SiLU()
 
     def forward(self, x):
 
-        y = self.gate_proj(x)
-        y = self.act_fn(y)
-        y *= self.up_proj(x)
-        y = self.down_proj(y)
+        if _matmul_switch(self.config, x):
+
+            y = self.gate_proj(x)
+            y = self.act_fn(y)
+            y *= self.up_proj(x)
+            y = self.down_proj(y)
+
+        else:
+
+            y = quant_util.mlp_q4v2(x, self.gate_proj.quant_args, self.up_proj.quant_args)
+            y = quant_util.matmul_q4v2(y, self.down_proj.quant_args, False)
 
         return y
 
@@ -381,7 +395,7 @@ class ExLlamaDecoderLayer(nn.Module):
         self.index = index
 
         self.self_attn = ExLlamaAttention(self.config, tensors, key + ".self_attn", sin, cos, self.index)
-        self.mlp = ExLlamaFusedMLP(self.config, tensors, key + ".mlp")
+        self.mlp = ExLlamaMLP(self.config, tensors, key + ".mlp")
 
         self.input_layernorm = ExLlamaRMSNorm(self.config, tensors, key + ".input_layernorm.weight")
         self.post_attention_layernorm = ExLlamaRMSNorm(self.config, tensors, key + ".post_attention_layernorm.weight")
@@ -531,6 +545,13 @@ class ExLlama(nn.Module):
             modules.append(layer)
 
         self.layers = nn.ModuleList(modules)
+
+        # Additional setup
+
+        if self.config.matmul_method == ExLlamaConfig.MatmulMethod.QUANT_ONLY: self.config.auto_switch_thd = -1
+        elif self.config.matmul_method == ExLlamaConfig.MatmulMethod.SWITCHED: self.config.auto_switch_thd = optimal_switch_thd
+        elif self.config.matmul_method == ExLlamaConfig.MatmulMethod.PYTORCH_ONLY: self.config.auto_switch_thd = 0
+        else: raise ValueError("Wut?")
 
 
     def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False):

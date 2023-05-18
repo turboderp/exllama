@@ -7,6 +7,7 @@
 
 #include "column_remap.h"
 #include "q4v2_matmul.h"
+#include "q4v2_mlp.h"
 #include "q4v2_recons.h"
 #include "q4v2_sequential.h"
 #include "util.h"
@@ -55,7 +56,7 @@ void q4v2_matmul
     TORCH_CHECK(w.dtype() == torch::kInt, "w must be an int (q4) tensor");
     TORCH_CHECK(out.dtype() == torch::kHalf, "out must be a half tensor");
     TORCH_CHECK(w_scales.dtype() == torch::kHalf, "w_scales must be a half tensor");
-    TORCH_CHECK(w_zeros.dtype() == torch::kInt, "w_zeros must be an int tensor");
+    TORCH_CHECK(w_zeros.dtype() == torch::kInt, "w_zeros must be an int (q4) tensor");
 
     TORCH_CHECK(x.size(1) == w.size(0) * 8, "x and w have incompatible shapes");
     TORCH_CHECK(x.size(1) % 256 == 0, "x.shape[1] must be multiple of 256");
@@ -195,9 +196,80 @@ void column_remap
 }
 
 
+// Unfinished. Works for no-act-order models but is still 5% slower than regular MLP with quantized layers
+
+void q4v2_mlp
+(
+    torch::Tensor x,
+    torch::Tensor out,
+    torch::Tensor gate,
+    torch::Tensor gate_scales,
+    torch::Tensor gate_zeros,
+    torch::Tensor gate_seq_g_idx,
+    torch::Tensor gate_x_map,
+    torch::Tensor up,
+    torch::Tensor up_scales,
+    torch::Tensor up_zeros,
+    torch::Tensor up_seq_g_idx,
+    torch::Tensor up_x_map
+)
+{
+    TORCH_CHECK(x.dtype() == torch::kHalf, "x must be a half tensor");
+    TORCH_CHECK(out.dtype() == torch::kHalf, "out must be a half tensor");
+    TORCH_CHECK(gate.dtype() == torch::kInt, "gate must be an int (q4) tensor");
+    TORCH_CHECK(up.dtype() == torch::kInt, "up must be an int (q4) tensor");
+    TORCH_CHECK(gate_scales.dtype() == torch::kHalf, "gate_scales must be a half tensor");
+    TORCH_CHECK(up_scales.dtype() == torch::kHalf, "up_scales must be a half tensor");
+    TORCH_CHECK(gate_zeros.dtype() == torch::kInt, "gate_zeros must be an int (q4) tensor");
+    TORCH_CHECK(up_zeros.dtype() == torch::kInt, "up_zeros must be an int (q4) tensor");
+
+    TORCH_CHECK(x.size(1) == gate.size(0) * 8, "x and gate have incompatible shapes");
+    TORCH_CHECK(x.size(1) == gate.size(0) * 8, "x and up have incompatible shapes");
+    TORCH_CHECK(x.size(1) % 256 == 0, "x.shape[1] must be multiple of 256");
+
+    TORCH_CHECK(gate_seq_g_idx.device().is_meta() || gate_seq_g_idx.size(0) == gate.size(0) * 2 * 8, "gate_seq_g_idx and gate have incompatible shapes");
+    TORCH_CHECK(up_seq_g_idx.device().is_meta() || up_seq_g_idx.size(0) == gate.size(0) * 2 * 8, "up_seq_g_idx and up have incompatible shapes");
+    TORCH_CHECK(gate_x_map.device().is_meta() || gate_x_map.size(0) == gate.size(0) * 8, "gate_x_map and gate have incompatible shapes");
+    TORCH_CHECK(up_x_map.device().is_meta() || up_x_map.size(0) == gate.size(0) * 8, "up_x_map and up have incompatible shapes");
+
+    int groupsize = gate.size(0) * 8 / gate_zeros.size(0);
+    TORCH_CHECK(groupsize * gate_zeros.size(0) == gate.size(0) * 8, "gate.shape[0] must be a multiple of gate_zeros.shape[0]")
+
+    int height = x.size(0);
+    int dim = x.size(1);
+    int width = gate.size(1);
+
+    _cuda_raise(
+        q4v2_mlp_cuda
+        (
+            (half*) x.data_ptr(),
+            (half*) out.data_ptr(),
+
+            (uint32_t*) gate.data_ptr(),
+            (half*) gate_scales.data_ptr(),
+            (uint32_t*) gate_zeros.data_ptr(),
+            gate_seq_g_idx.device().is_meta() ? NULL : (uint16_t*) gate_seq_g_idx.data_ptr(),
+            gate_x_map.device().is_meta() ? NULL : (uint32_t*) gate_x_map.data_ptr(),
+
+            (uint32_t*) up.data_ptr(),
+            (half*) up_scales.data_ptr(),
+            (uint32_t*) up_zeros.data_ptr(),
+            up_seq_g_idx.device().is_meta() ? NULL : (uint16_t*) up_seq_g_idx.data_ptr(),
+            up_x_map.device().is_meta() ? NULL : (uint32_t*) up_x_map.data_ptr(),
+
+            height,
+            dim,
+            width,
+            groupsize
+        )
+    );
+}
+
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
   m.def("q4v2_matmul", &q4v2_matmul, "q4v2 matrix multiplication");
+  m.def("q4v2_mlp", &q4v2_mlp, "q4v2 llama mlp");
   m.def("q4v2_recons", &q4v2_recons, "q4v2 matrix reconstruction");
   m.def("q4v2_sequential", &q4v2_sequential, "q4v2 matrix serialization");
   m.def("column_remap", &column_remap, "half matrix column remapping");
