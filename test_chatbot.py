@@ -21,6 +21,7 @@ parser.add_argument("-m", "--model", type = str, help = "Model weights path (.pt
 
 parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP)
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
+parser.add_argument("-s", "--stream", type = int, help = "Stream layer interval", default = 0)
 
 parser.add_argument("-l", "--length", type = int, help = "Maximum sequence length", default = 2048)
 
@@ -57,6 +58,7 @@ print_opts.append("attention: " + str(args.attention))
 print_opts.append("matmul: " + str(args.matmul))
 if args.no_newline: print_opts.append("no_newline")
 if args.botfirst: print_opts.append("botfirst")
+if args.stream > 0: print_opts.append(f"stream: {args.stream}")
 
 print(f" -- Options: {print_opts}")
 
@@ -78,6 +80,7 @@ config = ExLlamaConfig(args.config)
 config.model_path = args.model
 config.attention_method = args.attention
 config.matmul_method = args.matmul
+config.stream_layer_interval = args.stream
 if args.length is not None: config.max_seq_len = args.length
 
 model = ExLlama(config)

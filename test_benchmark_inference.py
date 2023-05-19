@@ -18,7 +18,7 @@ torch_devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
 
 class ModelWrapper:
 
-    def __init__(self, tokenizer_model_path, model_config_path, model_path, attention, matmul, length):
+    def __init__(self, tokenizer_model_path, model_config_path, model_path, attention, matmul, length, stream):
 
         self.tokenizer_model_path = tokenizer_model_path
         self.model_config_path = model_config_path
@@ -34,6 +34,8 @@ class ModelWrapper:
         # config.device_map.layers[:] = ["cuda:1"] * 40
         # config.device_map.lm_head = "cuda:1"
         # config.device_map.norm = "cuda:1"
+
+        config.stream_layer_interval = stream
 
         config.attention_method = attention
         config.matmul_method = matmul
@@ -100,6 +102,7 @@ parser.add_argument("-m", "--model", type = str, help = "Model weights path (.pt
 
 parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP)
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
+parser.add_argument("-s", "--stream", type = int, help = "Stream layer interval", default = 0)
 
 parser.add_argument("-l", "--length", type = int, help = "Maximum sequence length", default = 2048)
 parser.add_argument("-p", "--perf", action = "store_true", help = "Benchmark speed and VRAM usage")
@@ -120,12 +123,13 @@ print_opts.append("attention: " + str(args.attention))
 print_opts.append("matmul: " + str(args.matmul))
 if args.perf: print_opts.append("perf")
 if args.perplexity: print_opts.append("ppl")
+if args.stream > 0: print_opts.append(f"stream: {args.stream}")
 
 print(f" -- Options: {print_opts}")
 
 # Instantiate model
 
-wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer, args.config, args.model, args.attention, args.matmul, args.length))
+wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer, args.config, args.model, args.attention, args.matmul, args.length, args.stream))
 
 print(f" -- Groupsize (inferred): {wrapper.model.config.groupsize if wrapper.model.config.groupsize is not None else 'None'}")
 print(f" -- Act-order (inferred): {'yes' if wrapper.model.config.act_order else 'no'}")

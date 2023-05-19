@@ -4,7 +4,7 @@
 
 const int THREADS_X = 256;
 const int THREADS_Y = 1;
-const int MAX_DIMENSION = 8192;
+// const int MAX_DIMENSION = 8192;
 
 __device__ __forceinline__ half silu(half x)
 {

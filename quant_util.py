@@ -20,8 +20,8 @@ exllama_ext = load(
         os.path.join(library_dir, "exllama_ext/q4v2_recons.cu"),
         os.path.join(library_dir, "exllama_ext/q4v2_sequential.cu")
     ],
-    verbose = True,
-    # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA", "-keep"]
+    # verbose = True,
+    # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
 )
 
 from exllama_ext import column_remap

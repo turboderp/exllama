@@ -6,6 +6,7 @@ import quant_util
 import json
 import math
 from enum import Enum
+import threading
 import sys
 
 # Magic numbers
@@ -79,8 +80,8 @@ class ExLlamaConfig:
 
         # Optional settings
 
+        self.stream_layer_interval = 0  # Store every nth layer in system RAM and
         self.max_seq_len = 2048  # Reduce to save memory. Can also be increased, but the pretrained models produce degenerate output after 2048 tokens in any case. Should be possible to finetune for longer sequence lengths.
-        self.is_v1_model = False  # TODO: Sort out v1 models?
         self.attention_method = self.AttentionMethod.PYTORCH_SCALED_DP
         self.matmul_method = self.MatmulMethod.SWITCHED
         self.device_map = ExLlamaDeviceMap(self.num_hidden_layers)
@@ -115,79 +116,113 @@ class Ex4bitLinear(nn.Module):
         self.bits = 4  # Only support 4 bits for now
 
         self.maxq = 2 ** self.bits - 1
-        self.has_bias = has_bias
-        self.has_x_map = False
-        self.has_seq_g_idx = False
+        self.bias = None
+        self.x_map = None
+        self.seq_g_idx = None
 
         self.qweight = tensors[key + ".qweight"]
 
-        if self.config.is_v1_model:
+        self.qzeros = tensors[key + ".qzeros"]
+        self.scales = tensors[key + ".scales"]
 
-            # TODO: v1 models are currently untested. Test some. Maybe? Are they still relevant?
+        # Infer groupsize from height of qzeros
+        # TODO: Figure out if there are quantized models with irregular groupsize
 
-            self.zeros = tensors[key + ".zeros"]
-            self.scales = tensors[key + ".scales"]
+        self.groupsize = (self.qweight.shape[0] * 8) // self.qzeros.shape[0]
 
+        if self.config.groupsize is None:
+            self.config.groupsize = self.groupsize
         else:
+            if self.config.groupsize != self.groupsize:
+                raise ValueError("Irregular groupsize for matrix: " + key)
 
-            self.qzeros = tensors[key + ".qzeros"]
-            self.scales = tensors[key + ".scales"]
+        # Handle act-order matrix
 
-            # Infer groupsize from height of qzeros
-            # TODO: Figure out if there are quantized models with irregular groupsize
+        if key + ".g_idx" in tensors:
 
-            self.groupsize = (self.qweight.shape[0] * 8) // self.qzeros.shape[0]
+            self.config.act_order = True
 
-            if self.config.groupsize is None:
-                self.config.groupsize = self.groupsize
-            else:
-                if self.config.groupsize != self.groupsize:
-                    raise ValueError("Irregular groupsize for matrix: " + key)
+            # Rearrange groups sequentially for act-order matrices
 
-            # Handle act-order matrix
+            g_idx = tensors[key + ".g_idx"]
+            num_groups = self.qzeros.shape[0]
+            seq_g_idx, self.x_map = quant_util.sequential_q4v2(self.qweight, g_idx, num_groups)
 
-            if key + ".g_idx" in tensors:
+            # Discard group index if sequential groups all have the same groupsize. Treat as regular groupsize
+            # matrix but keep the x_map
 
-                self.config.act_order = True
+            i = 0
+            j = 0
+            discard = True
+            while i < seq_g_idx.shape[-1]:
+                if seq_g_idx[i].item() != j or seq_g_idx[i + 1].item() != self.groupsize:
+                    discard = False
+                    break
+                i += self.groupsize * 2
+                j += 1
 
-                # Rearrange groups sequentially for act-order matrices
+            if not discard:
 
-                g_idx = tensors[key + ".g_idx"]
-                num_groups = self.qzeros.shape[0]
-                seq_g_idx, self.x_map = quant_util.sequential_q4v2(self.qweight, g_idx, num_groups)
-
-                self.has_x_map = True
-
-                # Discard group index if sequential groups all have the same groupsize. Treat as regular groupsize
-                # matrix but keep the x_map
-
-                i = 0
-                j = 0
-                discard = True
-                while i < seq_g_idx.shape[-1]:
-                    if seq_g_idx[i].item() != j or seq_g_idx[i + 1].item() != self.groupsize:
-                        discard = False
-                        break
-                    i += self.groupsize * 2
-                    j += 1
-
-                if not discard:
-
-                    self.has_seq_g_idx = True
-                    self.seq_g_idx = seq_g_idx
+                self.seq_g_idx = seq_g_idx
 
         # Bias
 
-        if self.has_bias: self.bias = tensors[key + ".bias"]
+        if has_bias: self.bias = tensors[key + ".bias"]
 
-        # Quant args dict
 
-        zeros = self.qzeros if not self.config.is_v1_model else self.zeros
-        self.quant_args = {"qweight": self.qweight,
-                           "scales": self.scales,
-                           "zeros": zeros,
-                           "seq_g_idx": self.seq_g_idx if self.has_seq_g_idx else None,
-                           "x_map": self.x_map if self.has_x_map else None}
+    def quant_args(self):
+
+        return {"qweight": self.qweight,
+                "scales": self.scales,
+                "zeros": self.qzeros,
+                "seq_g_idx": self.seq_g_idx,
+                "x_map": self.x_map}
+
+
+    cpu_qweight: torch.Tensor
+    cpu_scales: torch.Tensor
+    cpu_qzeros: torch.Tensor
+    cpu_seq_g_idx: torch.Tensor
+    cpu_x_map: torch.Tensor
+
+    def convert_streaming(self, stream_linear):
+
+        # Copy tensors to CPU
+
+        self.cpu_qweight = self.qweight.to("cpu")
+        self.cpu_scales = self.scales.to("cpu")
+        self.cpu_qzeros = self.qzeros.to("cpu")
+        self.cpu_seq_g_idx = self.seq_g_idx.to("cpu") if self.seq_g_idx is not None else None
+        self.x_map = self.x_map.to("cpu") if self.x_map is not None else None
+        self.bias = self.bias.to("cpu") if self.x_map is not None else None
+
+        # Replace reference with linear provided by stream buffer
+
+        self.qweight = stream_linear.qweight
+        self.scales = stream_linear.scales
+        self.qzeros = stream_linear.qzeros
+        self.seq_g_idx = stream_linear.seq_g_idx
+        self.x_map = stream_linear.x_map
+        self.bias = stream_linear.bias
+
+        self.streaming = True
+
+
+    streaming: bool = False
+    is_loaded: bool = False
+
+    def load_streaming(self):
+
+        # Own references point to the same tensors as all other streamed linears, CPU copies are unique to this linear
+
+        self.qweight.copy_(self.cpu_qweight, non_blocking = True)
+        self.scales.copy_(self.cpu_scales, non_blocking = True)
+        self.qzeros.copy_(self.cpu_qzeros, non_blocking = True)
+        if self.seq_g_idx is not None: self.seq_g_idx.copy_(self.cpu_seq_g_idx, non_blocking = True)
+        if self.x_map is not None: self.x_map.copy_(self.cpu_x_map, non_blocking = True)
+        if self.bias is not None: self.bias.copy_(self.cpu_x_map, non_blocking = True)
+
+        self.is_loaded = True
 
 
     def forward(self, x):
@@ -195,12 +230,12 @@ class Ex4bitLinear(nn.Module):
         if torch.is_grad_enabled():
 
             # Untested
-            out = quant_util.ExAutogradMatmul4bitCuda.apply(x, self.qweight, self.scales, zeros, self.groupsize, self.bits, self.maxq)
+            out = quant_util.ExAutogradMatmul4bitCuda.apply(x, self.qweight, self.scales, self.qzeros, self.groupsize, self.bits, self.maxq)
 
         else:
 
-            out = quant_util.matmul_q4v2(x, self.quant_args, _matmul_switch(self.config, x))
-            if self.has_bias: out += self.bias
+            out = quant_util.matmul_q4v2(x, self.quant_args(), _matmul_switch(self.config, x))
+            if self.bias is not None: out += self.bias
 
         # if self.key == "model.layers.0.mlp.gate_proj":
         #
@@ -243,8 +278,8 @@ class ExLlamaFusedMLP(nn.Module):
 
         else:
 
-            y = quant_util.mlp_q4v2(x, self.gate_proj.quant_args, self.up_proj.quant_args)
-            y = quant_util.matmul_q4v2(y, self.down_proj.quant_args, False)
+            y = quant_util.mlp_q4v2(x, self.gate_proj.quant_args(), self.up_proj.quant_args)
+            y = quant_util.matmul_q4v2(y, self.down_proj.quant_args(), False)
 
         return y
 
@@ -442,6 +477,92 @@ class ExLlamaCache:
             self.value_states.append(p_value_states)
 
 
+# Layer streaming
+# TODO: Currently assumes single GPU
+
+class ExLlamaStreamer:
+
+    mlp_gate_proj: Ex4bitLinear
+    mlp_up_proj: Ex4bitLinear
+    mlp_down_proj: Ex4bitLinear
+
+    self_attn_q_proj: Ex4bitLinear
+    self_attn_k_proj: Ex4bitLinear
+    self_attn_v_proj: Ex4bitLinear
+    self_attn_o_proj: Ex4bitLinear
+
+    # Copy the first layer to be streamed
+
+    def __init__(self, config, layer):
+
+        self.config = config
+
+        # Reference all relevant tensors in the first layer. All linears in subsequent layers will reference these
+        # and dereference their own while maintaining CPU copies
+
+        self.mlp_gate_proj = layer.mlp.gate_proj
+        self.mlp_up_proj = layer.mlp.up_proj
+        self.mlp_down_proj = layer.mlp.down_proj
+
+        self.self_attn_q_proj = layer.self_attn.q_proj
+        self.self_attn_k_proj = layer.self_attn.k_proj
+        self.self_attn_v_proj = layer.self_attn.v_proj
+        self.self_attn_o_proj = layer.self_attn.o_proj
+
+        # Separate CUDA stream for background transfer
+        # TODO: Just using first stream layer device, we really need a stream buffer per device
+
+        self.cuda_stream = torch.cuda.Stream(self.mlp_gate_proj.qweight.device)
+
+
+    # Set up layer for streaming
+
+    def convert_linear(self, self_linear, linear):
+
+        assert self_linear.qweight.shape == linear.qweight.shape
+        assert self_linear.scales.shape == linear.scales.shape
+        assert self_linear.qzeros.shape == linear.qzeros.shape
+        assert self_linear.seq_g_idx is None or self_linear.seq_g_idx.shape == linear.seq_g_idx.shape
+        assert self_linear.x_map is None or self_linear.x_map.shape == linear.x_map.shape
+        assert self_linear.bias is None or self_linear.bias.shape == linear.bias.shape
+
+        linear.convert_streaming(self_linear)
+
+
+    def convert_layer(self, layer):
+
+        self.convert_linear(self.mlp_gate_proj, layer.mlp.gate_proj)
+        self.convert_linear(self.mlp_up_proj, layer.mlp.up_proj)
+        self.convert_linear(self.mlp_down_proj, layer.mlp.down_proj)
+
+        self.convert_linear(self.self_attn_q_proj, layer.self_attn.q_proj)
+        self.convert_linear(self.self_attn_k_proj, layer.self_attn.k_proj)
+        self.convert_linear(self.self_attn_v_proj, layer.self_attn.v_proj)
+        self.convert_linear(self.self_attn_o_proj, layer.self_attn.o_proj)
+
+
+    # Load layer
+
+    def load_layer(self, layer):
+
+        with torch.cuda.stream(self.cuda_stream):
+
+            layer.mlp.gate_proj.load_streaming()
+            layer.mlp.up_proj.load_streaming()
+            layer.mlp.down_proj.load_streaming()
+
+            layer.self_attn.q_proj.load_streaming()
+            layer.self_attn.k_proj.load_streaming()
+            layer.self_attn.v_proj.load_streaming()
+            layer.self_attn.o_proj.load_streaming()
+
+
+    def load_layer_sync(self):
+
+        self.cuda_stream.synchronize()
+
+
+
 # Device map for the model. Currently untested, but should allow for each individual layers to reside on any device.
 # Although the quant stuff probably only works on CUDA. For now.
 
@@ -455,6 +576,7 @@ class ExLlamaDeviceMap:
         self.lm_head = "cuda:0"
         self.norm = "cuda:0"
         self.layers = ["cuda:0"] * self.num_layers
+        self.stream_layer_interval = 0
 
 
     def get_layers_devs(self):
@@ -462,7 +584,7 @@ class ExLlamaDeviceMap:
         return list(set(self.layers))
 
 
-    def map(self, key):
+    def map(self, key, loading = False):
 
         if key.startswith("lm_head."): return self.lm_head
         if key.startswith("model.embed_tokens."): return self.embed_tokens
@@ -470,6 +592,9 @@ class ExLlamaDeviceMap:
 
         if key.startswith("model.layers."):
             num = int(key.split(".")[2])
+            if loading and self.stream_layer_interval > 0 and (num + 1) % self.stream_layer_interval == 0:
+                if key.startswith(f"model.layers.{num}.mlp."): return "cpu"
+                if key.startswith(f"model.layers.{num}.self_attn."): return "cpu"
             return self.layers[num]
 
         raise ValueError("Unknown key: " + key)
@@ -482,6 +607,11 @@ class ExLlama(nn.Module):
         self.eval()
 
         self.config = config
+        self.stream_buffer = None
+
+        # Forward streaming config to device map so we only load the first layer on GPU
+
+        self.config.device_map.stream_layer_interval = self.config.stream_layer_interval
 
         # Load model weights
 
@@ -492,7 +622,7 @@ class ExLlama(nn.Module):
                 if key.endswith("_proj.bias"): continue  # Skip loading unused, empty bias tensors
                 if key.endswith(".rotary_emb.inv_freq"): continue  # This is always precomputed during init anyway
 
-                device = self.config.device_map.map(key)
+                device = self.config.device_map.map(key, loading = True)
                 tensor = f.get_tensor(key)
 
                 if key.endswith(".scales"): tensor = tensor.half()
@@ -537,11 +667,20 @@ class ExLlama(nn.Module):
 
         # Layers
 
+        layer_streaming = self.config.stream_layer_interval > 0
+
         modules = []
         for i in range(self.config.num_hidden_layers):
+
             device = self.config.device_map.layers[i]
             sin, cos = self.sincos[device]
+
             layer = ExLlamaDecoderLayer(self.config, tensors, f"model.layers.{i}", i, sin, cos)
+
+            if layer_streaming and i > 0 and (i + 1) % self.config.stream_layer_interval == 0:
+                if self.stream_buffer is None: self.stream_buffer = ExLlamaStreamer(self.config, layer)  # Use first layer as prototype
+                self.stream_buffer.convert_layer(layer)
+
             modules.append(layer)
 
         self.layers = nn.ModuleList(modules)
@@ -581,10 +720,40 @@ class ExLlama(nn.Module):
 
         # Decoder layers
 
-        for idx, decoder_layer in enumerate(self.layers):
-            device = self.config.device_map.layers[idx]
+        next_streaming_layer = -1
+        background_thread = None
+        layer_streaming = self.config.stream_layer_interval > 0
+
+        if layer_streaming:
+
+            next_streaming_layer = self.config.stream_layer_interval - 1
+            # background_thread = threading.Thread(target = self.stream_buffer.load_layer, args = (self.layers[next_streaming_layer],))
+            # background_thread.start()
+            self.stream_buffer.load_layer(self.layers[next_streaming_layer])
+
+
+        for i, decoder_layer in enumerate(self.layers):
+
+            device = self.config.device_map.layers[i]
             hidden_states = hidden_states.to(device)
-            hidden_states = decoder_layer(hidden_states, cache, attn_masks[device])
+
+            if i == next_streaming_layer:
+
+                # background_thread.join()
+                self.stream_buffer.load_layer_sync()
+
+                hidden_states = decoder_layer(hidden_states, cache, attn_masks[device])
+
+                next_streaming_layer += self.config.stream_layer_interval
+                if next_streaming_layer < len(self.layers):
+                    # background_thread = threading.Thread(target = self.stream_buffer.load_layer, args = (self.layers[next_streaming_layer],))
+                    # background_thread.start()
+                    torch.cuda.synchronize()  # Need to let last streamed layer finish with the buffers
+                    self.stream_buffer.load_layer(self.layers[next_streaming_layer])
+
+            else:
+
+                hidden_states = decoder_layer(hidden_states, cache, attn_masks[device])
 
         cache.current_seq_len += seq_len
 

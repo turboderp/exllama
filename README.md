@@ -116,7 +116,8 @@ slower as well over time.
 ## Todo
 
 - [x] Support for act-order models ~~(a bit slow for now)~~
-- [ ] Support for v1 models without groupsize
+- [x] ~~Support for v1 models without groupsize~~ Nah.
+- [ ] Fix layer streaming 
 - [ ] Tests on a wider range of models and variants
 - [ ] Consider support for loading GGML models
 - [ ] Figure out an apples-to-apples way of comparing perplexity with other implementations
@@ -145,3 +146,6 @@ act-order is quite small now.
 context.) Added error handling to C++/CUDA parts. Cleaned up and simplified the CUDA code a lot, preparing for fused
 layers.
 
+**2023-05-18**: Added basic layer streaming. Experimental for now. Modern GPUs should be designed for concurrent data
+transfer and execution, and there should be enough bandwidth to stream in every *n*th layer while the preceding *n*-1
+layers are processing. It's still too slow to be useful for generation, though. Also doesn't work with multiple GPUs.
