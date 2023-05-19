@@ -62,13 +62,15 @@ Chatbot example:
 ## Results so far
 
 ### New implementation
-|                                     | Seq. len. | VRAM      | Long seq. | Ind.   | Ppl  |
-|-------------------------------------|-----------|-----------|-----------|--------|------|
-| 7B 4bit 128g                        | 2,048 t   | 5,092 MB  | 2,458 t/s | 95 t/s | 6.45 |
-| 13B 4bit 128g                       | 2,048 t   | 8,975 MB  | 1,483 t/s | 62 t/s | 5.62 |
-| 30B 4bit 128g                       | 2,048 t   | 20,544 MB | 1,174 t/s | 31 t/s | 4.60 |
-| 30B 4bit 128g act-order             | 2,048 t   | 20,558 MB | 1,087 t/s | 30 t/s | 4.55 |
-| 30B 4bit 32g act-order <sup>1</sup> | 1,650 t   | 21,437 MB | 908 t/s   | 29 t/s | 4.52 |
+| Model   | Size | groupsize | act  | Seq. len.            | VRAM      | Long seq. | Ind.    | Ppl  |
+|---------|------|-----------|------|----------------------|-----------|-----------|---------|------|
+| Llama   | 7B   | 128       | no   | 2,048 t              | 5,094 MB  | 2,282 t/s | 103 t/s | 6.45 |
+| Llama   | 13B  | 128       | no   | 2,048 t              | 8,975 MB  | 1,908 t/s | 65 t/s  | 5.62 |
+| Llama   | 30B  | 128       | no   | 2,048 t              | 20,544 MB | 1,127 t/s | 32 t/s  | 4.60 |
+| Llama   | 30B  | 128       | yes  | 2,048 t              | 20,558 MB | 1,112 t/s | 31 t/s  | 4.55 |
+| Llama   | 30B  | 32        | yes  | 1,550 t <sup>1</sup> | 21,254 MB | 886 t/s   | 30 t/s  | 4.52 |
+| Koala   | 13B  | 128       | yes  | 2,048 t              | 8,981 MB  | 1,837 t/s | 63 t/s  | 6.73 |
+
 
 <sup>1</sup> Can not achieve full sequence length without OoM (yet)
 
@@ -134,8 +136,6 @@ slower as well over time.
 
 ## Recent updates
 
-**2023-05-16**: Decided to keep a short update log.
-
 **2023-05-16**: Reworked the way act-order models are handled. Rows are now shuffled at load time so zeros and scales
 can be scanned sequentially. Left-hand side of the matmul is shuffled column-wise accordingly. Performance cost for 
 act-order is quite small now.
@@ -149,3 +149,6 @@ layers.
 **2023-05-18**: Added basic layer streaming. Experimental for now. Modern GPUs should be designed for concurrent data
 transfer and execution, and there should be enough bandwidth to stream in every *n*th layer while the preceding *n*-1
 layers are processing. It's still too slow to be useful for generation, though. Also doesn't work with multiple GPUs.
+
+**2023-05-19**: Wrote a CUDA implementation of the layer norm. Turns out it was a bit of a bottleneck for the smaller
+models. Noticeably faster now.

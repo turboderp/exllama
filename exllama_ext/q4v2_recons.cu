@@ -100,12 +100,7 @@ cudaError_t q4v2_recons_cuda
 {
     cudaError_t _cuda_err = cudaSuccess;
 
-    dim3 threads
-    (
-        THREADS_X,
-        THREADS_Y,
-        1
-    );
+    dim3 threads(THREADS_X, THREADS_Y, 1);
 
     dim3 blocks
     (

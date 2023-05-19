@@ -39,7 +39,7 @@ python test_benchmark_inference.py \
 -t /mnt/str/models/llama-30b-4bit-32g-act-ts/tokenizer.model \
 -c /mnt/str/models/llama-30b-4bit-32g-act-ts/config.json \
 -m /mnt/str/models/llama-30b-4bit-32g-act-ts/llama-30b-4bit-32g.safetensors \
--l 1650 \
+-l 1550 \
 -ppl
 
 echo "-----------------------------------------"

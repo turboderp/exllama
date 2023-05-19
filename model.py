@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from safetensors import safe_open
-import quant_util
+import cuda_ext
 import json
 import math
 from enum import Enum
@@ -146,7 +146,7 @@ class Ex4bitLinear(nn.Module):
 
             g_idx = tensors[key + ".g_idx"]
             num_groups = self.qzeros.shape[0]
-            seq_g_idx, self.x_map = quant_util.sequential_q4v2(self.qweight, g_idx, num_groups)
+            seq_g_idx, self.x_map = cuda_ext.sequential_q4v2(self.qweight, g_idx, num_groups)
 
             # Discard group index if sequential groups all have the same groupsize. Treat as regular groupsize
             # matrix but keep the x_map
@@ -230,11 +230,11 @@ class Ex4bitLinear(nn.Module):
         if torch.is_grad_enabled():
 
             # Untested
-            out = quant_util.ExAutogradMatmul4bitCuda.apply(x, self.qweight, self.scales, self.qzeros, self.groupsize, self.bits, self.maxq)
+            out = cuda_ext.ExAutogradMatmul4bitCuda.apply(x, self.qweight, self.scales, self.qzeros, self.groupsize, self.bits, self.maxq)
 
         else:
 
-            out = quant_util.matmul_q4v2(x, self.quant_args(), _matmul_switch(self.config, x))
+            out = cuda_ext.matmul_q4v2(x, self.quant_args(), _matmul_switch(self.config, x))
             if self.bias is not None: out += self.bias
 
         # if self.key == "model.layers.0.mlp.gate_proj":
@@ -278,8 +278,8 @@ class ExLlamaFusedMLP(nn.Module):
 
         else:
 
-            y = quant_util.mlp_q4v2(x, self.gate_proj.quant_args(), self.up_proj.quant_args)
-            y = quant_util.matmul_q4v2(y, self.down_proj.quant_args(), False)
+            y = cuda_ext.mlp_q4v2(x, self.gate_proj.quant_args(), self.up_proj.quant_args)
+            y = cuda_ext.matmul_q4v2(y, self.down_proj.quant_args(), False)
 
         return y
 
@@ -309,7 +309,7 @@ class ExLlamaMLP(nn.Module):
         return y
 
 
-# RMS Layer norm. TODO: Test if upcasting is necessary and/or figure out if the extra allocation matters
+# RMS Layer norm.
 
 class ExLlamaRMSNorm(nn.Module):
 
@@ -318,14 +318,13 @@ class ExLlamaRMSNorm(nn.Module):
 
         self.config = config
         self.variance_epsilon = self.config.rms_norm_eps
-        self.weight = nn.Parameter(tensors[key])
+        self.weight = tensors[key]
 
 
     def forward(self, hidden_states):
-        variance = hidden_states.to(torch.float32).pow(2).mean(-1, keepdim = True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        if self.weight.dtype in [torch.float16, torch.bfloat16]: hidden_states = hidden_states.to(self.weight.dtype)
-        return self.weight * hidden_states
+
+        hidden_states = cuda_ext.llama_rms_norm(hidden_states, self.weight, self.variance_epsilon)
+        return hidden_states
 
 
 # Llama attention
@@ -408,7 +407,16 @@ class ExLlamaAttention(nn.Module):
 
         elif self.config.attention_method == ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP:
 
-            attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask = attention_mask, is_causal = False)
+            # Torch's SDP attention has a built-in causal mask feature which we can use only when there is no past, i.e.
+            # it can only apply a square attention mask. It saves quite a bit of VRAM but in practice Torch seems to use
+            # the same amount of memory at peak anyway. It's also a little slower, and it gives misleading benchmarks
+            # since it doesn't actually apply in the case we're interested in (autoregression.) Disabled for now.
+
+            if True or past_len > 0:
+                attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask = attention_mask, is_causal = False)
+            else:
+                attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask = None, is_causal = True)
+
             attn_output = attn_output.transpose(1, 2)
 
         else: raise ValueError("Wut?")
@@ -560,7 +568,6 @@ class ExLlamaStreamer:
     def load_layer_sync(self):
 
         self.cuda_stream.synchronize()
-
 
 
 # Device map for the model. Currently untested, but should allow for each individual layers to reside on any device.

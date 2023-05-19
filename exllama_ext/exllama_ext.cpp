@@ -10,6 +10,7 @@
 #include "q4v2_mlp.h"
 #include "q4v2_recons.h"
 #include "q4v2_sequential.h"
+#include "rms_norm.h"
 #include "util.h"
 
 
@@ -266,6 +267,42 @@ void q4v2_mlp
 }
 
 
+void rms_norm
+(
+    torch::Tensor x,
+    torch::Tensor w,
+    torch::Tensor out,
+    torch::Tensor scratch,  // shape = (x.shape[0],)
+    float epsilon
+)
+{
+    TORCH_CHECK(x.dtype() == torch::kHalf, "x must be a half tensor");
+    TORCH_CHECK(w.dtype() == torch::kHalf, "w must be a half tensor");
+    TORCH_CHECK(scratch.dtype() == torch::kFloat, "scratch must be a float tensor");
+
+    TORCH_CHECK(x.size(1) == w.size(0), "x and w have incompatible shapes");
+    TORCH_CHECK(x.size(0) == scratch.size(0), "x and scratch have incompatible shapes");
+    TORCH_CHECK(x.size(0) == out.size(0) && x.size(1) == out.size(1), "x and out have incompatible shapes");
+
+    int rows = x.size(0);
+    int dim = x.size(1);
+
+    _cuda_raise(
+        rms_norm_cuda
+        (
+            (half*) x.data_ptr(),
+            (half*) w.data_ptr(),
+            (half*) out.data_ptr(),
+            (float*) scratch.data_ptr(),
+            epsilon,
+            rows,
+            dim
+        )
+    );
+
+}
+
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
   m.def("q4v2_matmul", &q4v2_matmul, "q4v2 matrix multiplication");
@@ -273,4 +310,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
   m.def("q4v2_recons", &q4v2_recons, "q4v2 matrix reconstruction");
   m.def("q4v2_sequential", &q4v2_sequential, "q4v2 matrix serialization");
   m.def("column_remap", &column_remap, "half matrix column remapping");
+  m.def("rms_norm", &rms_norm, "rms norm");
 }

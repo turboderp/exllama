@@ -6,9 +6,9 @@ import torch
 import cProfile, pstats, io
 from pstats import SortKey
 
-tokenizer_model_path = "/mnt/str/models/llama-7b-4bit-128g/tokenizer.model"
-model_config_path = "/mnt/str/models/llama-7b-4bit-128g/config.json"
-model_path = "/mnt/str/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
+tokenizer_model_path = "/mnt/str/models/llama-30b-4bit-128g/tokenizer.model"
+model_config_path = "/mnt/str/models/llama-30b-4bit-128g/config.json"
+model_path = "/mnt/str/models/llama-30b-4bit-128g/llama-30b-4bit-128g.safetensors"
 
 tokenizer = ExLlamaTokenizer(tokenizer_model_path)
 

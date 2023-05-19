@@ -18,7 +18,8 @@ exllama_ext = load(
         os.path.join(library_dir, "exllama_ext/q4v2_matmul.cu"),
         os.path.join(library_dir, "exllama_ext/q4v2_mlp.cu"),
         os.path.join(library_dir, "exllama_ext/q4v2_recons.cu"),
-        os.path.join(library_dir, "exllama_ext/q4v2_sequential.cu")
+        os.path.join(library_dir, "exllama_ext/q4v2_sequential.cu"),
+        os.path.join(library_dir, "exllama_ext/rms_norm.cu")
     ],
     # verbose = True,
     # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
@@ -29,6 +30,7 @@ from exllama_ext import q4v2_matmul
 from exllama_ext import q4v2_mlp
 from exllama_ext import q4v2_recons
 from exllama_ext import q4v2_sequential
+from exllama_ext import rms_norm
 
 # Dummy tensor to pass instead of g_idx since there is no way to pass "None" to a C++ extension
 
@@ -158,7 +160,21 @@ def mlp_q4v2(x, gate_proj, up_proj): #, down_proj):
              up_proj_seq_g_idx if up_proj_seq_g_idx is not None else none_tensor,
              up_proj_x_map if up_proj_x_map is not None else none_tensor)
 
-    return output
+    return output.reshape(outshape)
+
+
+# RMS norm: x = x * w / sqrt(row_mean(x * x) + epsilon)
+
+def llama_rms_norm(x, w, epsilon):
+
+    outshape = x.shape
+    x = x.view(-1, x.shape[-1])
+    scratch = torch.zeros((x.shape[0],), dtype = torch.float32, device = x.device)
+    output = torch.empty_like(x)
+
+    rms_norm(x, w, output, scratch, epsilon)
+
+    return output.view(outshape)
 
 
 # Backpropagation still untested. Must be very broken at this point

@@ -55,4 +55,14 @@ T* cpu_clone(const void* ptr, int num)
     return cpu_ptr;
 }
 
+// Pack two half values into a half2, host version
+
+__host__ inline __half2 pack_half2(__half h1, __half h2)
+{
+    unsigned short s1 = *reinterpret_cast<unsigned short*>(&h1);
+    unsigned short s2 = *reinterpret_cast<unsigned short*>(&h2);
+    ushort2 us2 = make_ushort2(s1, s2);
+    return *reinterpret_cast<__half2*>(&us2);
+}
+
 #endif
