@@ -1,8 +1,8 @@
 
 python test_chatbot.py \
--t /mnt/str/models/llama-30b-4bit-128g/tokenizer.model \
--c /mnt/str/models/llama-30b-4bit-128g/config.json \
--m /mnt/str/models/llama-30b-4bit-128g/llama-30b-4bit-128g.safetensors \
+-t /mnt/str/models/llama-30b-4bit-128g-act/tokenizer.model \
+-c /mnt/str/models/llama-30b-4bit-128g-act/config.json \
+-m /mnt/str/models/llama-30b-4bit-128g-act/llama-30b-4bit-128g.safetensors \
 -un "Jeff" \
 -p prompt_chatbort.txt
 

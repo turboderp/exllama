@@ -123,7 +123,15 @@ def sequential_q4v2(w, g_idx, num_groups):
 
 # Llama MLP, compute: (SiLU(x @ gate_proj) * (x @ up_proj)) @ down_proj
 
-def mlp_q4v2(x, gate_proj, up_proj): #, down_proj):
+def mlp_q4v2(x,
+             x_temp,
+             x_col_temp,
+             x_act_temp,
+             rms_norm_weight,
+             epsilon,
+             gate_proj,
+             up_proj,
+             down_proj):
 
     gate_proj_w = gate_proj["qweight"]
     gate_proj_scales = gate_proj["scales"]
@@ -137,18 +145,21 @@ def mlp_q4v2(x, gate_proj, up_proj): #, down_proj):
     up_proj_seq_g_idx = up_proj["seq_g_idx"]
     up_proj_x_map = up_proj["x_map"]
 
-    # down_proj_w = down_proj["qweight"]
-    # down_proj_scales = down_proj["scales"]
-    # down_proj_zeros = down_proj["zeros"]
-    # down_proj_seq_g_idx = down_proj["seq_g_idx"]
-    # down_proj_x_map = down_proj["x_map"]
+    down_proj_w = down_proj["qweight"]
+    down_proj_scales = down_proj["scales"]
+    down_proj_zeros = down_proj["zeros"]
+    down_proj_seq_g_idx = down_proj["seq_g_idx"]
+    down_proj_x_map = down_proj["x_map"]
 
-    outshape = x.shape[:-1] + (gate_proj_w.shape[1],)
+    outshape = x.shape
     x = x.view(-1, x.shape[-1])
-    output = torch.zeros((x.shape[0], gate_proj_w.shape[-1]), dtype = torch.float16, device = x.device)
 
     q4v2_mlp(x,
-             output,
+             x_temp,
+             x_col_temp,
+             x_act_temp,
+             rms_norm_weight,
+             epsilon,
              gate_proj_w,
              gate_proj_scales,
              gate_proj_zeros,
@@ -158,9 +169,14 @@ def mlp_q4v2(x, gate_proj, up_proj): #, down_proj):
              up_proj_scales,
              up_proj_zeros,
              up_proj_seq_g_idx if up_proj_seq_g_idx is not None else none_tensor,
-             up_proj_x_map if up_proj_x_map is not None else none_tensor)
+             up_proj_x_map if up_proj_x_map is not None else none_tensor,
+             down_proj_w,
+             down_proj_scales,
+             down_proj_zeros,
+             down_proj_seq_g_idx if down_proj_seq_g_idx is not None else none_tensor,
+             down_proj_x_map if down_proj_x_map is not None else none_tensor)
 
-    return output.reshape(outshape)
+    return x.view(outshape)
 
 
 # RMS norm: x = x * w / sqrt(row_mean(x * x) + epsilon)

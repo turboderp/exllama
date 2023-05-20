@@ -184,6 +184,8 @@ void column_remap
     int height = x.size(0);
     int width = x.size(1);
 
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
+
     _cuda_raise(
         column_remap_cuda
         (
@@ -201,50 +203,97 @@ void column_remap
 
 void q4v2_mlp
 (
-    torch::Tensor x,
-    torch::Tensor out,
+    torch::Tensor x,                // shape == (height, dim)
+
+    torch::Tensor x_temp,           // shape == x.shape
+    torch::Tensor x_col_temp,       // shape == (x.shape[0],) == (height,)
+    torch::Tensor x_act_temp,       // shape == (x.shape[0], gate.shape[1]) == (height, width)
+
+    torch::Tensor rms_norm_weight,  // shape == (x.shape[1],) == (dim,)
+    float epsilon,
+
     torch::Tensor gate,
     torch::Tensor gate_scales,
     torch::Tensor gate_zeros,
     torch::Tensor gate_seq_g_idx,
     torch::Tensor gate_x_map,
+
     torch::Tensor up,
     torch::Tensor up_scales,
     torch::Tensor up_zeros,
     torch::Tensor up_seq_g_idx,
-    torch::Tensor up_x_map
+    torch::Tensor up_x_map,
+
+    torch::Tensor down,
+    torch::Tensor down_scales,
+    torch::Tensor down_zeros,
+    torch::Tensor down_seq_g_idx,
+    torch::Tensor down_x_map
 )
 {
-    TORCH_CHECK(x.dtype() == torch::kHalf, "x must be a half tensor");
-    TORCH_CHECK(out.dtype() == torch::kHalf, "out must be a half tensor");
-    TORCH_CHECK(gate.dtype() == torch::kInt, "gate must be an int (q4) tensor");
-    TORCH_CHECK(up.dtype() == torch::kInt, "up must be an int (q4) tensor");
-    TORCH_CHECK(gate_scales.dtype() == torch::kHalf, "gate_scales must be a half tensor");
-    TORCH_CHECK(up_scales.dtype() == torch::kHalf, "up_scales must be a half tensor");
-    TORCH_CHECK(gate_zeros.dtype() == torch::kInt, "gate_zeros must be an int (q4) tensor");
-    TORCH_CHECK(up_zeros.dtype() == torch::kInt, "up_zeros must be an int (q4) tensor");
+    TORCH_CHECK(x.dtype()                   == torch::kHalf,    "x must be a half tensor");
+    TORCH_CHECK(x_temp.dtype()              == torch::kHalf,    "x_temp must be a half tensor");
+    TORCH_CHECK(x_col_temp.dtype()          == torch::kFloat,   "x_col_temp must be a float tensor");
+    TORCH_CHECK(x_act_temp.dtype()          == torch::kHalf,    "x_act_temp must be a half tensor");
+    TORCH_CHECK(rms_norm_weight.dtype()     == torch::kHalf,    "rms_norm_weight must be a half tensor");
 
-    TORCH_CHECK(x.size(1) == gate.size(0) * 8, "x and gate have incompatible shapes");
-    TORCH_CHECK(x.size(1) == gate.size(0) * 8, "x and up have incompatible shapes");
-    TORCH_CHECK(x.size(1) % 256 == 0, "x.shape[1] must be multiple of 256");
+    TORCH_CHECK(gate.dtype()                == torch::kInt,     "gate must be an int (q4) tensor");
+    TORCH_CHECK(gate_scales.dtype()         == torch::kHalf,    "gate_scales must be a half tensor");
+    TORCH_CHECK(gate_zeros.dtype()          == torch::kInt,     "gate_zeros must be an int (q4) tensor");
+    TORCH_CHECK(gate_seq_g_idx.device().is_meta()   || gate_seq_g_idx.dtype()      == torch::kShort,   "gate_seq_idx must be a short tensor");
+    TORCH_CHECK(gate_x_map.device().is_meta()       || gate_x_map.dtype()          == torch::kInt,     "gate_x_map must be an int tensor");
 
-    TORCH_CHECK(gate_seq_g_idx.device().is_meta() || gate_seq_g_idx.size(0) == gate.size(0) * 2 * 8, "gate_seq_g_idx and gate have incompatible shapes");
-    TORCH_CHECK(up_seq_g_idx.device().is_meta() || up_seq_g_idx.size(0) == gate.size(0) * 2 * 8, "up_seq_g_idx and up have incompatible shapes");
-    TORCH_CHECK(gate_x_map.device().is_meta() || gate_x_map.size(0) == gate.size(0) * 8, "gate_x_map and gate have incompatible shapes");
-    TORCH_CHECK(up_x_map.device().is_meta() || up_x_map.size(0) == gate.size(0) * 8, "up_x_map and up have incompatible shapes");
+    TORCH_CHECK(up.dtype()                  == torch::kInt,     "up must be an int (q4) tensor");
+    TORCH_CHECK(up_scales.dtype()           == torch::kHalf,    "up_scales must be a half tensor");
+    TORCH_CHECK(up_zeros.dtype()            == torch::kInt,     "up_zeros must be an int (q4) tensor");
+    TORCH_CHECK(up_seq_g_idx.device().is_meta()     || up_seq_g_idx.dtype()        == torch::kShort,   "up_seq_idx must be a short tensor");
+    TORCH_CHECK(up_x_map.device().is_meta()         || up_x_map.dtype()            == torch::kInt,     "up_x_map must be an int tensor");
+
+    TORCH_CHECK(down.dtype()                == torch::kInt,     "down must be an int (q4) tensor");
+    TORCH_CHECK(down_scales.dtype()         == torch::kHalf,    "down_scales must be a half tensor");
+    TORCH_CHECK(down_zeros.dtype()          == torch::kInt,     "down_zeros must be an int (q4) tensor");
+    TORCH_CHECK(down_seq_g_idx.device().is_meta()   || down_seq_g_idx.dtype()      == torch::kShort,   "down_seq_idx must be a short tensor");
+    TORCH_CHECK(down_x_map.device().is_meta()       || down_x_map.dtype()          == torch::kInt,     "down_x_map must be an int tensor");
+
+    TORCH_CHECK(x.size(1) == gate.size(0) * 8,      "x and gate have incompatible shapes");
+    TORCH_CHECK(x.size(1) == up.size(0) * 8,        "x and up have incompatible shapes");
+    TORCH_CHECK(x.size(1) == down.size(1),          "x and down have incompatible shapes");
+    TORCH_CHECK(gate.size(1) == down.size(0) * 8,   "gate and down have incompatible shapes");
+
+    TORCH_CHECK(x.size(1) % 256 == 0,               "x.shape[1] must be multiple of 256");
+
+    TORCH_CHECK(gate_seq_g_idx.device().is_meta() || gate_seq_g_idx.size(0) == gate.size(0) * 2 * 8,    "gate_seq_g_idx and gate have incompatible shapes");
+    TORCH_CHECK(gate_x_map.device().is_meta() || gate_x_map.size(0) == gate.size(0) * 8,                "gate_x_map and gate have incompatible shapes");
+
+    TORCH_CHECK(up_seq_g_idx.device().is_meta() || up_seq_g_idx.size(0) == gate.size(0) * 2 * 8,        "up_seq_g_idx and up have incompatible shapes");
+    TORCH_CHECK(up_x_map.device().is_meta() || up_x_map.size(0) == gate.size(0) * 8,                    "up_x_map and up have incompatible shapes");
+
+    TORCH_CHECK(down_seq_g_idx.device().is_meta() || down_seq_g_idx.size(0) == gate.size(0) * 2 * 8,    "down_seq_g_idx and down have incompatible shapes");
+    TORCH_CHECK(down_x_map.device().is_meta() || down_x_map.size(0) == gate.size(0) * 8,                "down_x_map and down have incompatible shapes");
 
     int groupsize = gate.size(0) * 8 / gate_zeros.size(0);
-    TORCH_CHECK(groupsize * gate_zeros.size(0) == gate.size(0) * 8, "gate.shape[0] must be a multiple of gate_zeros.shape[0]")
+
+    TORCH_CHECK(groupsize * gate_zeros.size(0) == gate.size(0) * 8,     "gate.shape[0] must be a multiple of gate_zeros.shape[0]")
+    TORCH_CHECK(groupsize * up_zeros.size(0) == up.size(0) * 8,         "up.shape[0] must be a multiple of up_zeros.shape[0]")
+    TORCH_CHECK(groupsize * down_zeros.size(0) == down.size(0) * 8,     "down.shape[0] must be a multiple of down_zeros.shape[0]")
 
     int height = x.size(0);
     int dim = x.size(1);
     int width = gate.size(1);
 
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
+
     _cuda_raise(
         q4v2_mlp_cuda
         (
             (half*) x.data_ptr(),
-            (half*) out.data_ptr(),
+
+            (half*) x_temp.data_ptr(),
+            (float*) x_col_temp.data_ptr(),
+            (half*) x_act_temp.data_ptr(),
+
+            (half*) rms_norm_weight.data_ptr(),
+            epsilon,
 
             (uint32_t*) gate.data_ptr(),
             (half*) gate_scales.data_ptr(),
@@ -258,6 +307,12 @@ void q4v2_mlp
             up_seq_g_idx.device().is_meta() ? NULL : (uint16_t*) up_seq_g_idx.data_ptr(),
             up_x_map.device().is_meta() ? NULL : (uint32_t*) up_x_map.data_ptr(),
 
+            (uint32_t*) down.data_ptr(),
+            (half*) down_scales.data_ptr(),
+            (uint32_t*) down_zeros.data_ptr(),
+            down_seq_g_idx.device().is_meta() ? NULL : (uint16_t*) down_seq_g_idx.data_ptr(),
+            down_x_map.device().is_meta() ? NULL : (uint32_t*) down_x_map.data_ptr(),
+
             height,
             dim,
             width,
@@ -265,7 +320,6 @@ void q4v2_mlp
         )
     );
 }
-
 
 void rms_norm
 (
@@ -299,7 +353,6 @@ void rms_norm
             dim
         )
     );
-
 }
 
 

@@ -1,9 +1,11 @@
 #include "q4v2_mlp.h"
 #include "util.h"
 #include "matrix.h"
+#include "q4v2_matmul.h"
+#include "rms_norm.h"
 
-const int THREADS_X = 256;
-const int THREADS_Y = 1;
+const int THREADS_X = 32;
+const int THREADS_Y = 4;
 // const int MAX_DIMENSION = 8192;
 
 __device__ __forceinline__ half silu(half x)
@@ -17,7 +19,7 @@ __device__ __forceinline__ half silu(half x)
     return result;
 }
 
-__global__ void q4v2_mlp_kernel
+__global__ void q4v2_mlp_kernel_slow
 (
     const half* x,
     half* out,
@@ -44,6 +46,7 @@ __global__ void q4v2_mlp_kernel
 
     int column = THREADS_X * blockIdx.x + threadIdx.x;
     int row = THREADS_Y * blockIdx.y + threadIdx.y;
+    if (row >= height) return;
 
     // Views
 
@@ -96,12 +99,19 @@ __global__ void q4v2_mlp_kernel
     out_.set(row, column, result);
 }
 
+
 cudaError_t q4v2_mlp_cuda
 (
-    const half* x,
-    half* out,
+    half* x,                        // shape == (height, dim)
 
-    const uint32_t* gate,
+    half* x_temp,                   // shape == x.shape
+    float* x_col_temp,              // shape == (x.shape[0],) == (height,)
+    half* x_act_temp,               // shape == (x.shape[0], gate.shape[1]) == (height, width)
+
+    const half* rms_norm_weight,    // shape == (x.shape[1],) == (dim,)
+    float epsilon,
+
+    const uint32_t* gate,           // shape == (dim, width)
     const half* gate_scales,
     const uint32_t* gate_zeros,
     const uint16_t* gate_seq_g_idx,
@@ -112,6 +122,12 @@ cudaError_t q4v2_mlp_cuda
     const uint32_t* up_zeros,
     const uint16_t* up_seq_g_idx,
     const uint32_t* up_x_map,
+
+    const uint32_t* down,
+    const half* down_scales,
+    const uint32_t* down_zeros,
+    const uint16_t* down_seq_g_idx,
+    const uint32_t* down_x_map,
 
     const int height,
     const int dim,
@@ -130,15 +146,19 @@ cudaError_t q4v2_mlp_cuda
         1
     );
 
-    // assume for now:
-    //
-    // gate_seq_g_idx == up_seq_g_idx == NULL
-    // gate_x_map == up_x_map == NULL
+    // x_temp = rms_layernorm(x)
 
-    q4v2_mlp_kernel<<<blocks, threads>>>
+    cudaMemset(x_col_temp, 0, height * sizeof(float));
+
+    _cuda_err = rms_norm_cuda(x, rms_norm_weight, x_temp, x_col_temp, epsilon, height, dim);
+    if (_cuda_err != cudaSuccess) goto _cuda_fail;
+
+    // x_act_temp = silu(x_temp @ gate_proj) * (x_temp @ up_proj)
+
+    q4v2_mlp_kernel_slow<<<blocks, threads>>>
     (
-        x,
-        out,
+        x_temp,
+        x_act_temp,
 
         gate,
         gate_scales,
@@ -158,10 +178,12 @@ cudaError_t q4v2_mlp_cuda
         groupsize
     );
 
-//     if (seq_g_idx) q4v2_matmul_kernel <true>  <<<blocks, threads>>>(x_map ? x_mapped : x, w, out, w_scales, w_zeros, height, dim, width, groupsize, seq_g_idx);
-//     else           q4v2_matmul_kernel <false> <<<blocks, threads>>>(x_map ? x_mapped : x, w, out, w_scales, w_zeros, height, dim, width, groupsize, seq_g_idx);
+    // x += x_act_temp @ down_proj
 
-//_cuda_fail:
+    _cuda_err = q4v2_matmul_cuda(x_act_temp, down, x, down_scales, down_zeros, height, width, dim, groupsize, gate_seq_g_idx, NULL);
+    if (_cuda_err != cudaSuccess) goto _cuda_fail;
+
+_cuda_fail:
 
     return _cuda_err;
 }

@@ -8,6 +8,8 @@ import math
 from enum import Enum
 import threading
 import sys
+import struct
+from typing import List
 
 # Magic numbers
 
@@ -40,9 +42,16 @@ class ExLlamaConfig:
 
     class MatmulMethod(ParsedEnum):
 
-        QUANT_ONLY = 1
-        SWITCHED = 2  # Best
-        PYTORCH_ONLY = 3
+        QUANT_ONLY = 1  # Use the quantized matmul
+        SWITCHED = 2  # Switch between quantized matmul and FP16 reconstruction (best)
+        PYTORCH_ONLY = 3  # Always reconstruct and perform FP16 matmul
+
+
+    class MLPMethod(ParsedEnum):
+
+        NORMAL = 1  # Regular MLP as in LlamaModel (best)
+        SWITCHED = 2  # Switch between normal and fused MLP
+        FUSED = 3  # Always use fused MLP
 
 
     # Load config from Llama config.json
@@ -72,7 +81,6 @@ class ExLlamaConfig:
 
         self.groupsize = None  # Autodetected
         self.act_order = False  # Autodetected
-        self.auto_switch_thd = optimal_switch_thd  # Determined by matmul_method during model load
 
         # Required settings
 
@@ -84,24 +92,48 @@ class ExLlamaConfig:
         self.max_seq_len = 2048  # Reduce to save memory. Can also be increased, but the pretrained models produce degenerate output after 2048 tokens in any case. Should be possible to finetune for longer sequence lengths.
         self.attention_method = self.AttentionMethod.PYTORCH_SCALED_DP
         self.matmul_method = self.MatmulMethod.SWITCHED
+        self.mlp_method = self.MLPMethod.NORMAL  # Currently no benefit to fused MLP
         self.device_map = ExLlamaDeviceMap(self.num_hidden_layers)
 
 
-# 4-bit linear layer implementation
-
 def _dump_tensor(t, name):
 
-    t.cpu().numpy().tofile(name)
+    if t is None:
+        with open(name, "w"):
+            pass
+        with open(name + ".shape", "w"):
+            pass
+    else:
+        t.cpu().numpy().tofile(name)
+        t = t.view(-1, t.shape[-1])
+        with open(name + ".shape", "wb") as file:
+            shape_struct = struct.pack("<ii", t.shape[0], t.shape[1])
+            file.write(shape_struct)
+
+
+# Switching
 
 def _matmul_switch(config, x):
 
-    if config.auto_switch_thd == -1: return False
-    elif config.auto_switch_thd == 0: return True
-    else:
-        xdp = 1
-        for y in x.shape[:-1]: xdp *= y
-        return xdp > config.auto_switch_thd
+    if config.matmul_method == ExLlamaConfig.MatmulMethod.QUANT_ONLY: return False
+    if config.matmul_method == ExLlamaConfig.MatmulMethod.PYTORCH_ONLY: return True
 
+    xdp = 1
+    for y in x.shape[:-1]: xdp *= y
+    return xdp > optimal_switch_thd
+
+def _mlp_switch(config, x):
+
+    if config.act_order: return True  # Currently only implemented for no-act-order models
+    if config.mlp_method == ExLlamaConfig.MLPMethod.FUSED: return False
+    if config.mlp_method == ExLlamaConfig.MLPMethod.NORMAL: return True
+
+    xdp = 1
+    for y in x.shape[:-1]: xdp *= y
+    return xdp > 1
+
+
+# 4-bit linear layer implementation
 
 class Ex4bitLinear(nn.Module):
 
@@ -240,51 +272,22 @@ class Ex4bitLinear(nn.Module):
         # if self.key == "model.layers.0.mlp.gate_proj":
         #
         #     _dump_tensor(x, "cuda_test/model.layers.0.mlp.gate_proj.x")
-        #     _dump_tensor(self.qweight, "cuda_test/model.layers.0.mlp.gate_proj.qweight")
-        #     _dump_tensor(self.scales, "cuda_test/model.layers.0.mlp.gate_proj.scales")
-        #     _dump_tensor(self.qzeros, "cuda_test/model.layers.0.mlp.gate_proj.qzeros")
-        #     _dump_tensor(out, "cuda_test/model.layers.0.mlp.gate_proj.out")
-        #     _dump_tensor(self.g_idx, "cuda_test/model.layers.0.mlp.gate_proj.g_idx")
         #     sys.exit()
 
         return out
 
 
-# Llama MLP, fused: down(act(gate(x)) * up(x))
-#
-# Only supports no-act-order models and is currently about 5% slower than regular MLP, so disabled for now.
+    def dump(self, filename):
 
-class ExLlamaFusedMLP(nn.Module):
-
-    def __init__(self, config, tensors, key):
-        super().__init__()
-
-        self.config = config
-
-        self.gate_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".gate_proj")
-        self.up_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".up_proj")
-        self.down_proj = Ex4bitLinear(config, self.config.intermediate_size, self.config.hidden_size, False, tensors, key + ".down_proj")
-
-        self.act_fn = nn.SiLU()
-
-    def forward(self, x):
-
-        if _matmul_switch(self.config, x):
-
-            y = self.gate_proj(x)
-            y = self.act_fn(y)
-            y *= self.up_proj(x)
-            y = self.down_proj(y)
-
-        else:
-
-            y = cuda_ext.mlp_q4v2(x, self.gate_proj.quant_args(), self.up_proj.quant_args)
-            y = cuda_ext.matmul_q4v2(y, self.down_proj.quant_args(), False)
-
-        return y
+        _dump_tensor(self.qweight, filename + ".qweight")
+        _dump_tensor(self.scales, filename + ".scales")
+        _dump_tensor(self.qzeros, filename + ".qzeros")
+        _dump_tensor(self.seq_g_idx, filename + ".seq_g_idx")
+        _dump_tensor(self.x_map, filename + ".x_map")
+        _dump_tensor(self.bias, filename + ".bias")
 
 
-# Llama MLP, regular version
+# Llama MLP
 
 class ExLlamaMLP(nn.Module):
 
@@ -294,19 +297,43 @@ class ExLlamaMLP(nn.Module):
         self.config = config
 
         self.gate_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".gate_proj")
-        self.down_proj = Ex4bitLinear(config, self.config.intermediate_size, self.config.hidden_size, False, tensors, key + ".down_proj")
         self.up_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".up_proj")
+        self.down_proj = Ex4bitLinear(config, self.config.intermediate_size, self.config.hidden_size, False, tensors, key + ".down_proj")
 
         self.act_fn = nn.SiLU()
 
 
-    def forward(self, x):
+    def forward_fused(self, x, rms_norm_weight, buffer):
+
+        x = cuda_ext.mlp_q4v2(x,
+                              buffer.x_temp,
+                              buffer.x_col_temp,
+                              buffer.x_act_temp,
+                              rms_norm_weight,
+                              self.config.rms_norm_eps,
+                              self.gate_proj.quant_args(),
+                              self.up_proj.quant_args(),
+                              self.down_proj.quant_args())
+
+        return x
+
+
+    def forward(self, x, buffer):
 
         y = self.gate_proj(x)
         y = self.act_fn(y)
         y *= self.up_proj(x)
         y = self.down_proj(y)
+
         return y
+
+        # self.gate_proj.dump("cuda_test/mlp/gate_proj")
+        # self.up_proj.dump("cuda_test/mlp/up_proj")
+        # self.down_proj.dump("cuda_test/mlp/down_proj")
+        # _dump_tensor(x, "cuda_test/mlp/test_mlp_x")
+        # _dump_tensor(y, "cuda_test/mlp/test_mlp_x_gated")
+        # _dump_tensor(x, "cuda_test/mlp/test_mlp_x_done")
+        # sys.exit()
 
 
 # RMS Layer norm.
@@ -321,7 +348,7 @@ class ExLlamaRMSNorm(nn.Module):
         self.weight = tensors[key]
 
 
-    def forward(self, hidden_states):
+    def forward(self, hidden_states, buffer):
 
         hidden_states = cuda_ext.llama_rms_norm(hidden_states, self.weight, self.variance_epsilon)
         return hidden_states
@@ -345,7 +372,7 @@ class ExLlamaAttention(nn.Module):
         self.o_proj = Ex4bitLinear(config, self.config.num_attention_heads * self.config.head_dim, self.config.hidden_size, False, tensors, key + ".o_proj")
 
 
-    def forward(self, hidden_states, cache, attention_mask):
+    def forward(self, hidden_states, cache, buffer):
 
         bsz, q_len, _ = hidden_states.size()
         past_len = cache.current_seq_len
@@ -396,7 +423,7 @@ class ExLlamaAttention(nn.Module):
         if self.config.attention_method == ExLlamaConfig.AttentionMethod.PYTORCH_MATMUL:
 
             attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.config.head_dim)
-            attn_weights = attn_weights + attention_mask
+            attn_weights = attn_weights + buffer.attn_mask
             attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min))
             attn_weights = nn.functional.softmax(attn_weights, dim = -1, dtype = torch.float32).to(query_states.dtype)
             attn_output = torch.matmul(attn_weights, value_states)
@@ -413,7 +440,7 @@ class ExLlamaAttention(nn.Module):
             # since it doesn't actually apply in the case we're interested in (autoregression.) Disabled for now.
 
             if True or past_len > 0:
-                attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask = attention_mask, is_causal = False)
+                attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask = buffer.attn_mask, is_causal = False)
             else:
                 attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask = None, is_causal = True)
 
@@ -444,19 +471,29 @@ class ExLlamaDecoderLayer(nn.Module):
         self.post_attention_layernorm = ExLlamaRMSNorm(self.config, tensors, key + ".post_attention_layernorm.weight")
 
 
-    def forward(self, hidden_states, cache, attention_mask):
+    def forward(self, hidden_states, cache, buffer):
 
         residual = hidden_states
-        hidden_states = self.input_layernorm(hidden_states)
-        hidden_states = self.self_attn(hidden_states, cache, attention_mask)
+        hidden_states = self.input_layernorm(hidden_states, buffer)
+        hidden_states = self.self_attn(hidden_states, cache, buffer)
         hidden_states = residual + hidden_states
 
-        residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
-        hidden_states = self.mlp(hidden_states)
-        hidden_states = residual + hidden_states
+        if _mlp_switch(self.config, hidden_states):
+
+            residual = hidden_states
+            hidden_states = self.post_attention_layernorm(hidden_states, buffer)
+            hidden_states = self.mlp(hidden_states, buffer)
+            hidden_states = residual + hidden_states
+
+        else:
+
+            hidden_states = self.mlp.forward_fused(hidden_states, self.post_attention_layernorm.weight, buffer)
 
         return hidden_states
+
+        # _dump_tensor(hidden_states, "cuda_test/mlp/test_mlp_x_prenorm")
+        # _dump_tensor(self.post_attention_layernorm.weight, "cuda_test/mlp/test_mlp_norm_weight")
+        # _dump_tensor(hidden_states, "cuda_test/mlp/test_mlp_x_postresidual")
 
 
 # Persistent cache for inference. Allocate the whole thing up front.
@@ -607,6 +644,44 @@ class ExLlamaDeviceMap:
         raise ValueError("Unknown key: " + key)
 
 
+class ExLlamaBuffer:
+
+    config: ExLlamaConfig
+
+    def __init__(self, config):
+
+        self.config = config
+
+    # Attention mask
+
+    attn_mask: torch.Tensor = None
+
+    # Fused MLP
+
+    x_temp: torch.Tensor = None
+    x_col_temp: torch.Tensor = None
+    x_act_temp: torch.Tensor = None
+
+    def prepare_fused_mlp(self, hidden_state, first_device):
+
+        self.x_temp = torch.empty(hidden_state.shape, device = first_device, dtype = torch.float16)
+        # self.x_temp = torch.empty((1, self.config.max_seq_len, self.config.hidden_size), device = first_device, dtype = torch.float16)
+        self.x_col_temp = torch.empty((self.x_temp.shape[0],), device = first_device, dtype = torch.float32)
+        self.x_act_temp = torch.empty(self.x_temp.shape[:-1] + (self.config.intermediate_size,), device = first_device, dtype = torch.float16)
+
+    # Move to device
+
+    def to(self, device):
+
+        new = ExLlamaBuffer(self.config)
+
+        new.x_temp = self.x_temp.to(device)
+        new.x_col_temp = self.x_temp.to(device)
+        new.x_act_temp = self.x_temp.to(device)
+
+        return new
+
+
 class ExLlama(nn.Module):
 
     def __init__(self, config):
@@ -692,22 +767,16 @@ class ExLlama(nn.Module):
 
         self.layers = nn.ModuleList(modules)
 
-        # Additional setup
-
-        if self.config.matmul_method == ExLlamaConfig.MatmulMethod.QUANT_ONLY: self.config.auto_switch_thd = -1
-        elif self.config.matmul_method == ExLlamaConfig.MatmulMethod.SWITCHED: self.config.auto_switch_thd = optimal_switch_thd
-        elif self.config.matmul_method == ExLlamaConfig.MatmulMethod.PYTORCH_ONLY: self.config.auto_switch_thd = 0
-        else: raise ValueError("Wut?")
-
 
     def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False):
 
         batch_size, seq_len = input_ids.shape
         past_len = cache.current_seq_len
 
+        buffer = ExLlamaBuffer(self.config)
+
         # Build attention mask on first device, copy to others if necessary
 
-        attn_masks = {}
         devs = self.config.device_map.get_layers_devs()
 
         attn_mask = torch.zeros(batch_size, 1, seq_len, seq_len + past_len, dtype = torch.float16, device = devs[0])
@@ -717,13 +786,23 @@ class ExLlama(nn.Module):
             attn_mask_triu = torch.triu(torch.full((seq_len - 1, seq_len - 1), torch.finfo(torch.float16).min))
             attn_mask[:, :, : seq_len - 1, past_len + 1: past_len + seq_len] = attn_mask_triu
 
-        attn_masks[devs[0]] = attn_mask
-        for device in devs[1:]: attn_masks[device] = attn_mask.to(device)
+        buffer.attn_mask = attn_mask
 
         # Embeddings
         # TODO: Allow passing input embeddings instead of IDs
 
         hidden_states = self.embed_tokens(input_ids.to(self.config.device_map.embed_tokens))
+
+        # Prepare fused MLP buffers if not switching
+
+        if not _mlp_switch(self.config, hidden_states):
+
+            buffer.prepare_fused_mlp(hidden_states, devs[0])
+
+        # Split buffers to devices
+
+        buffers = {devs[0]: buffer}
+        for device in devs[1:]: buffers[device] = buffer.to(device)
 
         # Decoder layers
 
@@ -749,7 +828,7 @@ class ExLlama(nn.Module):
                 # background_thread.join()
                 self.stream_buffer.load_layer_sync()
 
-                hidden_states = decoder_layer(hidden_states, cache, attn_masks[device])
+                hidden_states = decoder_layer(hidden_states, cache, buffers[device])
 
                 next_streaming_layer += self.config.stream_layer_interval
                 if next_streaming_layer < len(self.layers):
@@ -760,7 +839,7 @@ class ExLlama(nn.Module):
 
             else:
 
-                hidden_states = decoder_layer(hidden_states, cache, attn_masks[device])
+                hidden_states = decoder_layer(hidden_states, cache, buffers[device])
 
         cache.current_seq_len += seq_len
 
@@ -771,7 +850,7 @@ class ExLlama(nn.Module):
         # Norm
 
         hidden_states = hidden_states.to(self.config.device_map.norm)
-        hidden_states = self.norm(hidden_states)
+        hidden_states = self.norm(hidden_states, buffer)
 
         # Head
 
