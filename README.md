@@ -32,7 +32,6 @@ This list might be incomplete:
 As of currently (working on it):
 
 - No support for v1 models without groupsize
-- All the models I've tested are groupsize 128. Other groupsizes should work in theory, though
 - I've encountered models with nonstandard layouts and datatypes (e.g. float32 embedding table). It'll take a while
 to make sure all the possible permutations are supported.
 
@@ -128,7 +127,8 @@ slower as well over time.
 - [ ] Fused QKV projection and fused MLP
 - [ ] Support for de-quantizing select matrices at load time
 - [ ] A web interface maybe?
-- [ ] Memory-efficient beam search implementation
+- [x] Memory-efficient beam search implementation
+- [ ] Optimized beam search
 - [ ] More sampling features
 - [ ] (Multi) LoRA support for inference
 - [ ] Allow for backpropagation
@@ -152,3 +152,8 @@ layers are processing. It's still too slow to be useful for generation, though. 
 
 **2023-05-19**: Wrote a CUDA implementation of the layer norm. Turns out it was a bit of a bottleneck for the smaller
 models. Noticeably faster now.
+
+**2023-05-21**: Added beam search implementation. It doesn't process beams in parallel which saves a lot of VRAM but
+does slow it down a bit. There should be ways to mitigate the slowdown. It's not clear how much better beam search
+performs in practice, but it's at least theoretically superior and there are other features coming which will build
+on it, like multi-token repetition penalties and (de-)censoring.
