@@ -34,9 +34,11 @@ parser.add_argument("-nnl", "--no_newline", action = "store_true", help = "Do no
 parser.add_argument("-temp", "--temperature", type = float, help = "Temperature", default = 0.95)
 parser.add_argument("-topk", "--top_k", type = int, help = "Top-K", default = 20)
 parser.add_argument("-topp", "--top_p", type = float, help = "Top-P", default = 0.65)
-parser.add_argument("-minp", "--min_p", type = float, help = "Min-P", default = 0.06)
+parser.add_argument("-minp", "--min_p", type = float, help = "Min-P", default = 0.02)
 parser.add_argument("-repp",  "--repetition_penalty", type = float, help = "Repetition penalty", default = 1.15)
 parser.add_argument("-repps", "--repetition_penalty_sustain", type = int, help = "Past length for repetition penalty", default = 256)
+parser.add_argument("-beams", "--beams", type = int, help = "Number of beams for beam search", default = 1)
+parser.add_argument("-beamlen", "--beam_length", type = int, help = "Number of future tokens to consider", default = 1)
 
 args = parser.parse_args()
 
@@ -52,6 +54,7 @@ print(f" -- Top-K: {args.top_k}")
 print(f" -- Top-P: {args.top_p:.2f}")
 print(f" -- Min-P: {args.min_p:.2f}")
 print(f" -- Repetition penalty: {args.repetition_penalty:.2f}")
+print(f" -- Beams: {args.beams} x {args.beam_length}")
 
 print_opts = []
 print_opts.append("attention: " + str(args.attention))
@@ -73,6 +76,9 @@ if args.prompt is not None:
         past = past.strip() + "\n"
 else:
     past = f"{bot_name}: Hello, {username}\n"
+
+# past += "User: Hi. Can you say \"Mmmmmmmmm\"?\n"
+# args.botfirst = True
 
 # Instantiate model and generator
 
@@ -99,6 +105,8 @@ generator.settings.min_p = args.min_p
 generator.settings.token_repetition_penalty_max = args.repetition_penalty
 generator.settings.token_repetition_penalty_sustain = args.repetition_penalty_sustain
 generator.settings.token_repetition_penalty_decay = generator.settings.token_repetition_penalty_sustain // 2
+generator.settings.beams = args.beams
+generator.settings.beam_length = args.beam_length
 
 break_on_newline = not args.no_newline
 
@@ -132,7 +140,8 @@ while True:
 
         next_userprompt = username + ": "
 
-        # No need for this, really
+        # No need for this, really, unless we were logging the chat. The actual history we work on is kept in the
+        # tokenized sequence in the generator and the state in the cache.
 
         past += in_line
 
@@ -160,28 +169,34 @@ while True:
     print(res_line, end = "")
     sys.stdout.flush()
 
+    generator.begin_beam_search()
+
     for i in range(max_response_tokens):
 
-        gen_token = generator.gen_single_token()
-        token = gen_token
-        if gen_token.item() == tokenizer.eos_token_id:
-            token = torch.tensor([[tokenizer.newline_token_id]])
+        gen_token = generator.beam_search()
 
-        generator.gen_accept_token(token)
+        # If token is EOS, replace it with newline before continuing
+
+        if gen_token.item() == tokenizer.eos_token_id:
+            generator.replace_last_token(tokenizer.newline_token_id)
+
+        # Decode the current line and print any characters added
 
         num_res_tokens += 1
-        text = tokenizer.decode(generator.sequence[:, -num_res_tokens:][0])
+        text = tokenizer.decode(generator.sequence_actual[:, -num_res_tokens:][0])
         new_text = text[len(res_line):]
         res_line += new_text
 
-        print(new_text, end="")
+        print(new_text, end="")  # (character streaming output is here)
         sys.stdout.flush()
+
+        # End conditions
 
         if break_on_newline and gen_token.item() == tokenizer.newline_token_id: break
         if gen_token.item() == tokenizer.eos_token_id: break
 
-        # GPT4All isn't always good at emitting an EOS token but will usually spit out the user prompt in any case,
-        # so as a fallback for this and similarly trained models, catch that and roll back a few tokens.
+        # Some models will not (or will inconsistently) emit EOS tokens but in a chat sequence will often begin
+        # generating for the user instead. Try to catch this and roll back a few tokens to begin the user round.
 
         if res_line.endswith(f"{username}:"):
             plen = tokenizer.encode(f"{username}:").shape[-1]

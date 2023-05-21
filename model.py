@@ -522,6 +522,39 @@ class ExLlamaCache:
             self.value_states.append(p_value_states)
 
 
+    def roll_left(self):
+
+        for i in range(self.config.num_hidden_layers):
+
+            self.key_states[i] = torch.roll(self.key_states[i], shifts = -1, dims = 2)
+            self.value_states[i] = torch.roll(self.value_states[i], shifts = -1, dims = 2)
+
+        self.current_seq_len -= 1
+
+
+    def copy_states(self, target, from_column, from_columns, to_column, to_columns, from_row, from_rows, to_row, to_rows):
+
+        assert from_rows == 1
+        assert from_columns == to_columns
+        assert to_column + to_columns <= target.max_seq_len
+        assert from_column + from_columns <= self.max_seq_len
+
+        for i in range(self.config.num_hidden_layers):
+
+            source_view_k = self.key_states[i].narrow(0, from_row, from_rows).narrow(2, from_column, from_columns)
+            source_view_v = self.value_states[i].narrow(0, from_row, from_rows).narrow(2, from_column, from_columns)
+            target_view_k = target.key_states[i].narrow(0, to_row, to_rows).narrow(2, to_column, to_columns)
+            target_view_v = target.value_states[i].narrow(0, to_row, to_rows).narrow(2, to_column, to_columns)
+
+            if to_rows > 1:
+
+                source_view_k = source_view_k.expand_as(target_view_k)
+                source_view_v = source_view_v.expand_as(target_view_v)
+
+            target_view_k.copy_(source_view_k)
+            target_view_v.copy_(source_view_v)
+
+
 # Layer streaming
 # TODO: Currently assumes single GPU
 
