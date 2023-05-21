@@ -8,13 +8,13 @@ import torch
 torch.set_grad_enabled(False)
 torch.cuda._lazy_init()
 
-# tokenizer_model_path = "/mnt/str/models/llama-7b-4bit-128g/tokenizer.model"
-# model_config_path = "/mnt/str/models/llama-7b-4bit-128g/config.json"
-# model_path = "/mnt/str/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
-#
-tokenizer_model_path = "/mnt/str/models/llama-13b-4bit-128g/tokenizer.model"
-model_config_path = "/mnt/str/models/llama-13b-4bit-128g/config.json"
-model_path = "/mnt/str/models/llama-13b-4bit-128g/llama-13b-4bit-128g.safetensors"
+tokenizer_model_path = "/mnt/str/models/llama-7b-4bit-128g/tokenizer.model"
+model_config_path = "/mnt/str/models/llama-7b-4bit-128g/config.json"
+model_path = "/mnt/str/models/llama-7b-4bit-128g/llama-7b-4bit-128g.safetensors"
+
+# tokenizer_model_path = "/mnt/str/models/llama-13b-4bit-128g/tokenizer.model"
+# model_config_path = "/mnt/str/models/llama-13b-4bit-128g/config.json"
+# model_path = "/mnt/str/models/llama-13b-4bit-128g/llama-13b-4bit-128g.safetensors"
 #
 # tokenizer_model_path = "/mnt/str/models/llama-30b-4bit-128g/tokenizer.model"
 # model_config_path = "/mnt/str/models/llama-30b-4bit-128g/config.json"
@@ -35,10 +35,15 @@ cache = ExLlamaCache(model)
 tokenizer = ExLlamaTokenizer(tokenizer_model_path)
 generator = ExLlamaGenerator(model, tokenizer, cache)
 
-prompt = "So how do we prove the Riemann hypothesis? It's actually not that hard. Let me explain:"
+generator.settings.beams = 2
+generator.settings.beam_length = 16
+
+prompt = "Today is a good day to"
 
 gen_tokens = 200
 
-text = generator.generate_simple(prompt, max_new_tokens = gen_tokens)
-print(text)
+for i in range(gen_tokens):
+
+    text = generator.generate_simple(prompt, max_new_tokens = gen_tokens)
+    print(text)
 

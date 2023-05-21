@@ -500,7 +500,7 @@ class ExLlamaDecoderLayer(nn.Module):
 
 class ExLlamaCache:
 
-    def __init__(self, model, batch_size = 1, max_seq_len = -1):
+    def __init__(self, model, batch_size = 1, max_seq_len = -1, copy_from = None):
 
         self.model = model
         self.config = self.model.config
@@ -515,11 +515,24 @@ class ExLlamaCache:
 
         for i in range(self.config.num_hidden_layers):
 
-            p_key_states = torch.zeros(self.batch_size, self.config.num_attention_heads, self.max_seq_len, self.config.head_dim, dtype = torch.float16, device = self.model.config.device_map.layers[i])
-            p_value_states = torch.zeros(self.batch_size, self.config.num_attention_heads, self.max_seq_len, self.config.head_dim, dtype = torch.float16, device = self.model.config.device_map.layers[i])
+            if copy_from is None:
+
+                p_key_states = torch.zeros(self.batch_size, self.config.num_attention_heads, self.max_seq_len, self.config.head_dim, dtype = torch.float16, device = self.model.config.device_map.layers[i])
+                p_value_states = torch.zeros(self.batch_size, self.config.num_attention_heads, self.max_seq_len, self.config.head_dim, dtype = torch.float16, device = self.model.config.device_map.layers[i])
+
+            else:
+
+                p_key_states = copy_from.key_states[i].clone()
+                p_value_states = copy_from.value_states[i].clone()
 
             self.key_states.append(p_key_states)
             self.value_states.append(p_value_states)
+
+
+    def clone(self):
+
+        new = ExLlamaCache(self.model, batch_size = self.batch_size, max_seq_len = self.max_seq_len, copy_from = self)
+        return new
 
 
     def roll_left(self):
@@ -553,6 +566,11 @@ class ExLlamaCache:
 
             target_view_k.copy_(source_view_k)
             target_view_v.copy_(source_view_v)
+
+
+    def debug(self):
+
+        print(self.current_seq_len, self.key_states[0][0, 0, :self.current_seq_len, :])
 
 
 # Layer streaming
@@ -640,8 +658,7 @@ class ExLlamaStreamer:
         self.cuda_stream.synchronize()
 
 
-# Device map for the model. Currently untested, but should allow for each individual layers to reside on any device.
-# Although the quant stuff probably only works on CUDA. For now.
+# Device map for the model.
 
 class ExLlamaDeviceMap:
 

@@ -8,7 +8,7 @@ class ExLlamaGenerator:
         temperature = 0.95
         top_k = 20
         top_p = 0.65
-        min_p = 0.02  # Do not consider tokens with probability less than this
+        min_p = 0.0  # Do not consider tokens with probability less than this
 
         token_repetition_penalty_max = 1.15  # Repetition penalty for most recent tokens
         token_repetition_penalty_sustain = 256  # No. most recent tokens to repeat penalty for
@@ -29,11 +29,9 @@ class ExLlamaGenerator:
         self.settings = None
 
         self.beams = None
-        self.beams_probs = None
-        self.beams_cache = None
-        self.beams_cache_swap = None
         self.max_beam_length = 0
         self.in_beam_search = False
+        self.disallowed_tokens = None
 
 
     def make_rep_mask(self, penalty_max, sustain, decay):
@@ -42,12 +40,12 @@ class ExLlamaGenerator:
 
         v = penalty_max
         dv = (1.0 - penalty_max) / decay
-        i = self.sequence_actual.shape[-1] - 1
+        i = self.sequence.shape[-1] - 1
         beg = max(i - sustain - decay, -1)
 
         while i > beg:
 
-            t = self.sequence_actual[0, i].item()
+            t = self.sequence[0, i].item()
             rep_mask[t] = torch.max(rep_mask[t], torch.tensor(v))
 
             sustain -= 1
@@ -59,7 +57,16 @@ class ExLlamaGenerator:
 
     def sample(self, logits, temperature, top_k, top_p, min_p, num = 1):
 
+        # torch.manual_seed(42)
+
         logits = logits[0, -1, :]
+
+        # Disallow tokens
+
+        if self.disallowed_tokens is not None:
+            logits[self.disallowed_tokens] = float("-inf")
+
+        # Base probabilities
 
         logits /= temperature
         logits += 1e-8
@@ -90,15 +97,28 @@ class ExLlamaGenerator:
             sampled_tokens, ind = sampled_tokens.sort()
             sampled_probs = sampled_probs[ind]
 
+        # st = sampled_tokens.tolist()
+        # if 13 in st:
+        #     zxc = 0
+        # print ("------")
+        # print (logits)
+        # print (sampled_tokens)
+        # print (sampled_probs)
+
         return sampled_tokens.unsqueeze(0), sampled_probs.unsqueeze(0)
+
+
+    def disallow_tokens(self, tokens):
+
+        self.disallowed_tokens = tokens
 
 
     def gen_begin(self, in_tokens):
 
         self.end_beam_search()
 
-        self.sequence = in_tokens
-        self.sequence_actual = in_tokens
+        self.sequence = in_tokens.clone()
+        self.sequence_actual = in_tokens.clone()
         self.cache.current_seq_len = 0
 
         if in_tokens.shape[-1] >= 1:
@@ -112,7 +132,7 @@ class ExLlamaGenerator:
         start = self.sequence.shape[-1] - 1
         if start < 0:
             start = 0
-            self.sequence = in_tokens
+            self.sequence = in_tokens.clone()
         else:
             self.sequence = torch.cat((self.sequence, in_tokens), dim = 1)
         self.model(self.sequence[:, start:-1], self.cache, preprocess_only = True)
@@ -196,11 +216,13 @@ class ExLlamaGenerator:
 
         # Simple sampling case:
 
-        logits = self.model(self.sequence[:, -1:], self.cache)
-
         rep_mask = self.make_rep_mask(self.settings.token_repetition_penalty_max,
                                       self.settings.token_repetition_penalty_sustain,
                                       self.settings.token_repetition_penalty_decay)
+
+        # self.cache.debug()
+        logits = self.model(self.sequence[:, -1:], self.cache)
+
         logits /= rep_mask
         token, _ = self.sample(logits,
                                self.settings.temperature,
@@ -214,14 +236,125 @@ class ExLlamaGenerator:
 
     # Beam search
 
+    class Beam:
+
+        sequence: torch.Tensor                  # tokens generated in beam
+        probs: torch.Tensor                     # probability score per token
+        cache: ExLlamaCache                     # cached keys/values for this beam
+        current_seq_pos: int                    # position of beam in current sequence
+        settings = None
+        generator = None
+
+        sampled_tokens: torch.Tensor
+        sampled_probs: torch.Tensor
+        moved: bool = False
+
+        def __init__(self, settings, generator, first_token = None, first_prob = None, seq_pos = None):
+
+            self.settings = settings
+            self.generator = generator
+
+            self.sequence = first_token.unsqueeze(0).unsqueeze(0) if first_token is not None else None
+            self.probs = first_prob.unsqueeze(0).unsqueeze(0) if first_prob is not None else None
+            self.cache = ExLlamaCache(self.generator.model, max_seq_len = self.settings.beam_length)
+
+            self.current_seq_pos = seq_pos
+
+
+        def __len__(self):
+
+            return self.sequence.shape[-1]
+
+
+        def clone(self):
+
+            new = ExLlamaGenerator.Beam(self.settings, self.generator)
+            new.sequence = self.sequence.clone()
+            new.probs = self.probs.clone()
+            new.cache = self.cache.clone()
+            new.current_seq_pos = self.current_seq_pos
+            new.sampled_tokens = self.sampled_tokens.clone()
+            new.sampled_probs = self.sampled_probs.clone()
+            new.moved = self.moved
+            return new
+
+
+        # List of references to this instance
+
+        def advance(self):
+
+            self.cache.roll_left()
+            self.sequence = self.sequence[:, 1:]
+            self.probs = self.probs[:, 1:]
+            self.current_seq_pos += 1
+
+
+        # Cumulative probabilities
+
+        def cum_log_probs(self):
+
+            cum_log_prob = torch.sum(torch.log(self.probs))
+            return cum_log_prob
+
+        def sampled_cum_log_probs(self):
+
+            cum_log_prob = torch.sum(torch.log(self.probs))
+            return torch.log(self.sampled_probs) + cum_log_prob
+
+
+        # Insert current beam in sequence
+
+        def to_sequence(self):
+
+            # Extend generator sequence and cache if needed
+
+            new_tokens = 0
+            added_tokens = 0
+            slen = self.generator.sequence.shape[-1]
+            tlen = self.current_seq_pos + len(self)
+            if tlen > slen:
+                new_tokens = tlen - slen
+                added_tokens = new_tokens
+                self.generator.sequence = torch.cat((self.generator.sequence, self.sequence[:, -new_tokens:]), dim = 1)
+                self.generator.cache.current_seq_len = tlen - 1
+
+            # Determine how much of generator sequence needs to be updated
+
+            new_tokens_ = new_tokens
+            for i in range(new_tokens_, len(self)):
+                if self.generator.sequence[0, -i - 1] != self.sequence[0, -i - 1]: new_tokens = i + 1
+
+            # Update sequence and cache
+
+            if new_tokens > added_tokens:
+                self.generator.sequence[0, -new_tokens:] = self.sequence[0, -new_tokens:]
+
+            if new_tokens > len(self) - 1: new_tokens = len(self) - 1
+            if new_tokens > 0:
+                self.cache.copy_states(self.generator.cache,
+                                       len(self) - 1 - new_tokens, new_tokens,
+                                       self.generator.cache.current_seq_len - new_tokens, new_tokens,
+                                       0, 1, 0, 1)
+
+
+        # Copy last column of cache to this beam (after generation)
+
+        def record_last_cache_column(self):
+
+            self.generator.cache.copy_states(self.cache,
+                                             self.generator.cache.current_seq_len - 1, 1,
+                                             len(self) - 1, 1,
+                                             0, 1, 0, 1)
+
+
     def begin_beam_search(self):
 
         self.beams = None
-        self.beams_probs = None
         if self.settings.beams == 1 and self.settings.beam_length == 1: return
-        self.beams_cache = ExLlamaCache(self.model, max_seq_len = self.settings.beam_length, batch_size = self.settings.beams)
-        self.beams_cache_swap = ExLlamaCache(self.model, max_seq_len = self.settings.beam_length, batch_size = self.settings.beams)
+
         self.in_beam_search = True
+        # self.testl = []
+
 
     def beam_search(self):
 
@@ -229,23 +362,22 @@ class ExLlamaGenerator:
         assert self.in_beam_search
 
         c_cache_len = self.cache.current_seq_len
-        c_seq_len = self.sequence.shape[-1]
-
-        # Token-by-token repetition penalty mask
-
-        rep_mask = self.make_rep_mask(self.settings.token_repetition_penalty_max,
-                                      self.settings.token_repetition_penalty_sustain,
-                                      self.settings.token_repetition_penalty_decay)
+        c_seq_len = self.sequence_actual.shape[-1]
 
         # Begin here
 
         max_beam_length = min(self.model.config.max_seq_len - self.settings.beam_length, self.settings.beam_length)
-        while self.beams is None or self.beams.shape[-1] < max_beam_length:
+        while self.beams is None or len(self.beams[0]) < max_beam_length:
 
             if self.beams is None:
 
-                # Start first beams
+                # Initial tokens for initial beams
 
+                rep_mask = self.make_rep_mask(self.settings.token_repetition_penalty_max,
+                                              self.settings.token_repetition_penalty_sustain,
+                                              self.settings.token_repetition_penalty_decay)
+
+                # self.cache.debug()
                 logits = self.model(self.sequence[:, -1:], self.cache)
                 logits /= rep_mask
 
@@ -256,47 +388,30 @@ class ExLlamaGenerator:
                                             self.settings.min_p,
                                             num = self.settings.beams)
 
-                self.beams = tokens.transpose(0, 1)
-                self.beams_probs = probs.transpose(0, 1)
-                # self.cache.copy_states(self.beams_cache, self.cache.current_seq_len - 1, 1, 0, 1, 0, 1, 0, self.beams.shape[0])
-                # self.beams_cache.current_seq_len = 1
-                # self.cache.current_seq_len -= 1
+                # self.cache is updated with k/v for last token
+                # Setup initial beams
+
+                self.beams = []
+                while len(self.beams) < min(self.settings.beams, tokens.shape[-1]):
+
+                    beam = ExLlamaGenerator.Beam(self.settings, self, tokens[0, len(self.beams)], probs[0, len(self.beams)], c_seq_len)
+                    self.beams.append(beam)
 
             else:
 
                 # Sample from each beam
 
-                # beams_cum_probs = torch.prod(self.beams_probs, dim = 1)
+                # print(len(self.beams), end = "")
+                for beam in self.beams:
 
-                tokens_ = []
-                probs_ = []
-                beams_row_idx_ = []
+                    beam.to_sequence()
 
-                for row in range(self.beams.shape[0]):
+                    rep_mask = self.make_rep_mask(self.settings.token_repetition_penalty_max,
+                                                  self.settings.token_repetition_penalty_sustain,
+                                                  self.settings.token_repetition_penalty_decay)
 
-                    # Insert current beam into sequence and cache
-
-                    new_token = self.beams[row, -1].unsqueeze(0).unsqueeze(0)
-                    self.sequence = torch.cat((self.sequence, new_token), dim = 1)
-
-                    distinct = 1
-                    for c in range(1, self.beams.shape[1] + 1):
-                        if self.beams[row, -c].item() != self.sequence[0, -c].item():
-                            distinct = c
-
-                    if distinct > 1:
-                        self.sequence[0, -distinct:] = self.beams[row, -distinct:]
-                        self.beams_cache.copy_states(self.cache,
-                                                     self.beams_cache.current_seq_len - distinct + 1, distinct - 1,
-                                                     self.cache.current_seq_len - distinct + 1, distinct - 1,
-                                                     row, 1, 0, 1)
-
-                    # Generate from where current beam diverges from cached sequence
-
-                    new_tokens = self.sequence[:, -1:]
-                    # self.cache.current_seq_len -= (distinct - 1)
-
-                    logits = self.model(new_tokens, self.cache)
+                    # self.cache.debug()
+                    logits = self.model(self.sequence[:, -1:], self.cache)
                     logits /= rep_mask
 
                     tokens, probs = self.sample(logits,
@@ -306,157 +421,137 @@ class ExLlamaGenerator:
                                                 self.settings.min_p,
                                                 num = -1)
 
-                    beams_row_idx = torch.zeros_like(tokens)
-                    beams_row_idx.fill_(row)
+                    beam.sampled_tokens = tokens
+                    beam.sampled_probs = probs
 
-                    # Collect results for beam
+                    beam.record_last_cache_column()
+                    self.cache.current_seq_len -= 1
 
-                    # probs *= beams_cum_probs[row]
+                # Collect options for all beams
 
-                    tokens_.append(tokens.squeeze(0))
-                    probs_.append(probs.squeeze(0))
-                    beams_row_idx_.append(beams_row_idx.squeeze(0))
-
-                    # Save k/v cache for temporary token
-
-                    self.cache.copy_states(self.beams_cache,
-                                           self.cache.current_seq_len - 1, 1,
-                                           self.beams_cache.current_seq_len, 1,
-                                           0, 1, row, 1)
-
-                    # Remove temporary token unless this is the last beam
-
-                    if row < self.beams.shape[0] - 1:
-
-                        self.sequence = self.sequence[:, :-1]
-                        self.cache.current_seq_len -= 1
-
-                # Advance beams cache
-
-                self.beams_cache.current_seq_len += 1
-
-                # Select best scores from all beams, up to max no. beams
+                tokens_ = []
+                probs_ = []
+                cum_log_probs_ = []
+                beams_ = []
+                for i, beam in enumerate(self.beams):
+                    tokens_.append(beam.sampled_tokens.squeeze(0))
+                    probs_.append(beam.sampled_probs.squeeze(0))
+                    cum_log_probs_.append(beam.sampled_cum_log_probs().squeeze(0))
+                    beams_.append(torch.Tensor([i] * beam.sampled_tokens.shape[-1]).to(torch.int))
 
                 tokens_all = torch.cat(tokens_, dim = 0)
                 probs_all = torch.cat(probs_, dim = 0)
-                beams_row_idx = torch.cat(beams_row_idx_, dim = 0)
+                cum_log_probs_all = torch.cat(cum_log_probs_, dim = 0)
+                beams_all = torch.cat(beams_, dim = 0)
 
-                probs_all, ind = probs_all.sort(descending = True)
+                # Sort by cumulative probability
+
+                cum_log_probs_all, ind = cum_log_probs_all.sort(descending = True)
+                probs_all = probs_all[ind]
                 tokens_all = tokens_all[ind]
-                beams_row_idx = beams_row_idx[ind]
+                beams_all = beams_all[ind]
 
+                # Reduce to beam limit
+
+                cum_log_probs_all = cum_log_probs_all[:self.settings.beams]
                 probs_all = probs_all[:self.settings.beams]
                 tokens_all = tokens_all[:self.settings.beams]
-                beams_row_idx = beams_row_idx[:self.settings.beams]
+                beams_all = beams_all[:self.settings.beams]
 
-                # Re-sort by beam index to build cache faster and do less swapping on next iteration
+                # Re-sort by beam index
 
-                beams_row_idx, ind = beams_row_idx.sort()
+                beams_all, ind = beams_all.sort()
+                cum_log_probs_all = cum_log_probs_all[ind]
                 tokens_all = tokens_all[ind]
                 probs_all = probs_all[ind]
 
-                # Rebuild beams and caches
+                # test = [self.tokenizer.decode(beam.sequence) for beam in self.beams]
 
-                beams_swap = []
-                probs_swap = []
-                beams_row_idx = beams_row_idx.tolist()
-                i = 0
+                # Rebuild beams/caches
 
-                while i < len(beams_row_idx):
+                for beam in self.beams: beam.moved = False
+                beams_new = []
 
-                    row = i
-                    row_a = beams_row_idx[row]
-                    while i < len(beams_row_idx) and beams_row_idx[i] == row_a: i += 1
-                    rows = i - row
+                for i in range(len(beams_all)):
 
-                    for j in range(rows):
+                    new_token = tokens_all[i]
+                    new_prob = probs_all[i]
+                    beam_idx = beams_all[i].item()
 
-                        nrow = torch.cat((self.beams[row_a, :], tokens_all[row + j].unsqueeze(0)), dim = 0)
-                        beams_swap.append(nrow)
+                    if not self.beams[beam_idx].moved:
 
-                        prow = torch.cat((self.beams_probs[row_a, :], probs_all[row + j].unsqueeze(0)), dim = 0)
-                        probs_swap.append(prow)
+                        self.beams[beam_idx].sequence = torch.cat((self.beams[beam_idx].sequence, new_token.unsqueeze(0).unsqueeze(0)), dim = 1)
+                        self.beams[beam_idx].probs = torch.cat((self.beams[beam_idx].probs, new_prob.unsqueeze(0).unsqueeze(0)), dim = 1)
+                        self.beams[beam_idx].moved = True
+                        beams_new.append(self.beams[beam_idx])
 
-                    self.beams_cache.copy_states(self.beams_cache_swap,
-                                                 0, self.beams_cache.current_seq_len,
-                                                 0, self.beams_cache.current_seq_len,
-                                                 row_a, 1,
-                                                 row, rows)
+                    else:
 
-                self.beams_cache_swap.current_seq_len = self.beams_cache.current_seq_len
+                        nbeam = self.beams[beam_idx].clone()
+                        nbeam.sequence[:, -1] = new_token
+                        nbeam.probs[:, -1] = new_prob
+                        beams_new.append(nbeam)
 
-                self.beams = torch.stack(beams_swap, dim = 0)
-                self.beams_probs = torch.stack(probs_swap, dim = 0)
+                self.beams = beams_new
 
-                test = self.tokenizer.decode(self.beams)  ##########
 
-                temp = self.beams_cache
-                self.beams_cache = self.beams_cache_swap
-                self.beams_cache_swap = temp
+        # Beam length is filled up, select winning beam
 
-        # Beam length is filled up, select winning next token
+        max_log_probs = float("-inf")
+        best_beam = None
+        best_beam_idx = -1
+        for beam_idx, beam in enumerate(self.beams):
+            beam_log_probs = beam.cum_log_probs()
+            if beam_log_probs > max_log_probs:
+                max_log_probs = beam_log_probs
+                best_beam = beam
+                best_beam_idx = beam_idx
 
-        beams_cum_probs = torch.sum(torch.log(self.beams_probs), dim = 1)
-        winner = torch.argmax(beams_cum_probs, dim = 0)
-        token = self.beams[winner, 0]
+        best_token = best_beam.sequence[:, 0]
+        # print(f" [{best_token.item()} + {best_beam.sequence[:, 1].item()},]", end="")
+        # if best_beam.sequence[:, 1].item() == 13:
+        #     zxc = 0
+        # print(self.tokenizer.decode(best_beam.sequence))
 
-        self.sequence[0, c_seq_len] = token
-        self.sequence_actual = torch.cat((self.sequence_actual, token.unsqueeze(0).unsqueeze(0)), dim = 1)
+        # Insert in sequence
 
-        # Copy cache state for winning token
+        self.sequence[0, c_seq_len] = best_token
+        self.sequence_actual = torch.cat((self.sequence_actual, best_token.unsqueeze(0)), dim = 1)
 
-        self.beams_cache.copy_states(self.cache,
-                                     0, 1,
-                                     c_cache_len, 1,
-                                     winner, 1,
-                                     0, 1)
+        # Copy cache state for winning beam
 
-        # Prune beams that don't begin with the winning token
+        best_beam.to_sequence()
 
-        beams_swap = []
-        probs_swap = []
+        # Prune other beams that don't begin with the winning token
 
-        for i in range(self.beams.shape[0]):
+        beams_new = [best_beam]
 
-            if self.beams[i, 0] != token: continue
+        for idx, beam in enumerate(self.beams):
+            if idx != best_beam_idx and beam.sequence[:, 0] == best_token:
+                beams_new.append(beam)
 
-            self.beams_cache.copy_states(self.beams_cache_swap,
-                                         0, self.beams_cache.current_seq_len,
-                                         0, self.beams_cache.current_seq_len,
-                                         i, 1,
-                                         len(beams_swap), 1)
+        self.beams = beams_new
 
-            beams_swap.append(self.beams[i, :])
-            probs_swap.append(self.beams_probs[i, :])
+        # Advance all remaining beams and caches
 
-        self.beams_cache_swap.current_seq_len = self.beams_cache.current_seq_len
-
-        self.beams = torch.stack(beams_swap, dim = 0)
-        self.beams_probs = torch.stack(probs_swap, dim = 0)
-
-        test = self.tokenizer.decode(self.beams)  ##########
-
-        beams_cache_temp = self.beams_cache
-        self.beams_cache = self.beams_cache_swap
-        self.beams_cache_swap = beams_cache_temp
-
-        # Remove first column of all beams
-
-        self.beams_cache.roll_left()
-        self.beams = self.beams[:, 1:]
-        self.beams_probs = self.beams_probs[:, 1:]
+        for beam in self.beams: beam.advance()
 
         # Done
 
-        return token
+        return best_token
 
 
     def end_beam_search(self):
 
         if not self.in_beam_search: return
 
-        self.sequence = self.sequence_actual
+        # print("-----")
+        # for s in self.testl: print (s)
+        # print("-----")
+
+        self.sequence = self.sequence_actual.clone()
         self.cache.current_seq_len = self.sequence.shape[-1] - 1
+        self.in_beam_search = False
 
 
     def replace_last_token(self, token):

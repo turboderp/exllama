@@ -34,7 +34,7 @@ parser.add_argument("-nnl", "--no_newline", action = "store_true", help = "Do no
 parser.add_argument("-temp", "--temperature", type = float, help = "Temperature", default = 0.95)
 parser.add_argument("-topk", "--top_k", type = int, help = "Top-K", default = 20)
 parser.add_argument("-topp", "--top_p", type = float, help = "Top-P", default = 0.65)
-parser.add_argument("-minp", "--min_p", type = float, help = "Min-P", default = 0.02)
+parser.add_argument("-minp", "--min_p", type = float, help = "Min-P", default = 0.00)
 parser.add_argument("-repp",  "--repetition_penalty", type = float, help = "Repetition penalty", default = 1.15)
 parser.add_argument("-repps", "--repetition_penalty_sustain", type = int, help = "Past length for repetition penalty", default = 256)
 parser.add_argument("-beams", "--beams", type = int, help = "Number of beams for beam search", default = 1)
@@ -77,7 +77,7 @@ if args.prompt is not None:
 else:
     past = f"{bot_name}: Hello, {username}\n"
 
-# past += "User: Hi. Can you say \"Mmmmmmmmm\"?\n"
+# past += "User: Hi. Please say \"Shhhhhh\"?\n"
 # args.botfirst = True
 
 # Instantiate model and generator
@@ -112,6 +112,7 @@ break_on_newline = not args.no_newline
 
 # Be nice to Chatbort
 
+min_response_tokens = 4
 max_response_tokens = 256
 extra_prune = 256
 
@@ -173,6 +174,15 @@ while True:
 
     for i in range(max_response_tokens):
 
+        # Disallowing the end condition tokens seems like a clean way to force longer replies.
+
+        if i < min_response_tokens:
+            generator.disallow_tokens([tokenizer.newline_token_id, tokenizer.eos_token_id])
+        else:
+            generator.disallow_tokens(None)
+
+        # Get a token
+
         gen_token = generator.beam_search()
 
         # If token is EOS, replace it with newline before continuing
@@ -203,6 +213,8 @@ while True:
             generator.gen_rewind(plen)
             next_userprompt = " "
             break
+
+    generator.end_beam_search()
 
     past += res_line
     first_round = False
