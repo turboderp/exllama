@@ -4,8 +4,10 @@ python test_chatbot.py \
 -c /mnt/str/models/llama-30b-4bit-128g-act/config.json \
 -m /mnt/str/models/llama-30b-4bit-128g-act/llama-30b-4bit-128g.safetensors \
 -un "Jeff" \
--beams 8 -beamlen 8 \
 -p prompt_chatbort.txt
+
+#-beams 8 -beamlen 8 \
+
 
 #python test_chatbot.py \
 #-t /mnt/str/models/bluemoon-4k-13b-4bit-128g/tokenizer.model \
