@@ -94,6 +94,15 @@ class ExLlamaConfig:
         self.matmul_method = self.MatmulMethod.SWITCHED
         self.mlp_method = self.MLPMethod.NORMAL  # Currently no benefit to fused MLP
         self.device_map = ExLlamaDeviceMap(self.num_hidden_layers)
+        self.auto_map = None  # List of ints with memory allocation in GB, per CUDA device, overrides device_map
+
+
+    # Parse and set list of GPU VRAM allocations
+
+    def set_auto_map(self, map_string):
+
+        if map_string is None: self.auto_map = None
+        else: self.auto_map = [float(alloc) for alloc in map_string.split(",")]
 
 
 def _dump_tensor(t, name):
@@ -725,9 +734,9 @@ class ExLlamaBuffer:
 
         new = ExLlamaBuffer(self.config)
 
-        new.x_temp = self.x_temp.to(device)
-        new.x_col_temp = self.x_temp.to(device)
-        new.x_act_temp = self.x_temp.to(device)
+        new.x_temp = None if self.x_temp is None else self.x_temp.to(device)
+        new.x_col_temp = None if self.x_col_temp is None else self.x_temp.to(device)
+        new.x_act_temp = None if self.x_act_temp is None else self.x_temp.to(device)
 
         return new
 
@@ -749,6 +758,59 @@ class ExLlama(nn.Module):
 
         tensors = {}
         with safe_open(self.config.model_path, framework="pt", device="cpu") as f:
+
+            # Begin auto mapping if enabled
+
+            decoder_size = 0
+            norm_size = 0
+            head_size = 0
+
+            if self.config.auto_map is not None:
+
+                self.config.device_map.embed_tokens = "cpu"
+                self.config.device_map.layers = ["cuda:0"] + ["?"] * (self.config.num_hidden_layers - 1)
+
+                for key in f.keys():
+
+                    if key.startswith("model.layers.0."):
+                        tensor = f.get_tensor(key)
+                        decoder_size += tensor.numel() * tensor.element_size()
+
+                    if key.startswith("model.norm."):
+                        tensor = f.get_tensor(key)
+                        norm_size += tensor.numel() * tensor.element_size()
+
+                    if key.startswith("lm_head."):
+                        tensor = f.get_tensor(key)
+                        head_size += tensor.numel() * tensor.element_size()
+
+            # Assign layers automatically
+
+            device_usage = 0
+            device_index = 0
+            max_usage = self.config.auto_map[device_index] * (1024 ** 3)
+
+            for layer in range(self.config.num_hidden_layers + 2):
+
+                this_layer_size = decoder_size
+                if layer == self.config.num_hidden_layers + 0: this_layer_size = norm_size
+                if layer == self.config.num_hidden_layers + 1: this_layer_size = head_size
+
+                while device_usage + this_layer_size > max_usage:
+                    device_index += 1
+                    device_usage = 0
+                    max_usage = self.config.auto_map[device_index] * (1024 ** 3)
+                    if device_index >= len(self.config.auto_map): raise ValueError("Model too large for device allocation scheme.")
+
+                target = f"cuda:{device_index}"
+                if layer == self.config.num_hidden_layers + 0: self.config.device_map.norm = target
+                elif layer == self.config.num_hidden_layers + 1: self.config.device_map.lm_head = target
+                else: self.config.device_map.layers[layer] = f"cuda:{device_index}"
+
+                device_usage += this_layer_size
+
+            # Load tensors to
+
             for key in f.keys():
 
                 if key.endswith("_proj.bias"): continue  # Skip loading unused, empty bias tensors
@@ -759,7 +821,6 @@ class ExLlama(nn.Module):
 
                 if key.endswith(".scales"): tensor = tensor.half()
                 if key == "lm_head.weight" and device == "cpu": tensor = tensor.float()
-
                 if key.endswith(".embed_tokens.weight"): tensor = tensor.half()
                 if key.endswith(".input_layernorm.weight"): tensor = tensor.half()
                 if key.endswith(".post_attention_layernorm.weight"): tensor = tensor.half()

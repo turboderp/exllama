@@ -22,6 +22,7 @@ parser.add_argument("-m", "--model", type = str, help = "Model weights path (.pt
 parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP)
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
 parser.add_argument("-s", "--stream", type = int, help = "Stream layer interval", default = 0)
+parser.add_argument("-gs", "--gpu_split", type = str, help = "Comma-separated list of VRAM (in GB) to use per GPU device for model layers, e.g. -gs 20,7,7")
 
 parser.add_argument("-l", "--length", type = int, help = "Maximum sequence length", default = 2048)
 
@@ -68,6 +69,8 @@ print(f" -- Options: {print_opts}")
 username = args.username
 bot_name = args.botname
 
+# Load prompt file
+
 if args.prompt is not None:
     with open(args.prompt, "r") as f:
         past = f.read()
@@ -88,6 +91,7 @@ config.attention_method = args.attention
 config.matmul_method = args.matmul
 config.stream_layer_interval = args.stream
 if args.length is not None: config.max_seq_len = args.length
+config.set_auto_map(args.gpu_split)
 
 model = ExLlama(config)
 cache = ExLlamaCache(model)
