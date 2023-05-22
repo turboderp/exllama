@@ -95,6 +95,7 @@ class ExLlamaConfig:
         self.mlp_method = self.MLPMethod.NORMAL  # Currently no benefit to fused MLP
         self.device_map = ExLlamaDeviceMap(self.num_hidden_layers)
         self.auto_map = None  # List of ints with memory allocation in GB, per CUDA device, overrides device_map
+        self.dequant = None  # Number of layers (per GPU) to de-quantize at load time
 
 
     # Parse and set list of GPU VRAM allocations
@@ -103,6 +104,14 @@ class ExLlamaConfig:
 
         if map_string is None: self.auto_map = None
         else: self.auto_map = [float(alloc) for alloc in map_string.split(",")]
+
+
+    # Parse and set number of layers to de-quantize at load, per GPU
+
+    def set_dequant(self, dq_string):
+
+        if dq_string is None: self.dequant = None
+        else: self.dequant = [int(alloc) for alloc in dq_string.split(",")]
 
 
 def _dump_tensor(t, name):
@@ -146,11 +155,12 @@ def _mlp_switch(config, x):
 
 class Ex4bitLinear(nn.Module):
 
-    def __init__(self, config, in_features, out_features, has_bias, tensors, key):
+    def __init__(self, config, in_features, out_features, has_bias, tensors, key, dequant = False):
         super().__init__()
 
         self.config = config
         self.key = key
+        self.dequant = dequant
 
         self.in_features = in_features
         self.out_features = out_features
@@ -210,6 +220,17 @@ class Ex4bitLinear(nn.Module):
 
         if has_bias: self.bias = tensors[key + ".bias"]
 
+        # Optionally dequantize layer at init time
+
+        if self.dequant:
+
+            self.qweight_dequant = cuda_ext.dequantize_q4v2(self.quant_args())
+            self.qweight = None
+            self.scales = None
+            self.zeros = None
+            self.seq_g_idx = None
+            self.x_map = None
+
 
     def quant_args(self):
 
@@ -268,20 +289,26 @@ class Ex4bitLinear(nn.Module):
 
     def forward(self, x):
 
-        if torch.is_grad_enabled():
+        if self.dequant:
 
-            # Untested
-            out = cuda_ext.ExAutogradMatmul4bitCuda.apply(x, self.qweight, self.scales, self.qzeros, self.groupsize, self.bits, self.maxq)
+            out = torch.matmul(x, self.qweight_dequant)
 
         else:
 
-            out = cuda_ext.matmul_q4v2(x, self.quant_args(), _matmul_switch(self.config, x))
-            if self.bias is not None: out += self.bias
+            if torch.is_grad_enabled():
 
-        # if self.key == "model.layers.0.mlp.gate_proj":
-        #
-        #     _dump_tensor(x, "cuda_test/model.layers.0.mlp.gate_proj.x")
-        #     sys.exit()
+                # Untested
+                out = cuda_ext.ExAutogradMatmul4bitCuda.apply(x, self.qweight, self.scales, self.qzeros, self.groupsize, self.bits, self.maxq)
+
+            else:
+
+                out = cuda_ext.matmul_q4v2(x, self.quant_args(), _matmul_switch(self.config, x))
+                if self.bias is not None: out += self.bias
+
+            # if self.key == "model.layers.0.mlp.gate_proj":
+            #
+            #     _dump_tensor(x, "cuda_test/model.layers.0.mlp.gate_proj.x")
+            #     sys.exit()
 
         return out
 
@@ -300,20 +327,22 @@ class Ex4bitLinear(nn.Module):
 
 class ExLlamaMLP(nn.Module):
 
-    def __init__(self, config, tensors, key):
+    def __init__(self, config, tensors, key, dequant = False):
         super().__init__()
 
         self.config = config
+        self.dequant = dequant
 
-        self.gate_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".gate_proj")
-        self.up_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".up_proj")
-        self.down_proj = Ex4bitLinear(config, self.config.intermediate_size, self.config.hidden_size, False, tensors, key + ".down_proj")
+        self.gate_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".gate_proj", dequant = dequant)
+        self.up_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".up_proj", dequant = dequant)
+        self.down_proj = Ex4bitLinear(config, self.config.intermediate_size, self.config.hidden_size, False, tensors, key + ".down_proj", dequant = dequant)
 
         self.act_fn = nn.SiLU()
 
 
     def forward_fused(self, x, rms_norm_weight, buffer):
 
+        assert not self.dequant
         x = cuda_ext.mlp_q4v2(x,
                               buffer.x_temp,
                               buffer.x_col_temp,
@@ -367,7 +396,7 @@ class ExLlamaRMSNorm(nn.Module):
 
 class ExLlamaAttention(nn.Module):
 
-    def __init__(self, config, tensors, key, sin, cos, index):
+    def __init__(self, config, tensors, key, sin, cos, index, dequant = False):
         super().__init__()
 
         self.config = config
@@ -375,10 +404,10 @@ class ExLlamaAttention(nn.Module):
         self.cos = cos
         self.index = index
 
-        self.q_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".q_proj")
-        self.k_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".k_proj")
-        self.v_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".v_proj")
-        self.o_proj = Ex4bitLinear(config, self.config.num_attention_heads * self.config.head_dim, self.config.hidden_size, False, tensors, key + ".o_proj")
+        self.q_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".q_proj", dequant = dequant)
+        self.k_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".k_proj", dequant = dequant)
+        self.v_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".v_proj", dequant = dequant)
+        self.o_proj = Ex4bitLinear(config, self.config.num_attention_heads * self.config.head_dim, self.config.hidden_size, False, tensors, key + ".o_proj", dequant = dequant)
 
 
     def forward(self, hidden_states, cache, buffer):
@@ -467,14 +496,14 @@ class ExLlamaAttention(nn.Module):
 
 class ExLlamaDecoderLayer(nn.Module):
 
-    def __init__(self, config, tensors, key, index, sin, cos):
+    def __init__(self, config, tensors, key, index, sin, cos, dequant = False):
         super().__init__()
 
         self.config = config
         self.index = index
 
-        self.self_attn = ExLlamaAttention(self.config, tensors, key + ".self_attn", sin, cos, self.index)
-        self.mlp = ExLlamaMLP(self.config, tensors, key + ".mlp")
+        self.self_attn = ExLlamaAttention(self.config, tensors, key + ".self_attn", sin, cos, self.index, dequant = dequant)
+        self.mlp = ExLlamaMLP(self.config, tensors, key + ".mlp", dequant = dequant)
 
         self.input_layernorm = ExLlamaRMSNorm(self.config, tensors, key + ".input_layernorm.weight")
         self.post_attention_layernorm = ExLlamaRMSNorm(self.config, tensors, key + ".post_attention_layernorm.weight")
@@ -487,7 +516,9 @@ class ExLlamaDecoderLayer(nn.Module):
         hidden_states = self.self_attn(hidden_states, cache, buffer)
         hidden_states = residual + hidden_states
 
-        if _mlp_switch(self.config, hidden_states):
+        # TODO: Support dequantized layer in fused MLP. Also, finish implementing fused MLP
+
+        if self.mlp.dequant or _mlp_switch(self.config, hidden_states):
 
             residual = hidden_states
             hidden_states = self.post_attention_layernorm(hidden_states, buffer)
@@ -741,6 +772,17 @@ class ExLlamaBuffer:
         return new
 
 
+def _device_to_int(device):
+
+    return int(device[device.find(":") + 1:])
+
+def _skip_key(key):
+
+    if key.endswith("_proj.bias"): return True
+    if key.endswith(".rotary_emb.inv_freq"): return True
+    return False
+
+
 class ExLlama(nn.Module):
 
     def __init__(self, config):
@@ -762,8 +804,10 @@ class ExLlama(nn.Module):
             # Begin auto mapping if enabled
 
             decoder_size = 0
+            decoder_dq_size = 0
             norm_size = 0
             head_size = 0
+            half_element_size = torch.tensor([], dtype = torch.float16).element_size()
 
             if self.config.auto_map is not None:
 
@@ -772,9 +816,15 @@ class ExLlama(nn.Module):
 
                 for key in f.keys():
 
+                    if _skip_key(key): continue
+
                     if key.startswith("model.layers.0."):
                         tensor = f.get_tensor(key)
                         decoder_size += tensor.numel() * tensor.element_size()
+                        if key.endswith(".weight"):
+                            decoder_dq_size += tensor.numel() * tensor.element_size()
+                        if key.endswith(".qweight"):
+                            decoder_dq_size += tensor.numel() * 8 * half_element_size
 
                     if key.startswith("model.norm."):
                         tensor = f.get_tensor(key)
@@ -784,37 +834,40 @@ class ExLlama(nn.Module):
                         tensor = f.get_tensor(key)
                         head_size += tensor.numel() * tensor.element_size()
 
-            # Assign layers automatically
+                # Assign layers automatically
 
-            device_usage = 0
-            device_index = 0
-            max_usage = self.config.auto_map[device_index] * (1024 ** 3)
+                device_usage = 0
+                device_index = 0
+                layer_index_device = 0
+                max_usage = self.config.auto_map[device_index] * (1024 ** 3)
 
-            for layer in range(self.config.num_hidden_layers + 2):
+                for layer in range(self.config.num_hidden_layers + 2):
 
-                this_layer_size = decoder_size
-                if layer == self.config.num_hidden_layers + 0: this_layer_size = norm_size
-                if layer == self.config.num_hidden_layers + 1: this_layer_size = head_size
+                    this_layer_size = decoder_size
+                    if layer == self.config.num_hidden_layers + 0: this_layer_size = norm_size
+                    elif layer == self.config.num_hidden_layers + 1: this_layer_size = head_size
+                    elif self.config.dequant is not None and layer_index_device < self.config.dequant[device_index]: this_layer_size = decoder_dq_size
 
-                while device_usage + this_layer_size > max_usage:
-                    device_index += 1
-                    device_usage = 0
-                    max_usage = self.config.auto_map[device_index] * (1024 ** 3)
-                    if device_index >= len(self.config.auto_map): raise ValueError("Model too large for device allocation scheme.")
+                    while device_usage + this_layer_size > max_usage:
+                        device_index += 1
+                        device_usage = 0
+                        layer_index_device = 0
+                        max_usage = self.config.auto_map[device_index] * (1024 ** 3)
+                        if device_index >= len(self.config.auto_map): raise ValueError("Model too large for device allocation scheme.")
 
-                target = f"cuda:{device_index}"
-                if layer == self.config.num_hidden_layers + 0: self.config.device_map.norm = target
-                elif layer == self.config.num_hidden_layers + 1: self.config.device_map.lm_head = target
-                else: self.config.device_map.layers[layer] = f"cuda:{device_index}"
+                    target = f"cuda:{device_index}"
+                    if layer == self.config.num_hidden_layers + 0: self.config.device_map.norm = target
+                    elif layer == self.config.num_hidden_layers + 1: self.config.device_map.lm_head = target
+                    else: self.config.device_map.layers[layer] = f"cuda:{device_index}"
 
-                device_usage += this_layer_size
+                    device_usage += this_layer_size
+                    layer_index_device += 1
 
-            # Load tensors to
+            # Load tensors, move to device(s)
 
             for key in f.keys():
 
-                if key.endswith("_proj.bias"): continue  # Skip loading unused, empty bias tensors
-                if key.endswith(".rotary_emb.inv_freq"): continue  # This is always precomputed during init anyway
+                if _skip_key(key): continue
 
                 device = self.config.device_map.map(key, loading = True)
                 tensor = f.get_tensor(key)
@@ -845,8 +898,10 @@ class ExLlama(nn.Module):
 
         # Prepare position embeddings for max seq length
 
+        devs = self.config.device_map.get_layers_devs()
+
         self.sincos = {}
-        for device in self.config.device_map.get_layers_devs():
+        for device in devs:
 
             inv_freq = 1.0 / (self.config.rotary_embedding_base ** (torch.arange(0, self.config.head_dim, 2, device = device).float() / self.config.head_dim))
             t = torch.arange(self.config.max_seq_len, device = device, dtype = torch.float32)
@@ -863,12 +918,21 @@ class ExLlama(nn.Module):
         layer_streaming = self.config.stream_layer_interval > 0
 
         modules = []
+        device_layer_index = [0] * len(devs)
+
         for i in range(self.config.num_hidden_layers):
 
             device = self.config.device_map.layers[i]
             sin, cos = self.sincos[device]
 
-            layer = ExLlamaDecoderLayer(self.config, tensors, f"model.layers.{i}", i, sin, cos)
+            dequant = False
+            if self.config.dequant is not None:
+                device_idx = _device_to_int(device)
+                device_layer = device_layer_index[device_idx]
+                device_layer_index[device_idx] += 1
+                if device_layer < self.config.dequant[device_idx]: dequant = True
+
+            layer = ExLlamaDecoderLayer(self.config, tensors, f"model.layers.{i}", i, sin, cos, dequant = dequant)
 
             if layer_streaming and i > 0 and (i + 1) % self.config.stream_layer_interval == 0:
                 if self.stream_buffer is None: self.stream_buffer = ExLlamaStreamer(self.config, layer)  # Use first layer as prototype

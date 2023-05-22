@@ -70,10 +70,9 @@ def _matmul_q4v2_matmul(x, w, scales, zeros, seq_g_idx, x_map):
     return output.reshape(outshape)
 
 
-def _matmul_q4v2_recons(x, w, scales, zeros, seq_g_idx, x_map, transpose = False):
+def _matmul_q4v2_recons(x, w, scales, zeros, seq_g_idx, x_map):
 
-    if not transpose: assert w.shape[0] * 8 == x.shape[-1]
-    else: assert w.shape[1] == x.shape[-1]
+    assert w.shape[0] * 8 == x.shape[-1]
 
     qweight_recons = torch.empty((w.shape[0] * 8, w.shape[1]), dtype = torch.float16, device = w.device)
     q4v2_recons(w, qweight_recons, scales, zeros, seq_g_idx if seq_g_idx is not None else none_tensor)
@@ -88,9 +87,30 @@ def _matmul_q4v2_recons(x, w, scales, zeros, seq_g_idx, x_map, transpose = False
         column_remap(x, x_mapped, x_map)
         x = x_mapped.reshape(x_shape)
 
-    output = torch.matmul(x, qweight_recons.T if transpose else qweight_recons)
+    output = torch.matmul(x, qweight_recons)
 
     return output
+
+
+# Reconstruct fp16 matrix from 4-bit matrix
+
+def dequantize_q4v2(quant_args):
+
+    w = quant_args["qweight"]
+    scales = quant_args["scales"]
+    zeros = quant_args["zeros"]
+    seq_g_idx = quant_args["seq_g_idx"]
+    x_map = quant_args["x_map"]
+
+    qweight_recons = torch.empty((w.shape[0] * 8, w.shape[1]), dtype = torch.float16, device = w.device)
+    q4v2_recons(w, qweight_recons, scales, zeros, seq_g_idx if seq_g_idx is not None else none_tensor)
+
+    if x_map is not None:
+
+        # TODO un-unshuffle rows in qweight_recons
+        raise ValueError("Not implemented yet.")
+
+    return qweight_recons
 
 
 # Matrix multiplication, returns x @ 4-bit matrix (qweight, scales, zeros, g_idx)

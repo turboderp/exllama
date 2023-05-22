@@ -125,7 +125,7 @@ slower as well over time.
 - [ ] Options for trading off memory usage for more performance (e.g. float32 tensors)
 - [ ] Provide alternative backend to allow layers on CPU
 - [ ] Fused QKV projection and fused MLP
-- [ ] Support for de-quantizing select matrices at load time
+- [x] Support for de-quantizing select matrices at load time
 - [ ] A web interface maybe?
 - [x] Memory-efficient beam search implementation
 - [ ] Optimized beam search
@@ -157,3 +157,9 @@ models. Noticeably faster now.
 does slow it down a bit. There should be ways to mitigate the slowdown. It's not clear how much better beam search
 performs in practice, but it's at least theoretically superior and there are other features coming which will build
 on it, like multi-token repetition penalties and (de-)censoring.
+
+**2023-05-22**: Added option to auto-split layers across multiple GPUs based on VRAM allocation. 
+
+**2023-05-22**: Added option to dequantize layers at load-time which _should_ speed up inference, but it turns out
+Torch's fp16 matmul is actually slower than the quantized matmul. Maybe bandwidth is the only bottleneck right now?
+Need to experiment some more.

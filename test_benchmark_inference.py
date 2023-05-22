@@ -12,13 +12,22 @@ testdata_path = "testdata.jsonl"
 
 torch.set_grad_enabled(False)
 torch.cuda._lazy_init()
-# torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cuda.matmul.allow_tf32 = True
 torch.set_printoptions(precision = 10)
 torch_devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
 
 class ModelWrapper:
 
-    def __init__(self, tokenizer_model_path, model_config_path, model_path, attention, matmul, length, stream, gpu_split):
+    def __init__(self,
+                 tokenizer_model_path,
+                 model_config_path,
+                 model_path,
+                 attention,
+                 matmul,
+                 length,
+                 stream,
+                 gpu_split,
+                 dequant):
 
         self.tokenizer_model_path = tokenizer_model_path
         self.model_config_path = model_config_path
@@ -36,6 +45,7 @@ class ModelWrapper:
         # config.device_map.norm = "cuda:1"
 
         config.set_auto_map(gpu_split)
+        config.set_dequant(dequant)
         config.stream_layer_interval = stream
 
         config.attention_method = attention
@@ -105,6 +115,7 @@ parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.ar
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
 parser.add_argument("-s", "--stream", type = int, help = "Stream layer interval", default = 0)
 parser.add_argument("-gs", "--gpu_split", type = str, help = "Comma-separated list of VRAM (in GB) to use per GPU device for model layers, e.g. -gs 20,7,7")
+parser.add_argument("-dq", "--dequant", type = str, help = "Number of layers (per GPU) to de-quantize at load time")
 
 parser.add_argument("-l", "--length", type = int, help = "Maximum sequence length", default = 2048)
 parser.add_argument("-p", "--perf", action = "store_true", help = "Benchmark speed and VRAM usage")
@@ -127,12 +138,21 @@ if args.perf: print_opts.append("perf")
 if args.perplexity: print_opts.append("perplexity")
 if args.stream > 0: print_opts.append(f"stream: {args.stream}")
 if args.gpu_split is not None: print_opts.append(f"gpu_split: {args.gpu_split}")
+if args.dequant is not None: print_opts.append(f"dequant: {args.dequant}")
 
 print(f" -- Options: {print_opts}")
 
 # Instantiate model
 
-wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer, args.config, args.model, args.attention, args.matmul, args.length, args.stream, args.gpu_split))
+wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer,
+                                                   args.config,
+                                                   args.model,
+                                                   args.attention,
+                                                   args.matmul,
+                                                   args.length,
+                                                   args.stream,
+                                                   args.gpu_split,
+                                                   args.dequant))
 
 print(f" -- Groupsize (inferred): {wrapper.model.config.groupsize if wrapper.model.config.groupsize is not None else 'None'}")
 print(f" -- Act-order (inferred): {'yes' if wrapper.model.config.act_order else 'no'}")

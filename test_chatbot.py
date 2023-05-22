@@ -23,6 +23,7 @@ parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.ar
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
 parser.add_argument("-s", "--stream", type = int, help = "Stream layer interval", default = 0)
 parser.add_argument("-gs", "--gpu_split", type = str, help = "Comma-separated list of VRAM (in GB) to use per GPU device for model layers, e.g. -gs 20,7,7")
+parser.add_argument("-dq", "--dequant", type = str, help = "Number of layers (per GPU) to de-quantize at load time")
 
 parser.add_argument("-l", "--length", type = int, help = "Maximum sequence length", default = 2048)
 
@@ -63,6 +64,8 @@ print_opts.append("matmul: " + str(args.matmul))
 if args.no_newline: print_opts.append("no_newline")
 if args.botfirst: print_opts.append("botfirst")
 if args.stream > 0: print_opts.append(f"stream: {args.stream}")
+if args.gpu_split is not None: print_opts.append(f"gpu_split: {args.gpu_split}")
+if args.dequant is not None: print_opts.append(f"dequant: {args.dequant}")
 
 print(f" -- Options: {print_opts}")
 
@@ -92,6 +95,7 @@ config.matmul_method = args.matmul
 config.stream_layer_interval = args.stream
 if args.length is not None: config.max_seq_len = args.length
 config.set_auto_map(args.gpu_split)
+config.set_dequant(args.dequant)
 
 model = ExLlama(config)
 cache = ExLlamaCache(model)
