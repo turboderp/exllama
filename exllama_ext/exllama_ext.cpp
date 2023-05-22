@@ -341,6 +341,8 @@ void rms_norm
     int rows = x.size(0);
     int dim = x.size(1);
 
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
+
     _cuda_raise(
         rms_norm_cuda
         (
