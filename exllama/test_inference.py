@@ -1,7 +1,8 @@
-from model import ExLlama, ExLlamaCache, ExLlamaConfig
-from tokenizer import ExLlamaTokenizer
-from generator import ExLlamaGenerator
 import torch
+
+from .model import ExLlama, ExLlamaCache, ExLlamaConfig
+from .tokenizer import ExLlamaTokenizer
+from .generator import ExLlamaGenerator
 
 # Just a quick test to see if we are getting anything sensible out of the model.
 

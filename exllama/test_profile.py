@@ -1,10 +1,10 @@
-
-from model import ExLlama, ExLlamaCache, ExLlamaConfig
-from tokenizer import ExLlamaTokenizer
 import torch
 
 import cProfile, pstats, io
 from pstats import SortKey
+
+from .model import ExLlama, ExLlamaCache, ExLlamaConfig
+from .tokenizer import ExLlamaTokenizer
 
 tokenizer_model_path = "/mnt/str/models/llama-30b-4bit-128g/tokenizer.model"
 model_config_path = "/mnt/str/models/llama-30b-4bit-128g/config.json"

@@ -2,7 +2,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from safetensors import safe_open
-import cuda_ext
 import json
 import math
 from enum import Enum
@@ -10,6 +9,11 @@ import threading
 import sys
 import struct
 from typing import List
+
+import transformers
+from transformers import PreTrainedModel, PretrainedConfig
+
+from . import cuda_ext
 
 # Magic numbers
 
@@ -32,7 +36,7 @@ class ParsedEnum(Enum):
             return s
 
 
-class ExLlamaConfig:
+class ExLlamaConfig(PretrainedConfig):
 
     class AttentionMethod(ParsedEnum):
 
@@ -96,6 +100,8 @@ class ExLlamaConfig:
         self.device_map = ExLlamaDeviceMap(self.num_hidden_layers)
         self.auto_map = None  # List of ints with memory allocation in GB, per CUDA device, overrides device_map
         self.dequant = None  # Number of layers (per GPU) to de-quantize at load time
+
+        self.is_encoder_decoder = False
 
 
     # Parse and set list of GPU VRAM allocations
@@ -783,14 +789,16 @@ def _skip_key(key):
     return False
 
 
-class ExLlama(nn.Module):
+class ExLlama(PreTrainedModel):
 
     def __init__(self, config):
-        super().__init__()
+        super().__init__(config)
         self.eval()
 
         self.config = config
         self.stream_buffer = None
+
+        self.cache = ExLlamaCache(self)
 
         # Forward streaming config to device map so we only load the first layer on GPU
 
@@ -943,10 +951,16 @@ class ExLlama(nn.Module):
         self.layers = nn.ModuleList(modules)
 
 
-    def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False):
+    def forward(self, input_ids, cache, last_id_only=True, preprocess_only=False, return_dict=False, output_attentions=False, output_hidden_states=False):
+
+        past_len = cache.current_seq_len
+
+        if past_len == 0:
+            last_id_only = False
+        else:
+            input_ids = input_ids[:, -1:]
 
         batch_size, seq_len = input_ids.shape
-        past_len = cache.current_seq_len
 
         buffer = ExLlamaBuffer(self.config)
 
@@ -1035,7 +1049,14 @@ class ExLlama(nn.Module):
         if self.config.device_map.lm_head == "cpu": hidden_states = hidden_states.float()
         logits = self.lm_head(hidden_states)
 
-        return logits.to(self.config.device_map.embed_tokens).float()
+        # return logits.to(self.config.device_map.embed_tokens).float()
+        return transformers.modeling_outputs.CausalLMOutputWithPast(
+            loss=0,
+            logits=logits,
+            past_key_values=[],
+            hidden_states=hidden_states,
+            attentions=[],
+        )
 
         # TODO: Accept labels and calc (optional) loss, also test backprop
         # HF implementation for ref.:
@@ -1052,3 +1073,15 @@ class ExLlama(nn.Module):
         #     # Enable model parallelism
         #     shift_labels = shift_labels.to(shift_logits.device)
         #     loss = loss_fct(shift_logits, shift_labels)
+
+    def prepare_inputs_for_generation(
+        self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs
+    ):
+        model_inputs = {
+            "input_ids": input_ids,
+            "cache": self.cache,
+        }
+        return model_inputs
+
+    def get_input_embeddings(self):
+        pass

@@ -4,27 +4,6 @@ from torch.cuda.amp import custom_bwd, custom_fwd
 from torch.utils.cpp_extension import load
 import os
 
-# TODO: This is a kludge to make the C++ extension load when the library is imported elsewhere. May not be needed
-# with the package installed, if so maybe find better solution.
-
-library_dir = "../exllama/"
-extension_name = "exllama_ext"
-
-exllama_ext = load(
-    name = extension_name,
-    sources = [
-        os.path.join(library_dir, "exllama_ext/column_remap.cu"),
-        os.path.join(library_dir, "exllama_ext/exllama_ext.cpp"),
-        os.path.join(library_dir, "exllama_ext/q4v2_matmul.cu"),
-        os.path.join(library_dir, "exllama_ext/q4v2_mlp.cu"),
-        os.path.join(library_dir, "exllama_ext/q4v2_recons.cu"),
-        os.path.join(library_dir, "exllama_ext/q4v2_sequential.cu"),
-        os.path.join(library_dir, "exllama_ext/rms_norm.cu")
-    ],
-    # verbose = True,
-    # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
-)
-
 from exllama_ext import column_remap
 from exllama_ext import q4v2_matmul
 from exllama_ext import q4v2_mlp

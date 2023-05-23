@@ -1,5 +1,3 @@
-from model import ExLlama, ExLlamaCache, ExLlamaConfig
-from tokenizer import ExLlamaTokenizer
 import time
 import torch
 import torch.nn.functional as F
@@ -7,6 +5,9 @@ import argparse
 import json
 import math
 import sys
+
+from .model import ExLlama, ExLlamaCache, ExLlamaConfig
+from .tokenizer import ExLlamaTokenizer
 
 testdata_path = "testdata.jsonl"
 

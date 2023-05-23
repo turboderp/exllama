@@ -1,5 +1,5 @@
 import torch
-from model import ExLlama, ExLlamaCache
+from .model import ExLlama, ExLlamaCache
 
 class ExLlamaGenerator:
 

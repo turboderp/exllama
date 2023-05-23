@@ -1,6 +1,7 @@
-from model import ExLlama, ExLlamaCache, ExLlamaConfig
-from tokenizer import ExLlamaTokenizer
 import torch
+
+from .model import ExLlama, ExLlamaCache, ExLlamaConfig
+from .tokenizer import ExLlamaTokenizer
 
 # Quick test to confirm that caching is working as intended. The two first passes together should produce roughly the
 # same logits between them as the third pass, unless causal masking is incorrectly applied for the cached tokens,

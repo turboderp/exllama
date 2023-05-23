@@ -1,10 +1,11 @@
-from model import ExLlama, ExLlamaCache, ExLlamaConfig
-from tokenizer import ExLlamaTokenizer
-from generator import ExLlamaGenerator
 import argparse
 import torch
 import sys
 import os
+
+from .model import ExLlama, ExLlamaCache, ExLlamaConfig
+from .tokenizer import ExLlamaTokenizer
+from .generator import ExLlamaGenerator
 
 # Simple interactive chatbot script
 
