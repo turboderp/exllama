@@ -1,11 +1,13 @@
 #include <torch/extension.h>
 #include <c10/cuda/CUDAGuard.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include <cstdint>
 #include <cstdio>
 
 #include "column_remap.h"
+#include "half_matmul.h"
 #include "q4v2_matmul.h"
 #include "q4v2_mlp.h"
 #include "q4v2_recons.h"
@@ -163,6 +165,74 @@ void q4v2_sequential
             (uint16_t*) seq_g_idx.data_ptr(),
             (uint32_t*) x_map.data_ptr(),
             num_groups
+        )
+    );
+}
+
+
+void half_matmul
+(
+    torch::Tensor x,
+    torch::Tensor w,
+    torch::Tensor out
+)
+{
+    TORCH_CHECK(x.dtype() == torch::kHalf, "x must be a half tensor");
+    TORCH_CHECK(w.dtype() == torch::kHalf, "w must be a half tensor");
+    TORCH_CHECK(out.dtype() == torch::kHalf, "out must be a half tensor");
+
+    TORCH_CHECK(x.size(1) == w.size(0), "x and w have incompatible shapes");
+
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
+
+    int height = x.size(0);
+    int dim = x.size(1);
+    int width = w.size(1);
+
+    _cuda_raise(
+        half_matmul_cuda
+        (
+            (half*) x.data_ptr(),
+            (half*) w.data_ptr(),
+            (half*) out.data_ptr(),
+            height,
+            dim,
+            width
+        )
+    );
+}
+
+
+void half_matmul_cublas
+(
+    torch::Tensor x,
+    torch::Tensor w,
+    torch::Tensor out
+)
+{
+    TORCH_CHECK(x.dtype() == torch::kHalf, "x must be a half tensor");
+    TORCH_CHECK(w.dtype() == torch::kHalf, "w must be a half tensor");
+    TORCH_CHECK(out.dtype() == torch::kHalf, "out must be a half tensor");
+
+    TORCH_CHECK(x.size(1) == w.size(0), "x and w have incompatible shapes");
+
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
+    cublasHandle_t handle = at::cuda::getCurrentCUDABlasHandle();
+
+    int height = x.size(0);
+    int dim = x.size(1);
+    int width = w.size(1);
+
+    _cuda_raise(
+        half_matmul_cublas_cuda
+        (
+            (half*) x.data_ptr(),
+            (half*) w.data_ptr(),
+            (half*) out.data_ptr(),
+            height,
+            dim,
+            width,
+            handle
         )
     );
 }
@@ -365,5 +435,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
   m.def("q4v2_recons", &q4v2_recons, "q4v2 matrix reconstruction");
   m.def("q4v2_sequential", &q4v2_sequential, "q4v2 matrix serialization");
   m.def("column_remap", &column_remap, "half matrix column remapping");
+  m.def("half_matmul", &half_matmul, "half matrix multiplication");
+  m.def("half_matmul_cublas", &half_matmul_cublas, "half matrix multiplication");
   m.def("rms_norm", &rms_norm, "rms norm");
 }

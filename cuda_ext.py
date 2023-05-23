@@ -15,6 +15,7 @@ exllama_ext = load(
     sources = [
         os.path.join(library_dir, "exllama_ext/column_remap.cu"),
         os.path.join(library_dir, "exllama_ext/exllama_ext.cpp"),
+        os.path.join(library_dir, "exllama_ext/half_matmul.cu"),
         os.path.join(library_dir, "exllama_ext/q4v2_matmul.cu"),
         os.path.join(library_dir, "exllama_ext/q4v2_mlp.cu"),
         os.path.join(library_dir, "exllama_ext/q4v2_recons.cu"),
@@ -26,6 +27,8 @@ exllama_ext = load(
 )
 
 from exllama_ext import column_remap
+from exllama_ext import half_matmul
+from exllama_ext import half_matmul_cublas
 from exllama_ext import q4v2_matmul
 from exllama_ext import q4v2_mlp
 from exllama_ext import q4v2_recons
@@ -87,7 +90,8 @@ def _matmul_q4v2_recons(x, w, scales, zeros, seq_g_idx, x_map):
         column_remap(x, x_mapped, x_map)
         x = x_mapped.reshape(x_shape)
 
-    output = torch.matmul(x, qweight_recons)
+    # output = torch.matmul(x, qweight_recons)
+    output = matmul_half(x, qweight_recons, cublas = True)
 
     return output
 
@@ -107,10 +111,29 @@ def dequantize_q4v2(quant_args):
 
     if x_map is not None:
 
-        # TODO un-unshuffle rows in qweight_recons
-        raise ValueError("Not implemented yet.")
+        # Rows will have already been rearranged to sequentialize the groups, so undo that
+
+        inverse_x_map = torch.argsort(x_map)
+        qweight_recons = qweight_recons[inverse_x_map]
 
     return qweight_recons
+
+
+# Matrix multiplication, returns x @ w, both half-precision tensors
+
+def matmul_half(x, w, cublas = False):
+
+    outshape = x.shape[:-1] + (w.shape[1],)
+    x = x.view(-1, x.shape[-1])
+
+    if cublas:
+        output = torch.empty((x.shape[0], w.shape[1]), dtype=torch.float16, device=x.device)
+        half_matmul_cublas(x, w, output)
+    else:
+        output = torch.zeros((x.shape[0], w.shape[1]), dtype=torch.float16, device=x.device)
+        half_matmul(x, w, output)
+
+    return output.reshape(outshape)
 
 
 # Matrix multiplication, returns x @ 4-bit matrix (qweight, scales, zeros, g_idx)

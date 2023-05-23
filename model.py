@@ -291,7 +291,9 @@ class Ex4bitLinear(nn.Module):
 
         if self.dequant:
 
-            out = torch.matmul(x, self.qweight_dequant)
+            # out = torch.matmul(x, self.qweight_dequant)
+            out = cuda_ext.matmul_half(x, self.qweight_dequant, _matmul_switch(self.config, x))
+            # out = cuda_ext.matmul_half(x, self.qweight_dequant, True)
 
         else:
 
@@ -874,6 +876,7 @@ class ExLlama(nn.Module):
 
                 if key.endswith(".scales"): tensor = tensor.half()
                 if key == "lm_head.weight" and device == "cpu": tensor = tensor.float()
+                if key == "model.norm.weight": tensor = tensor.half()
                 if key.endswith(".embed_tokens.weight"): tensor = tensor.half()
                 if key.endswith(".input_layernorm.weight"): tensor = tensor.half()
                 if key.endswith(".post_attention_layernorm.weight"): tensor = tensor.half()
@@ -886,6 +889,7 @@ class ExLlama(nn.Module):
 
         self.lm_head = nn.Linear(self.config.hidden_size, self.config.vocab_size, bias = False, device = "meta")
         self.lm_head.weight = nn.Parameter(tensors["lm_head.weight"])
+        # self.lm_head_data = tensors["lm_head.weight"].transpose(0, 1).contiguous()
 
         # Token embeddings
 
@@ -1034,8 +1038,9 @@ class ExLlama(nn.Module):
         hidden_states = hidden_states.to(self.config.device_map.lm_head)
         if self.config.device_map.lm_head == "cpu": hidden_states = hidden_states.float()
         logits = self.lm_head(hidden_states)
+        # logits = cuda_ext.matmul_half(hidden_states, self.lm_head_data, cublas = False)
 
-        return logits.to(self.config.device_map.embed_tokens).float()
+        return logits.float().to(self.config.device_map.embed_tokens)
 
         # TODO: Accept labels and calc (optional) loss, also test backprop
         # HF implementation for ref.:

@@ -5,6 +5,7 @@ import argparse
 import torch
 import sys
 import os
+import glob
 
 # Simple interactive chatbot script
 
@@ -15,9 +16,10 @@ torch.cuda._lazy_init()
 
 parser = argparse.ArgumentParser(description = "Simple chatbot example for ExLlama")
 
-parser.add_argument("-t", "--tokenizer", type = str, help = "Tokenizer model path", required = True)
-parser.add_argument("-c", "--config", type = str, help = "Model config path (config.json)", required = True)
-parser.add_argument("-m", "--model", type = str, help = "Model weights path (.pt or .safetensors file)", required = True)
+parser.add_argument("-t", "--tokenizer", type = str, help = "Tokenizer model path")
+parser.add_argument("-c", "--config", type = str, help = "Model config path (config.json)")
+parser.add_argument("-m", "--model", type = str, help = "Model weights path (.pt or .safetensors file)")
+parser.add_argument("-d", "--directory", type = str, help = "Path to directory containing config.json, model.tokenizer and * .safetensors")
 
 parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP)
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
@@ -43,6 +45,23 @@ parser.add_argument("-beams", "--beams", type = int, help = "Number of beams for
 parser.add_argument("-beamlen", "--beam_length", type = int, help = "Number of future tokens to consider", default = 1)
 
 args = parser.parse_args()
+
+if args.directory is not None:
+    args.tokenizer = os.path.join(args.directory, "tokenizer.model")
+    args.config = os.path.join(args.directory, "config.json")
+    st_pattern = os.path.join(args.directory, "*.safetensors")
+    st = glob.glob(st_pattern)
+    if len(st) == 0:
+        print(f" !! No files matching {st_pattern}")
+        sys.exit()
+    if len(st) > 1:
+        print(f" !! Multiple files matching {st_pattern}")
+        sys.exit()
+    args.model = st[0]
+else:
+    if args.tokenizer is None or args.config is None or args.model is None:
+        print(" !! Please specify either -d or all of -t, -c and -m")
+        sys.exit()
 
 # Some feedback
 

@@ -24,7 +24,6 @@ do { \
     else _cuda_err = cudaSuccess; \
 } while(false)
 
-
 // Clone CPU <-> CUDA
 
 template <typename T>
