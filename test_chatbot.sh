@@ -1,13 +1,5 @@
 
-python test_chatbot.py \
--t /mnt/str/models/llama-30b-4bit-128g-act/tokenizer.model \
--c /mnt/str/models/llama-30b-4bit-128g-act/config.json \
--m /mnt/str/models/llama-30b-4bit-128g-act/llama-30b-4bit-128g.safetensors \
--un "Jeff" \
--p prompt_chatbort.txt
-
-#-beams 8 -beamlen 8 \
-
+python test_chatbot.py -d /mnt/str/models/wizardlm-30b-uncensored-4bit-act-order/ -un "Maxine" -p prompt_assistant.txt -nnl -temp 1.0 -topp .75
 
 #python test_chatbot.py \
 #-t /mnt/str/models/bluemoon-4k-13b-4bit-128g/tokenizer.model \

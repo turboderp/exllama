@@ -5,7 +5,7 @@
 - [ ] Test more models
 - [ ] Consider support for loading GGML models
 - [ ] Utility to scan and validate .safetensors files
-- [ ] Figure out if there are quantized models with irregular groupsize
+- [ ] Figure out if there are quantized models with irregular groupsize (there are some at least with no groupsize)
 
 ## GPU compatibility
 
@@ -36,7 +36,8 @@
 - [ ] Figure out why inference appears to be CPU-bound
 - [ ] Measure PyTorch module overhead (nn.Modules aren't really needed for inference)
 - [ ] Examine if scaled_dot_product_attention is actually the best attention method for single tokens
- 
+- [ ] Rewrite at least the quantized matmul kernel. Should be a bunch of special cases to consider  
+
 ## Generation
 
 - [x] Memory-efficient beam search implementation

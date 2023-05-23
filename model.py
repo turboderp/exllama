@@ -177,19 +177,23 @@ class Ex4bitLinear(nn.Module):
         self.scales = tensors[key + ".scales"]
 
         # Infer groupsize from height of qzeros
-        # TODO: Figure out if there are quantized models with irregular groupsize
 
-        self.groupsize = (self.qweight.shape[0] * 8) // self.qzeros.shape[0]
+        self.groupsize = None
+        if self.qzeros.shape[0] > 1:
 
-        if self.config.groupsize is None:
-            self.config.groupsize = self.groupsize
-        else:
-            if self.config.groupsize != self.groupsize:
-                raise ValueError("Irregular groupsize for matrix: " + key)
+            self.groupsize = (self.qweight.shape[0] * 8) // self.qzeros.shape[0]
+
+            if self.config.groupsize is None:
+                self.config.groupsize = self.groupsize
+            else:
+                if self.config.groupsize != self.groupsize:
+                    self.config.no_groupsize = True
 
         # Handle act-order matrix
 
         if key + ".g_idx" in tensors:
+
+            if self.groupsize is None: raise ValueError("Found group index but no groupsize. What do?")
 
             self.config.act_order = True
 

@@ -62,21 +62,23 @@ Chatbot examples:
     python test_chatbot.py -d <path_to_model_files> -un "Jeff" -p prompt_chatbort.txt
 
     python test_chatbot.py -d <path_to_model_files> -un "Maxine" -p prompt_assistant.txt -nnl \
-      -temp 0.01 -beams 10 -beamlen 25
+      -temp 1.00 -topp 0.95 -beams 5 -beamlen 20
 
 ## Results so far
 
 ### New implementation
-| Model   | Size | groupsize | act  | Seq. len.            | VRAM      | Long seq. | Ind.    | Ppl  |
-|---------|------|-----------|------|----------------------|-----------|-----------|---------|------|
-| Llama   | 7B   | 128       | no   | 2,048 t              | 5,093 MB  | 2,497 t/s | 103 t/s | 6.45 |
-| Llama   | 13B  | 128       | no   | 2,048 t              | 8,975 MB  | 2,291 t/s | 66 t/s  | 5.62 |
-| Llama   | 30B  | 128       | no   | 2,048 t              | 20,544 MB | 1,508 t/s | 32 t/s  | 4.60 |
-| Llama   | 30B  | 128       | yes  | 2,048 t              | 20,558 MB | 1,359 t/s | 31 t/s  | 4.55 |
-| Llama   | 30B  | 32        | yes  | 1,550 t <sup>1</sup> | 21,254 MB | 1,095 t/s | 31 t/s  | 4.52 |
-| Koala   | 13B  | 128       | yes  | 2,048 t              | 8,981 MB  | 1,777 t/s | 63 t/s  | 6.73 |
+| Model    | Size | groupsize | act             | Seq. len.            | VRAM      | Long seq. | Ind.    | Ppl  |
+|----------|------|-----------|-----------------|----------------------|-----------|-----------|---------|------|
+| Llama    | 7B   | 128       | no              | 2,048 t              | 5,093 MB  | 2,497 t/s | 103 t/s | 6.45 |
+| Llama    | 13B  | 128       | no              | 2,048 t              | 8,975 MB  | 2,291 t/s | 66 t/s  | 5.62 |
+| Llama    | 30B  | 128       | no              | 2,048 t              | 20,544 MB | 1,508 t/s | 32 t/s  | 4.60 |
+| Llama    | 30B  | 128       | yes             | 2,048 t              | 20,558 MB | 1,359 t/s | 31 t/s  | 4.55 |
+| Llama    | 30B  | 32        | yes             | 1,550 t <sup>1</sup> | 21,254 MB | 1,095 t/s | 31 t/s  | 4.52 |
+| Koala    | 13B  | 128       | yes             | 2,048 t              | 8,981 MB  | 1,777 t/s | 63 t/s  | 6.73 |
+| WizardLM | 30B  | -         | no <sup>2</sup> | 2,048 t              | 19,950 MB | 1,422 t/s | 33 t/s  | 5.75 |
 
-<sup>1</sup> Can not achieve full sequence length without OoM (yet)
+<sup>1</sup> Can not achieve full sequence length without OoM (yet)  
+<sup>2</sup> Not quite sure if this is act-order or not. Weights have no group index, at least   
 
 All tests done on stock RTX 4090, running with a desktop environment, with a few other apps also using VRAM.
 

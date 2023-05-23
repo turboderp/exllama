@@ -222,7 +222,10 @@ while True:
         num_res_tokens += 1
         text = tokenizer.decode(generator.sequence_actual[:, -num_res_tokens:][0])
         new_text = text[len(res_line):]
+
+        skip_space = res_line.endswith("\n") and new_text.startswith(" ")  # Bit prettier console output
         res_line += new_text
+        if skip_space: new_text = new_text[1:]
 
         print(new_text, end="")  # (character streaming output is here)
         sys.stdout.flush()
