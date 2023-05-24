@@ -209,7 +209,7 @@ async def stream_data(req: GenerateRequest):
 
                 print(f"Output generated in {_sec} ({_tokens_sec} tokens/s, {new_tokens}, context {prompt_tokens})")
 
-                return StreamingResponse(generate_simple(_MESSAGE))
+            return StreamingResponse(generate_simple(_MESSAGE))
         else:
             # No streaming, using generate_simple:
             text = generator.generate_simple(_MESSAGE, max_new_tokens=req.max_new_tokens)
