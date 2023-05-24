@@ -162,41 +162,68 @@ async def stream_data(req: GenerateRequest):
             _MESSAGE = req.message
         #print(_MESSAGE)
 
-        # copy of generate_simple() so that I could yield each token for streaming without having to change generator.py and make merging updates a nightmare:
-        async def generate_simple(prompt, settings = generator.Settings(), max_new_tokens = 128):
-            t0 = time.time()
-            new_text = ""
-            last_text = ""
-            _full_answer = ""
+        if req.stream:
+            # copy of generate_simple() so that I could yield each token for streaming without having to change generator.py and make merging updates a nightmare:
+            async def generate_simple(prompt, settings = generator.Settings(), max_new_tokens = 128):
+                t0 = time.time()
+                new_text = ""
+                last_text = ""
+                _full_answer = ""
 
-            generator.end_beam_search()
-            generator.settings = settings
+                generator.end_beam_search()
+                generator.settings = settings
 
-            ids = tokenizer.encode(prompt)
-            generator.gen_begin(ids)
+                ids = tokenizer.encode(prompt)
+                generator.gen_begin(ids)
 
-            for i in range(max_new_tokens):
-                token = generator.gen_single_token()
-                if token.item() == tokenizer.eos_token_id: break
-                text = tokenizer.decode(generator.sequence[0])
-                new_text = text[len(_MESSAGE):]
+                for i in range(max_new_tokens):
+                    token = generator.gen_single_token()
+                    if token.item() == tokenizer.eos_token_id: break
+                    text = tokenizer.decode(generator.sequence[0])
+                    new_text = text[len(_MESSAGE):]
 
-                # Get new token by taking difference from last response:
-                new_token = new_text.replace(last_text, "")
-                last_text = new_text
+                    # Get new token by taking difference from last response:
+                    new_token = new_text.replace(last_text, "")
+                    last_text = new_text
 
-                print(new_token, end="", flush=True)
-                #if req.stream:
-                yield new_token
+                    print(new_token, end="", flush=True)
+                    #if req.stream:
+                    yield new_token
 
-            # all done:
-            generator.end_beam_search() 
-            _full_answer = new_text
+                # all done:
+                generator.end_beam_search() 
+                _full_answer = new_text
+
+                # get num new tokens:
+                prompt_tokens = tokenizer.encode(_MESSAGE)
+                prompt_tokens = len(prompt_tokens[0])
+                new_tokens = tokenizer.encode(_full_answer)
+                new_tokens = len(new_tokens[0])
+
+                # calc tokens/sec:
+                t1 = time.time()
+                _sec = t1-t0
+                _tokens_sec = new_tokens/(_sec)
+
+                print(f"full answer: {_full_answer}")
+
+                print(f"Output generated in {_sec} ({_tokens_sec} tokens/s, {new_tokens}, context {prompt_tokens})")
+
+                return StreamingResponse(generate_simple(_MESSAGE))
+        else:
+            # No streaming, using generate_simple:
+            text = generator.generate_simple(_MESSAGE, max_new_tokens=req.max_new_tokens)
+            print(text)
+
+            # remove prompt from response:
+            new_text = text.replace(_MESSAGE,"")
+            new_text = new_text.lstrip()
+            #print(new_text)
 
             # get num new tokens:
             prompt_tokens = tokenizer.encode(_MESSAGE)
             prompt_tokens = len(prompt_tokens[0])
-            new_tokens = tokenizer.encode(_full_answer)
+            new_tokens = tokenizer.encode(new_text)
             new_tokens = len(new_tokens[0])
 
             # calc tokens/sec:
@@ -204,17 +231,10 @@ async def stream_data(req: GenerateRequest):
             _sec = t1-t0
             _tokens_sec = new_tokens/(_sec)
 
-            print(f"full answer: {_full_answer}")
-
             print(f"Output generated in {_sec} ({_tokens_sec} tokens/s, {new_tokens}, context {prompt_tokens})")
 
-        if req.stream:
-            return StreamingResponse(generate_simple(_MESSAGE))
-        else:
-            response = generate_simple(_MESSAGE)
-            print(f"response: {response}")
-            return { response }
-
+            # return response time here?
+            return { new_text }
     except Exception as e:
         return {'response': f"Exception while processing request: {e}"}
 
