@@ -1,5 +1,6 @@
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
 from tokenizer import ExLlamaTokenizer
+from generator import ExLlamaGenerator
 import time
 import torch
 import torch.nn.functional as F
@@ -123,6 +124,7 @@ parser.add_argument("-dq", "--dequant", type = str, help = "Number of layers (pe
 parser.add_argument("-l", "--length", type = int, help = "Maximum sequence length", default = 2048)
 parser.add_argument("-p", "--perf", action = "store_true", help = "Benchmark speed and VRAM usage")
 parser.add_argument("-ppl", "--perplexity", action = "store_true", help = "Perplexity benchmark (slow)")
+parser.add_argument("-v", "--validate", action = "store_true", help = "Quick perplexity benchmark just to test if model is working at all, and short text completion")
 
 args = parser.parse_args()
 
@@ -221,48 +223,75 @@ with torch.no_grad():
 
     # Benchmark perplexity
 
-    if args.perplexity:
+    if args.perplexity or args.validate:
 
         print(" -- Loading dataset...")
 
         ds = []
         with open(testdata_path) as f:
             for line in f:
-                ex = json.loads(line)["text"]
-                if len(ex) > 50: ds.append(ex)
+                example = json.loads(line)["text"]
+                if len(example) > 50: ds.append(example)
 
-        print(" -- Testing", end = "")
-        sys.stdout.flush()
+        def _ppl_test(text, ex_count):
 
-        logprob_sum = 0.0
-        logprob_count = 0
-        ex_count = 100
-        for ex in ds:
+            print(" -- Testing", end="")
+            sys.stdout.flush()
 
-            wrapper.begin()
+            logprob_sum = 0.0
+            logprob_count = 0
 
-            ids = wrapper.tokenize(ex)
-            ids = ids[:, :max_seq_len + 1]
-            input_ids = ids[:, :-1]
-            target_ids = ids[:, 1:]
+            for ex in ds:
 
-            logits = wrapper.next_logits(input_ids, last_id_only = False)
+                wrapper.begin()
 
-            log_probs = F.log_softmax(logits, dim = -1)
-            token_log_probs = log_probs.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)
+                ids = wrapper.tokenize(ex)
+                ids = ids[:, :max_seq_len + 1]
+                input_ids = ids[:, :-1]
+                target_ids = ids[:, 1:]
 
-            logprob_sum += token_log_probs.sum().item()
-            logprob_count += target_ids.numel()
+                logits = wrapper.next_logits(input_ids, last_id_only=False)
 
-            ex_count -= 1
-            if ex_count % 10 == 0:
-                print(".", end = "")
+                log_probs = F.log_softmax(logits, dim=-1)
+                token_log_probs = log_probs.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)
+
+                logprob_sum += token_log_probs.sum().item()
+                logprob_count += target_ids.numel()
+
+                ex_count -= 1
+                if ex_count % 10 == 0:
+                    print(".", end = "")
                 sys.stdout.flush()
-            if ex_count == 0: break
+                if ex_count == 0: break
 
-        mean_log_prob = logprob_sum / logprob_count
-        perplexity = math.exp(-mean_log_prob)
+            mean_log_prob = logprob_sum / logprob_count
+            perplexity = math.exp(-mean_log_prob)
 
-        print("")
-        print(f" ** Perplexity: {perplexity:.4f}")
+            print("")
+            print(f" ** Perplexity{text}: {perplexity:.4f}")
+
+        if args.perplexity:
+
+            _ppl_test("", 100)
+
+        if args.validate:
+
+            # Short perplexity tests in switched and quant mode, should produce roughly equal results
+
+            wrapper.model.config.matmul_method = ExLlamaConfig.MatmulMethod.SWITCHED
+            _ppl_test(" (switched)", 8)
+            wrapper.model.config.matmul_method = ExLlamaConfig.MatmulMethod.QUANT_ONLY
+            _ppl_test(" (quant_only)", 8)
+
+            # Do a short, easy topk=1 completion to see if we're generating garbage. Should run in switched mode
+            # for the prompt and quant for individual tokens
+
+            wrapper.model.config.matmul_method = ExLlamaConfig.MatmulMethod.SWITCHED
+            generator = ExLlamaGenerator(wrapper.model, wrapper.tokenizer, wrapper.cache)
+            settings = ExLlamaGenerator.Settings()
+            settings.top_k = 1
+            text = generator.generate_simple("To be or not to be, that is the", settings, max_new_tokens = 20)
+            text = text.replace("\n", "\\n")
+            print(f" ** Generation: {text}")
+
 

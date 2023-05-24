@@ -2,16 +2,18 @@
 
 - [x] Support for act-order models ~~(a bit slow for now)~~
 - [x] ~~Support for v1 models without groupsize~~ Nah.
-- [ ] Test more models
+- [x] Test more models
 - [ ] Consider support for loading GGML models
 - [ ] Utility to scan and validate .safetensors files
 - [ ] Figure out if there are quantized models with irregular groupsize (there are some at least with no groupsize)
 
-## GPU compatibility
+## GPU compatibility (etc.)
 
+- [ ] Support for ROCm/AMD GPUs
 - [ ] Test that CUDA code works on GTX 10-series and RTX 20-series at some point
 - [ ] Test performance on P40 (would be a good GPU to support)
 - [ ] Tunable kernel parameters
+- [ ] Test on Windows
 
 ## Testing
 

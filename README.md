@@ -125,6 +125,11 @@ slower as well over time.
 
 Moved the todo list [here](TODO.md).  
 
+## Compatibility
+
+I downloaded a whole bunch of GPTQ models to test compatibility. [Here](model_compatibility.md) is the list of models
+confirmed to be working right now.
+
 ## Recent updates
 
 **2023-05-16**: Reworked the way act-order models are handled. Rows are now shuffled at load time so zeros and scales
@@ -154,3 +159,6 @@ on it, like multi-token repetition penalties and (de-)censoring.
 **2023-05-22**: Added option to dequantize layers at load-time which _should_ speed up inference, but it turns out
 Torch's fp16 matmul is actually slower than the quantized matmul. Maybe bandwidth is the only bottleneck right now?
 Need to experiment some more.
+
+**2023-05-24**: Downloaded a bunch of models from HF and set up a test script. Should be a good sampling of the most
+popular finetunes right now. I'll add more to the list as I come across them. They all seem to be working.
