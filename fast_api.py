@@ -1,3 +1,4 @@
+import glob
 import time
 import asyncio
 import uvicorn
@@ -26,22 +27,43 @@ parser = argparse.ArgumentParser(description = "Simple FastAPI wrapper for ExLla
 
 parser.add_argument("-t", "--tokenizer", type = str, help = "Tokenizer model path",default = None)
 parser.add_argument("-c", "--config", type = str, help = "Model config path (config.json)", default = None)
-parser.add_argument("-m", "--model", type = str, help = "Model weights path (.pt or .safetensors file)",default = None)
+parser.add_argument("-d", "--directory", type = str, help = "Path to directory containing config.json, model.tokenizer and * .safetensors")
 #...
+
+# Add the rest of the args here (at least the ones not sent via web request)
+# Also.. start implementing the ones from GenerateRequest
 
 args = parser.parse_args()
 
+# Directory check:
+if args.directory is not None:
+    args.tokenizer = os.path.join(args.directory, "tokenizer.model")
+    args.config = os.path.join(args.directory, "config.json")
+    st_pattern = os.path.join(args.directory, "*.safetensors")
+    st = glob.glob(st_pattern)
+    if len(st) == 0:
+        print(f" !! No files matching {st_pattern}")
+        sys.exit()
+    if len(st) > 1:
+        print(f" !! Multiple files matching {st_pattern}")
+        sys.exit()
+    args.model = st[0]
+else:
+    if args.tokenizer is None or args.config is None or args.model is None:
+        print(" !! Please specify either -d or all of -t, -c and -m")
+        sys.exit()
+
 # -m model sent, but no -t or -c, we can construct it!
 # python fast_api.py -m /home/nap/llm_models/koala-13B-HF-4bit/koala13B-4bit-128g.safetensors
-if args.tokenizer is None and args.model:
-    directory = os.path.dirname(args.model)
-    args.tokenizer = os.path.join(directory, "tokenizer.model")
-    args.config = os.path.join(directory, "config.json")
+#if args.tokenizer is None and args.model:
+#    directory = os.path.dirname(args.model)
+#    args.tokenizer = os.path.join(directory, "tokenizer.model")
+#    args.config = os.path.join(directory, "config.json")
     
 # Validate we have model params:
-if args.model is None or args.tokenizer is None or args.config is None:
-    print("Missing model params, send them in as flags!")
-    sys.exit()
+#if args.model is None or args.tokenizer is None or args.config is None:
+#    print("Missing model params, send them in as flags!")
+#    sys.exit()
 #-------
 
 
