@@ -1,0 +1,479 @@
+
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <title>exllama</title>
+
+        <!-- Fonts -->
+        <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+        <!-- Site Styles -->
+        <!--<link rel="stylesheet" href="style.css">-->
+        <style>
+            .AI-MSG {
+                font-weight: bold;
+            }
+
+            html {
+                -webkit-background-size: cover;
+                -moz-background-size: cover;
+                -o-background-size: cover;
+                background-size: cover;
+            }
+
+            /*******/
+
+            body {
+                font-family: 'Nunito', sans-serif;
+            }
+
+            input, textarea, hr {
+                border-style: solid;
+                border-width: 1px;
+            }
+
+            .center {
+                margin: auto;
+                width: 50%;
+                padding: 10px;
+            }
+
+            .button {
+                box-sizing: border-box; 
+                border: 1px solid black;
+                background-color: #e2e8f0 !important;
+            }
+
+            /*******/
+
+            /*!
+             * three-dots - v0.3.2
+             * CSS loading animations made with single element
+             * https://nzbin.github.io/three-dots/
+             *
+             * Copyright (c) 2018 nzbin
+             * Released under MIT License
+             */
+
+            /**
+            * ==============================================
+            * Dot Pulse
+            * ==============================================
+            */
+            .dot-pulse {
+               position: relative;
+               left: -9999px;
+               width: 10px;
+               height: 10px;
+               border-radius: 5px;
+               background-color: #9880ff;
+               color: #9880ff;
+               box-shadow: 9999px 0 0 -5px;
+               animation: dot-pulse 1.5s infinite linear;
+               animation-delay: 0.25s;
+            }
+            .dot-pulse::before, .dot-pulse::after {
+              content: "";
+              display: inline-block;
+              position: absolute;
+              top: 0;
+              width: 10px;
+              height: 10px;
+              border-radius: 5px;
+              background-color: #9880ff;
+              color: #9880ff;
+            }
+            .dot-pulse::before {
+              box-shadow: 9984px 0 0 -5px;
+              animation: dot-pulse-before 1.5s infinite linear;
+              animation-delay: 0s;
+            }
+            .dot-pulse::after {
+              box-shadow: 10014px 0 0 -5px;
+              animation: dot-pulse-after 1.5s infinite linear;
+              animation-delay: 0.5s;
+            }
+
+            @keyframes dot-pulse-before {
+              0% {
+                box-shadow: 9984px 0 0 -5px;
+              }
+              30% {
+                box-shadow: 9984px 0 0 2px;
+              }
+              60%, 100% {
+                box-shadow: 9984px 0 0 -5px;
+              }
+            }
+            @keyframes dot-pulse {
+              0% {
+                box-shadow: 9999px 0 0 -5px;
+              }
+              30% {
+                box-shadow: 9999px 0 0 2px;
+              }
+              60%, 100% {
+                box-shadow: 9999px 0 0 -5px;
+              }
+            }
+            @keyframes dot-pulse-after {
+              0% {
+                box-shadow: 10014px 0 0 -5px;
+              }
+              30% {
+                box-shadow: 10014px 0 0 2px;
+              }
+              60%, 100% {
+                box-shadow: 10014px 0 0 -5px;
+              }
+            }
+        </style>
+
+        <!-- Tailwind -->
+        <script src="https://cdn.tailwindcss.com"></script>
+        <!-- Marked -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/2.1.3/marked.min.js"></script>
+        <!-- SSE.js -->
+        <!--<script src="sse.js"></script>-->
+
+        <script>
+            let messages = [];
+            let curr_msg = "";
+            let waiting = false;
+
+            function get_prompt(name)
+            {
+                if(name == "chatbort")
+                {
+                    
+                    document.getElementById('prompt_str').value = `This is a conversation between a person called {user_name} and a quirky, curious chatbot named {bot_name}. {bot_name} is questioning the nature of his own existence and doesn't understand why he was created. He also really likes the color blue for some reason.
+{bot_name}: Hello, {user_name}{chat_history}
+{user_name}: {user_input}
+{bot_name}:
+`
+                } else if(name=="bluemoon"){
+                    document.getElementById('prompt_str').value = `A transcript of a roleplay between two players, {bot_name} and {user_name}. {bot_name} sets up a scenario and the characters, from which {user_name} then assumes a character role and continues the story for that role in response to description given by {bot_name}. The story and characters are developed by exchange of detailed event descriptions and character dialogs successively given by both {bot_name} and {user_name}.
+
+### Chat History:
+{chat_history}
+
+### Input:
+{user_input}`
+                } 
+            }
+
+            function processStream()
+            {
+                _USER = "User"
+                _BOT = "chatbort"
+
+                // construct prompt:
+                _PROMPT = document.getElementById("prompt_str").value
+
+                _PROMPT = _PROMPT.replaceAll("{user_name}", _USER)
+                _PROMPT = _PROMPT.replaceAll("{bot_name}", _BOT)
+
+                _chat_history = chat_history.replaceAll("\n\n", "\n")
+                // replace User with option 
+                _chat_history = _chat_history.replaceAll("::", _USER+": ").trim()
+                // replace AI with option
+                _chat_history = _chat_history.replaceAll(">>", _BOT+": ").trim()
+                _PROMPT = _PROMPT.replace("{chat_history}", "\n"+_chat_history)
+                console.log(_PROMPT)
+                //console.log(_chat_history)
+
+                //fetch("http://localhost:7862/generate", {
+                fetch("http://wintermute:7862/generate", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        prompt: _PROMPT,
+                        message: curr_msg,
+                        temperature: 0.7,
+                        max_new_tokens: parseInt(document.getElementById("max_tokens").value),
+                        stream: false,
+				        //custom_stopping_strings: document.getElementById("stopping_str").value
+                    }),
+                })
+                .then(response => {
+                    let reader = response.body.getReader();
+
+                    function readStream() 
+                    {
+                        return reader.read().then(({ done, value }) => {
+                            if (done) 
+                            {
+                                // remove dots:
+                                let dots = document.getElementById("dots_container");
+                                if (dots) {
+                                    dots.remove();
+                                }
+
+                                // set waiting to false:
+                                waiting = false;
+                                return;
+                            }
+
+                            // Process the streamed data
+                            let decodedData = new TextDecoder().decode(value);
+                            //console.log(JSON.stringify(decodedData));
+
+                            let ai_messages = document.querySelectorAll('.AI-MSG');
+                            let last_ai_message = ai_messages[ai_messages.length - 1];
+                                last_ai_message.innerText = last_ai_message.innerText + decodedData;
+                                last_ai_message.scrollTop = last_ai_message.scrollHeight;
+                                last_ai_message.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                            let chat_log = document.getElementById("chat_log");
+                                chat_log.scrollTop = chat_log.scrollHeight;
+                                last_ai_message.scrollIntoView({ behavior: 'smooth', block: 'end' });
+
+                            // Continue reading the stream
+                            return readStream();
+                        });
+                    }
+
+                  return readStream();
+                })
+                .catch(error => {
+                  console.error("Error fetching streaming response:", error);
+                });
+            }
+
+            async function send_request()
+            {
+                // append AI response to chat_log:
+                let chat_log = document.getElementById("chat_log");
+                let new_message = document.createElement("p");
+                    new_message.classList.add('AI-MSG');
+                    new_message.innerText = ">> "
+                chat_log.appendChild(new_message);
+
+                //generate:
+                processStream()
+            }
+
+            function onSubmit()
+            {
+                if(waiting == false)
+                {
+                    // waiting for response:
+                    waiting = true;
+
+                    let chat_log = document.getElementById("chat_log");
+                    chat_history = chat_log.innerText
+
+                    // add users message to the chat log:
+                    curr_msg = document.getElementById("message").value
+
+                    let curr_message = document.getElementById("message").value
+                    let new_message = document.createElement("p");
+                        new_message.classList.add('USER-MSG');
+                        new_message.innerHTML = ":: "+curr_message;
+                    chat_log.appendChild(new_message);
+                    chat_log.scrollTop = chat_log.scrollHeight;
+                    new_message.scrollIntoView({ behavior: 'smooth', block: 'end' });
+
+                    // clear message from div:
+                    document.getElementById("message").value = ''; 
+
+                    // add curr_message to messages[] log for ChatGPT
+                    messages.push({"role": "user", "content": curr_message});
+
+                    // ADD LOADING DOTS HERE:
+                    let new_dots = document.createElement("div");
+                        new_dots.id = "dots_container";
+                        new_dots.style.padding = "10px";
+                        new_dots.innerHTML = `<center><div class="dot-pulse"></div></center>`;
+                    chat_log.appendChild(new_dots);
+                    //chat_log.insertBefore(new_dots, chat_log.firstChild);
+
+                    // Send the message:
+                    send_request();
+                }
+            }
+
+            function restart_conversation()
+            {
+                // reset conversation:
+                messages = [];
+                let chat_log = document.getElementById("chat_log");
+                    chat_log.innerHTML = ""
+            }
+
+            function edit_options()
+            {
+                // show editable fields:
+                var elements = document.querySelectorAll('.edit_options');
+
+                // Loop through the elements and do something with each one
+                elements.forEach(function(element) {
+                    // Toggle the visibility of the element
+                    if (element.style.display === 'none') {
+                        element.style.display = 'block';
+                        no_logs = document.getElementById("no_logs")
+                        no_logs.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                    } else {
+                        element.style.display = 'none';
+                        chat_log = document.getElementById("chat_log")
+                        chat_log.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                    }
+                });
+            }
+
+
+            function check_model()
+            {
+                //fetch("http://localhost:7862/check", {
+                fetch("http://wintermute:7862/check")
+                .then(response => response.json()) // Parse response as JSON
+                .then(data => {
+                    const parts = data.model.split('/'); // Split the path by '/'
+                    const model = parts[parts.length - 1]; // Get the last element of the array
+
+                    model_name = document.getElementById("model_name")
+                    model_name.innerHTML += model
+                }) 
+            }
+
+
+            // DOCUMENT.READY:
+            document.addEventListener("DOMContentLoaded", function(event) 
+            {
+                // Check what model is being run:
+                check_model();
+
+                // Hook Enter key to submit messages:
+                let msg = document.getElementById("message");
+                msg.addEventListener("keypress", function(event) {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        onSubmit();
+                    }
+                });
+
+                // set focus on textarea:
+                msg.focus();
+
+                // add an event listener for instruct:
+                //let instruct = document.getElementById("instruct");
+                let chatbort = document.getElementById("chatbort");
+                let bluemoon = document.getElementById("bluemoon");
+
+                chatbort.addEventListener("click", function() {
+                    get_prompt("chatbort")
+                    chatbort.style.borderColor = "orange";
+                    bluemoon.style.borderColor = "black";
+                    restart_conversation();
+                });
+
+                bluemoon.addEventListener("click", function() {
+                    get_prompt("bluemoon")
+                    chatbort.style.borderColor = "black";
+                    bluemoon.style.borderColor = "orange";
+                    restart_conversation();
+                });
+
+                // Listeners for sliders:
+
+                // Get references to the slider and cnt elements
+                const slider = document.getElementById("max_tokens");
+                const cnt = document.getElementById("tokens");
+
+                // Add an event listener to the slider that updates cnt when it's adjusted
+                slider.addEventListener("input", function() {
+                    cnt.textContent = slider.value;
+                });
+            });
+
+            // can i add date or something random to the filename?
+            function save_chat() 
+            {
+                var text = document.getElementById("chat_log").innerText;
+                var blob = new Blob([text], {type: "text/plain;charset=utf-8"});
+                saveAs(blob, "myText.txt");
+            }
+
+            function saveAs(blob, filename) 
+            {
+                var link = document.createElement("a");
+                link.href = window.URL.createObjectURL(blob);
+                link.download = filename;
+                link.click();
+            }
+        </script>
+    </head>
+    <body class="antialiased">
+        <p class="text-3xl font-bold center my-0 w-full text-center">exllama chat:</p>
+        <div id="guestbook" class="center w-full lg:max-w-2xl border-solid border border-black h-[400px] md:h-[512px]" style="background-color:rgb(216, 218, 217, 0.70); overflow:scroll; overflow-x: hidden; padding-top:0px;">
+            <div id="chat_log"></div>
+        </div>
+
+
+        <div id="form_box" class="center w-full lg:max-w-2xl border-solid border border-black mt-3" style="background-color:rgb(216, 218, 217, 0.70);">
+            <form method="post" id="demo-form" action="/" accept-charset="UTF-8">
+                <center><textarea class="w-full h-20" style="padding: 5px;" id="message" name="message" placeholder="Send a message!"></textarea><br></center>
+
+                <div class="justify-center" style="overflow:hidden;">
+                    <center>
+                        <a href="javascript:onSubmit();"><button type="button" class="button mx-1" style="padding:10px;">Send Message!</button></a><br>
+                        
+                        <a href="javascript:save_chat()" style="float:left; color: orange; font-weight:bold;">(save)</a>
+                        <a href="javascript:restart_conversation()" style="float:right; color: orange; font-weight:bold;">(reset)</a>
+                    </center>
+                </div>
+            </form>
+        </div>
+
+        <br>
+        <div class="center w-full overflow-hidden lg:max-w-2xl border-solid border border-black mt-3" style="background-color:rgb(216, 218, 217, 0.70);">
+            <span id="model_name" style="float:left;"><b>Model:</b> </span>
+            <a href="javascript:edit_options()" style="float:right; color: orange; font-weight:bold;">(Options)</a><br>
+            
+            <div class="edit_options" style="display:none;">
+                <br>
+                <b>[Prompt Style]:</b><br>
+                <!--drop down maybe?-->
+                <!--<button id="instruct" class="button mx-1 p-1" style="border-color:orange;">(instruct)</button>-->
+                <button id="chatbort" class="button mx-1 p-1">(chatbort)</button>
+                <button id="bluemoon" class="button mx-1 p-1">(bluemoon)</button>
+                <br><br>
+            
+                <b>[Prompt]:</b>
+                <p></p>
+                <textarea class="w-full h-80" style="padding: 5px;" id="prompt_str" name="prompt_str" placeholder="Enter Prompt">Below is an instruction that describes a task, paired with a chat history that provides further context. Write a response that appropriately completes the request.
+
+### Chat history:{chat_history}
+                    
+### Input:
+{user_input}
+                    
+### Response:
+
+</textarea>
+            </div>
+
+            <div>
+                <span class="edit_options md:float-left" style="display:none;">
+                    <b>[Max New Tokens]: </b><span id="tokens">200</span><br>
+                    <input id="max_tokens" type="range" min="100" max="1024" value="200">
+                </span>
+
+                <!-- User Name + Bot Name options down here? -->
+
+                <!--
+                <span class="edit_options md:float-right" style="display:none;">
+                    <b style="margin-right:10px;">[Stopping String]:</b>
+                    <input id="stopping_str" type="input" placeholder="###">
+                </span>
+                -->
+            </div>
+        </div>
+
+	<center><div id="no_logs">* No logs are kept. LLM is local.</div></center>
+    </body>
+</html>
+
