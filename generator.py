@@ -202,7 +202,6 @@ class ExLlamaGenerator:
         for i in range(max_new_tokens):
             token = self.gen_single_token()
             if token.item() == self.tokenizer.eos_token_id: break
-            self.gen_accept_token(token)
 
         text = self.tokenizer.decode(self.sequence[0])
         return text
@@ -558,4 +557,3 @@ class ExLlamaGenerator:
 
         self.sequence_actual[:, -1] = token
         # self.sequence[:, self.sequence_actual.shape[-1] - 1] = token
-        pass
