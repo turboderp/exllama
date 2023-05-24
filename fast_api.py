@@ -118,7 +118,7 @@ class GenerateRequest(BaseModel):
     evl: Optional[int] = 1
 				        
 
-@app.post("/agenerate")
+@app.post("/generate")
 async def stream_data(req: GenerateRequest):
     while True:
         try:
@@ -168,8 +168,30 @@ async def stream_data(req: GenerateRequest):
                     print(new_token, end="", flush=True)
                     yield new_token
 
-            return StreamingResponse(generate_simple(_MESSAGE))
-        return {"boo":"yah"}
+                # all done:
+                generator.end_beam_search() 
+                _full_answer = new_text
+
+                # get num new tokens:
+                prompt_tokens = tokenizer.encode(_MESSAGE)
+                prompt_tokens = len(prompt_tokens[0])
+                new_tokens = tokenizer.encode(_full_answer)
+                new_tokens = len(new_tokens[0])
+
+                # calc tokens/sec:
+                t1 = time.time()
+                _sec = t1-t0
+                _tokens_sec = new_tokens/(_sec)
+
+                print(f"full answer: {_full_answer}")
+
+                print(f"Output generated in {_sec} ({_tokens_sec} tokens/s, {new_tokens}, context {prompt_tokens})")
+
+            if req.stream:
+                return StreamingResponse(generate_simple(_MESSAGE))
+            else:
+                return { generate_simple(_MESSAGE) }
+
 
     except Exception as e:
         return {'response': f"Exception while processing request: {e}"}
@@ -178,7 +200,7 @@ async def stream_data(req: GenerateRequest):
         semaphore.release()
 
 
-@app.post("/generate")
+@app.post("/backup_generate")
 async def stream_data(req: GenerateRequest):
     while True:
         try:
