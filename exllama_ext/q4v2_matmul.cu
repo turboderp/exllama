@@ -190,7 +190,7 @@ cudaError_t q4v2_matmul_cuda
 
         // TODO: Clean this all up a bit at some point
 
-        if ((groupsize / BLOCK_SIZE_Z) * BLOCK_SIZE_Z == BLOCK_SIZE_Z)
+        if (BLOCK_SIZE_Z % groupsize == 0)
         {
             if (seq_g_idx) q4v2_matmul_kernel <true,  true>  <<<blocks, threads>>>(x_map ? x_mapped : x, w, out, w_scales, w_zeros, height, dim, width, groupsize, seq_g_idx);
             else           q4v2_matmul_kernel <false, true>  <<<blocks, threads>>>(x_map ? x_mapped : x, w, out, w_scales, w_zeros, height, dim, width, groupsize, seq_g_idx);
