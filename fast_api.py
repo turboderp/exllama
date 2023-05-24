@@ -211,7 +211,9 @@ async def stream_data(req: GenerateRequest):
         if req.stream:
             return StreamingResponse(generate_simple(_MESSAGE))
         else:
-            return { generate_simple(_MESSAGE) }
+            response = generate_simple(_MESSAGE)
+            print(f"response: {response}")
+            return { response }
 
     except Exception as e:
         return {'response': f"Exception while processing request: {e}"}
