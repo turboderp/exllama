@@ -879,7 +879,7 @@ class ExLlama(nn.Module):
                 tensor = f.get_tensor(key)
 
                 if key.endswith(".scales"): tensor = tensor.half()
-                if key == "lm_head.weight" and device == "cpu": tensor = tensor.float()
+                if key == "lm_head.weight": tensor = tensor.float() if device == "cpu" else tensor.half()
                 if key == "model.norm.weight": tensor = tensor.half()
                 if key.endswith(".embed_tokens.weight"): tensor = tensor.half()
                 if key.endswith(".input_layernorm.weight"): tensor = tensor.half()
