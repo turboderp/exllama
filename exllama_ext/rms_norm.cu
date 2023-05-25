@@ -23,11 +23,11 @@ __global__ void rms_norm_row_product_kernel
 
     // Zero output
 
-     if (column == 0)
-     {
-        scratch[row] = {};
-        __syncthreads();
-     }
+//      if (column == 0)
+//      {
+//         scratch[row] = {};
+//         __syncthreads();
+//      }
 
     // Accumulate
 

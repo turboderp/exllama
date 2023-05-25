@@ -238,7 +238,7 @@ def llama_rms_norm(x, w, epsilon):
 
     outshape = x.shape
     x = x.view(-1, x.shape[-1])
-    scratch = torch.empty((x.shape[0],), dtype = torch.float32, device = x.device)
+    scratch = torch.zeros((x.shape[0],), dtype = torch.float32, device = x.device)
     output = torch.empty_like(x)
 
     rms_norm(x, w, output, scratch, epsilon)

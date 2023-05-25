@@ -96,7 +96,6 @@ class ExLlamaConfig:
         self.device_map = ExLlamaDeviceMap(self.num_hidden_layers)
         self.auto_map = None  # List of ints with memory allocation in GB, per CUDA device, overrides device_map
         self.dequant = None  # Number of layers (per GPU) to de-quantize at load time
-        self.fused_rope = True
 
 
     # Parse and set list of GPU VRAM allocations
@@ -365,10 +364,10 @@ class ExLlamaMLP(nn.Module):
 
     def forward(self, x, buffer):
 
-        y = self.gate_proj.forward(x)
+        y = self.gate_proj(x)
         y = self.act_fn(y)
-        y *= self.up_proj.forward(x)
-        y = self.down_proj.forward(y)
+        y *= self.up_proj(x)
+        y = self.down_proj(y)
 
         return y
 
@@ -424,15 +423,15 @@ class ExLlamaAttention(nn.Module):
 
         # Project q, k, v, apply position embeddings to k and v
 
-        query_states = self.q_proj.forward(hidden_states)
-        key_states = self.k_proj.forward(hidden_states)
+        query_states = self.q_proj(hidden_states)
+        key_states = self.k_proj(hidden_states)
 
         cuda_ext.rope_(query_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
         cuda_ext.rope_(key_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
 
         query_states = query_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
         key_states = key_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
-        value_states = self.v_proj.forward(hidden_states).view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
+        value_states = self.v_proj(hidden_states).view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
 
         # Add keys and values to cache
 
@@ -481,7 +480,7 @@ class ExLlamaAttention(nn.Module):
         # Output projection
 
         attn_output = attn_output.reshape(bsz, q_len, self.config.hidden_size)
-        attn_output = self.o_proj.forward(attn_output)
+        attn_output = self.o_proj(attn_output)
 
         return attn_output
 
@@ -504,17 +503,18 @@ class ExLlamaDecoderLayer(nn.Module):
     def forward(self, hidden_states, cache, buffer):
 
         residual = hidden_states
-        hidden_states = self.input_layernorm.forward(hidden_states, buffer)
-        hidden_states = self.self_attn.forward(hidden_states, cache, buffer)
+        hidden_states = self.input_layernorm(hidden_states, buffer)
+        hidden_states = self.self_attn(hidden_states, cache, buffer)
         hidden_states = residual + hidden_states
 
         # TODO: Support dequantized layer in fused MLP. Also, finish implementing fused MLP
 
-        if self.mlp.dequant or _mlp_switch(self.config, hidden_states):
+        #if self.mlp.dequant or _mlp_switch(self.config, hidden_states):
+        if True:
 
             residual = hidden_states
-            hidden_states = self.post_attention_layernorm.forward(hidden_states, buffer)
-            hidden_states = self.mlp.forward(hidden_states, buffer)
+            hidden_states = self.post_attention_layernorm(hidden_states, buffer)
+            hidden_states = self.mlp(hidden_states, buffer)
             hidden_states = residual + hidden_states
 
         else:
@@ -779,7 +779,7 @@ class ExLlama(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        # self.eval()
+        self.eval()
 
         self.config = config
         self.stream_buffer = None
@@ -1004,7 +1004,7 @@ class ExLlama(nn.Module):
                 # background_thread.join()
                 self.stream_buffer.load_layer_sync()
 
-                hidden_states = decoder_layer.forward(hidden_states, cache, buffers[device])
+                hidden_states = decoder_layer(hidden_states, cache, buffers[device])
 
                 next_streaming_layer += self.config.stream_layer_interval
                 if next_streaming_layer < len(self.layers):
@@ -1015,7 +1015,7 @@ class ExLlama(nn.Module):
 
             else:
 
-                hidden_states = decoder_layer.forward(hidden_states, cache, buffers[device])
+                hidden_states = decoder_layer(hidden_states, cache, buffers[device])
 
         cache.current_seq_len += seq_len
 
@@ -1026,7 +1026,7 @@ class ExLlama(nn.Module):
         # Norm
 
         hidden_states = hidden_states.to(self.config.device_map.norm)
-        hidden_states = self.norm.forward(hidden_states, buffer)
+        hidden_states = self.norm(hidden_states, buffer)
 
         # Head
 
