@@ -158,6 +158,7 @@ print_opts.append("attention: " + str(args.attention))
 print_opts.append("matmul: " + str(args.matmul))
 if args.perf: print_opts.append("perf")
 if args.perplexity: print_opts.append("perplexity")
+if args.validate: print_opts.append("validate")
 if args.stream > 0: print_opts.append(f"stream: {args.stream}")
 if args.gpu_split is not None: print_opts.append(f"gpu_split: {args.gpu_split}")
 if args.dequant is not None: print_opts.append(f"dequant: {args.dequant}")
@@ -204,19 +205,22 @@ with torch.no_grad():
         t = time.time() - t
         print(f" ** Speed: {ids.shape[-1] / t:.2f} tokens/second")
 
-        t = time.time()
+        for j in range(2):
 
-        print(f" -- Generating {gen_tokens} tokens...")
-        for i in range(gen_tokens):
+            t = time.time()
+            print(f" -- Generating {gen_tokens} tokens, {ids.shape[-1]} token prompt...")
+            for i in range(gen_tokens):
 
-            logits = logits[0, -1, :]
-            token = torch.argmax(logits)
+                logits = logits[0, -1, :]
+                token = torch.argmax(logits)
+                next_id = token.unsqueeze(0).unsqueeze(0)
+                logits = wrapper.next_logits(next_id)
 
-            next_id = token.unsqueeze(0).unsqueeze(0)
-            logits = wrapper.next_logits(next_id)
+            t = time.time() - t
+            print(f" ** Speed: {gen_tokens / t:.2f} tokens/second")
 
-        t = time.time() - t
-        print(f" ** Speed: {gen_tokens / t:.2f} tokens/second")
+            ids = ids[:, :4]
+            wrapper.cache.current_seq_len = 4
 
         mem("Inference")
         mem("Total", total = True)

@@ -92,10 +92,11 @@ class ExLlamaConfig:
         self.max_seq_len = 2048  # Reduce to save memory. Can also be increased, but the pretrained models produce degenerate output after 2048 tokens in any case. Should be possible to finetune for longer sequence lengths.
         self.attention_method = self.AttentionMethod.PYTORCH_SCALED_DP
         self.matmul_method = self.MatmulMethod.SWITCHED
-        self.mlp_method = self.MLPMethod.NORMAL  # Currently no benefit to fused MLP
+        self.mlp_method = self.MLPMethod.NORMAL  # Currently no benefit to fused MLP (also broken)
         self.device_map = ExLlamaDeviceMap(self.num_hidden_layers)
         self.auto_map = None  # List of ints with memory allocation in GB, per CUDA device, overrides device_map
         self.dequant = None  # Number of layers (per GPU) to de-quantize at load time
+        self.fused_rope = True
 
 
     # Parse and set list of GPU VRAM allocations
@@ -364,10 +365,10 @@ class ExLlamaMLP(nn.Module):
 
     def forward(self, x, buffer):
 
-        y = self.gate_proj(x)
+        y = self.gate_proj.forward(x)
         y = self.act_fn(y)
-        y *= self.up_proj(x)
-        y = self.down_proj(y)
+        y *= self.up_proj.forward(x)
+        y = self.down_proj.forward(y)
 
         return y
 
@@ -421,32 +422,17 @@ class ExLlamaAttention(nn.Module):
         bsz, q_len, _ = hidden_states.size()
         past_len = cache.current_seq_len
 
-        # Project q, k, v
+        # Project q, k, v, apply position embeddings to k and v
 
-        query_states = self.q_proj(hidden_states).view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
-        key_states = self.k_proj(hidden_states).view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
-        value_states = self.v_proj(hidden_states).view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
+        query_states = self.q_proj.forward(hidden_states)
+        key_states = self.k_proj.forward(hidden_states)
 
-        # Apply position embeddings
+        cuda_ext.rope_(query_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
+        cuda_ext.rope_(key_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
 
-        cos_emb = self.cos.narrow(2, past_len, q_len)
-        sin_emb = self.sin.narrow(2, past_len, q_len)
-
-        def rotate_half(x):
-            half_size = x.shape[-1] // 2
-            x1 = x.narrow(-1, 0, half_size)
-            x2 = x.narrow(-1, half_size, half_size)
-            return torch.cat((-x2, x1), dim = -1)
-
-        query_states_r = rotate_half(query_states)
-        query_states_r.mul_(sin_emb)
-        query_states.mul_(cos_emb)
-        query_states.add_(query_states_r)
-
-        key_states_r = rotate_half(key_states)
-        key_states_r.mul_(sin_emb)
-        key_states.mul_(cos_emb)
-        key_states.add_(key_states_r)
+        query_states = query_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
+        key_states = key_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
+        value_states = self.v_proj.forward(hidden_states).view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
 
         # Add keys and values to cache
 
@@ -495,7 +481,7 @@ class ExLlamaAttention(nn.Module):
         # Output projection
 
         attn_output = attn_output.reshape(bsz, q_len, self.config.hidden_size)
-        attn_output = self.o_proj(attn_output)
+        attn_output = self.o_proj.forward(attn_output)
 
         return attn_output
 
@@ -518,8 +504,8 @@ class ExLlamaDecoderLayer(nn.Module):
     def forward(self, hidden_states, cache, buffer):
 
         residual = hidden_states
-        hidden_states = self.input_layernorm(hidden_states, buffer)
-        hidden_states = self.self_attn(hidden_states, cache, buffer)
+        hidden_states = self.input_layernorm.forward(hidden_states, buffer)
+        hidden_states = self.self_attn.forward(hidden_states, cache, buffer)
         hidden_states = residual + hidden_states
 
         # TODO: Support dequantized layer in fused MLP. Also, finish implementing fused MLP
@@ -527,8 +513,8 @@ class ExLlamaDecoderLayer(nn.Module):
         if self.mlp.dequant or _mlp_switch(self.config, hidden_states):
 
             residual = hidden_states
-            hidden_states = self.post_attention_layernorm(hidden_states, buffer)
-            hidden_states = self.mlp(hidden_states, buffer)
+            hidden_states = self.post_attention_layernorm.forward(hidden_states, buffer)
+            hidden_states = self.mlp.forward(hidden_states, buffer)
             hidden_states = residual + hidden_states
 
         else:
@@ -793,7 +779,7 @@ class ExLlama(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.eval()
+        # self.eval()
 
         self.config = config
         self.stream_buffer = None
@@ -962,12 +948,19 @@ class ExLlama(nn.Module):
 
         devs = self.config.device_map.get_layers_devs()
 
-        attn_mask = torch.zeros(batch_size, 1, seq_len, seq_len + past_len, dtype = torch.float16, device = devs[0])
-
         if seq_len > 1:
+
             attn_mask = torch.zeros(batch_size, 1, seq_len, past_len + seq_len, dtype = torch.float16, device = devs[0])
             attn_mask_triu = torch.triu(torch.full((seq_len - 1, seq_len - 1), torch.finfo(torch.float16).min))
             attn_mask[:, :, : seq_len - 1, past_len + 1: past_len + seq_len] = attn_mask_triu
+            # attn_mask = torch.ones(batch_size, 1, seq_len, past_len + seq_len, dtype = torch.bool, device = devs[0])
+            # attn_mask_triu = ~torch.triu(torch.ones((seq_len - 1, seq_len - 1), dtype = torch.bool), diagonal = 0)
+            # attn_mask[:, :, : seq_len - 1, past_len + 1: past_len + seq_len] = attn_mask_triu
+
+        else:
+
+            attn_mask = torch.zeros(batch_size, 1, seq_len, seq_len + past_len, dtype = torch.float16, device = devs[0])
+            # attn_mask = torch.ones(batch_size, 1, seq_len, seq_len + past_len, dtype = torch.bool, device = devs[0])
 
         buffer.attn_mask = attn_mask
 
@@ -1011,7 +1004,7 @@ class ExLlama(nn.Module):
                 # background_thread.join()
                 self.stream_buffer.load_layer_sync()
 
-                hidden_states = decoder_layer(hidden_states, cache, buffers[device])
+                hidden_states = decoder_layer.forward(hidden_states, cache, buffers[device])
 
                 next_streaming_layer += self.config.stream_layer_interval
                 if next_streaming_layer < len(self.layers):
@@ -1022,7 +1015,7 @@ class ExLlama(nn.Module):
 
             else:
 
-                hidden_states = decoder_layer(hidden_states, cache, buffers[device])
+                hidden_states = decoder_layer.forward(hidden_states, cache, buffers[device])
 
         cache.current_seq_len += seq_len
 
@@ -1033,7 +1026,7 @@ class ExLlama(nn.Module):
         # Norm
 
         hidden_states = hidden_states.to(self.config.device_map.norm)
-        hidden_states = self.norm(hidden_states, buffer)
+        hidden_states = self.norm.forward(hidden_states, buffer)
 
         # Head
 

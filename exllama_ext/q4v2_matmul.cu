@@ -44,6 +44,14 @@ __global__ void q4v2_matmul_kernel
     MatrixView_q4_column w_(w, dim, width);
     MatrixView_half_rw out_(out, height, width);
 
+    // Zero output
+
+    if (blockIdx.z == 0)
+    {
+        out_.set(x_row, w_column, {});
+        __syncthreads();
+    }
+
     // Group for zeros and scales
 
     int g_idx_idx = x_column * 2;
@@ -133,6 +141,7 @@ __global__ void q4v2_matmul_kernel
 
     half result = __hadd(acc.x, acc.y);
     atomicAdd(out_.item_ptr(x_row, w_column), result);
+
 }
 
 // Compute y = x @ w

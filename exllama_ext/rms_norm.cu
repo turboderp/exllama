@@ -21,6 +21,16 @@ __global__ void rms_norm_row_product_kernel
     if (row >= rows) return;
     if (column >= dim) return;
 
+    // Zero output
+
+     if (column == 0)
+     {
+        scratch[row] = {};
+        __syncthreads();
+     }
+
+    // Accumulate
+
     float acc = 0.0f;
     int idx = row * dim + column;
 

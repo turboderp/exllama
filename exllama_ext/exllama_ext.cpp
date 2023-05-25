@@ -13,8 +13,8 @@
 #include "q4v2_recons.h"
 #include "q4v2_sequential.h"
 #include "rms_norm.h"
+#include "rope.h"
 #include "util.h"
-
 
 // Wrapper macro to handle errors between C++ and CUDA contexts. We don't want to include Torch headers in the .cu
 // files because parsing them adds almost a minute to the compile time on a 12900K. Also passing exceptions back to
@@ -427,6 +427,43 @@ void rms_norm
     );
 }
 
+void rope
+(
+    torch::Tensor x,
+    torch::Tensor sin,
+    torch::Tensor cos,
+    int past_len,
+    int num_heads,
+    int head_dim
+)
+{
+    TORCH_CHECK(x.dtype() == torch::kHalf, "x must be a half tensor");
+    TORCH_CHECK(sin.dtype() == torch::kHalf, "sin must be a half tensor");
+    TORCH_CHECK(cos.dtype() == torch::kHalf, "cos must be a half tensor");
+
+//    TORCH_CHECK(x.size(-1) == cos.size(-1), "x and cos have incompatible shapes");
+//    TORCH_CHECK(x.size(-1) == sin.size(-1), "x and sin have incompatible shapes");
+
+//    int head_dim = x.size(-1);
+//    int num_heads = x.size(1);
+    int rows = x.numel() / head_dim;
+
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
+
+    _cuda_raise(
+        rope_cuda
+        (
+            (half*) x.data_ptr(),
+            (half*) sin.data_ptr(),
+            (half*) cos.data_ptr(),
+            rows,
+            head_dim,
+            num_heads,
+            past_len
+        )
+    );
+}
+
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
@@ -438,4 +475,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
   m.def("half_matmul", &half_matmul, "half matrix multiplication");
   m.def("half_matmul_cublas", &half_matmul_cublas, "half matrix multiplication");
   m.def("rms_norm", &rms_norm, "rms norm");
+  m.def("rope", &rope, "rotary position embeddings");
 }

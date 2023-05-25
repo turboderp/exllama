@@ -20,7 +20,8 @@ exllama_ext = load(
         os.path.join(library_dir, "exllama_ext/q4v2_mlp.cu"),
         os.path.join(library_dir, "exllama_ext/q4v2_recons.cu"),
         os.path.join(library_dir, "exllama_ext/q4v2_sequential.cu"),
-        os.path.join(library_dir, "exllama_ext/rms_norm.cu")
+        os.path.join(library_dir, "exllama_ext/rms_norm.cu"),
+        os.path.join(library_dir, "exllama_ext/rope.cu")
     ],
     # verbose = True,
     # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
@@ -34,6 +35,7 @@ from exllama_ext import q4v2_mlp
 from exllama_ext import q4v2_recons
 from exllama_ext import q4v2_sequential
 from exllama_ext import rms_norm
+from exllama_ext import rope
 
 # Dummy tensor to pass instead of g_idx since there is no way to pass "None" to a C++ extension
 
@@ -52,11 +54,11 @@ def _matmul_q4v2_matmul(x, w, scales, zeros, seq_g_idx, x_map):
         x = x.view(-1, x.shape[-1])
         x_mapped = torch.empty_like(x)
         column_remap(x, x_mapped, x_map)
-        x = x_mapped.reshape(x_shape)
+        x = x_mapped.view(x_shape)  ##
 
     outshape = x.shape[:-1] + (w.shape[1],)
     x = x.view(-1, x.shape[-1])
-    output = torch.zeros((x.shape[0], w.shape[-1]), dtype = torch.float16, device = x.device)
+    output = torch.empty((x.shape[0], w.shape[-1]), dtype = torch.float16, device = x.device)
 
     # We could pass x_map here instead of allocating a temporary tensor, but it's weirdly slow to call column_remap
     # directly, presumably due to the memory allocation. Torch is probably using a cache of buffers for the allocation
@@ -70,7 +72,7 @@ def _matmul_q4v2_matmul(x, w, scales, zeros, seq_g_idx, x_map):
                 seq_g_idx if seq_g_idx is not None else none_tensor,
                 none_tensor)
 
-    return output.reshape(outshape)
+    return output.view(outshape)  ##
 
 
 def _matmul_q4v2_recons(x, w, scales, zeros, seq_g_idx, x_map):
@@ -88,7 +90,7 @@ def _matmul_q4v2_recons(x, w, scales, zeros, seq_g_idx, x_map):
         x = x.view(-1, x.shape[-1])
         x_mapped = torch.empty_like(x)
         column_remap(x, x_mapped, x_map)
-        x = x_mapped.reshape(x_shape)
+        x = x_mapped.view(x_shape)  ##
 
     # output = torch.matmul(x, qweight_recons)
     output = matmul_half(x, qweight_recons, cublas = True)
@@ -133,7 +135,7 @@ def matmul_half(x, w, cublas = False):
         output = torch.zeros((x.shape[0], w.shape[1]), dtype=torch.float16, device=x.device)
         half_matmul(x, w, output)
 
-    return output.reshape(outshape)
+    return output.view(outshape)  ##
 
 
 # Matrix multiplication, returns x @ 4-bit matrix (qweight, scales, zeros, g_idx)
@@ -150,6 +152,14 @@ def matmul_q4v2(x, quant_args, switch):
     else: output = _matmul_q4v2_matmul(x, w, scales, zeros, seq_g_idx, x_map)
 
     return output
+
+
+# RoPE embeddings, in_place
+
+def rope_(x, sin, cos, past_len, num_heads, head_dim):
+
+    assert past_len + x.shape[-2] <= sin.shape[-2]
+    rope(x, sin, cos, past_len, num_heads, head_dim)
 
 
 # Sequentialize groups
@@ -228,7 +238,7 @@ def llama_rms_norm(x, w, epsilon):
 
     outshape = x.shape
     x = x.view(-1, x.shape[-1])
-    scratch = torch.zeros((x.shape[0],), dtype = torch.float32, device = x.device)
+    scratch = torch.empty((x.shape[0],), dtype = torch.float32, device = x.device)
     output = torch.empty_like(x)
 
     rms_norm(x, w, output, scratch, epsilon)

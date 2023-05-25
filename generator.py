@@ -1,5 +1,5 @@
-import torch
 from model import ExLlama, ExLlamaCache
+import torch
 
 class ExLlamaGenerator:
 
@@ -35,6 +35,8 @@ class ExLlamaGenerator:
 
 
     def make_rep_mask(self, penalty_max, sustain, decay):
+
+        # TODO: C++ implementation of this function
 
         rep_mask = torch.ones(self.model.config.vocab_size)
 
@@ -122,7 +124,7 @@ class ExLlamaGenerator:
         self.cache.current_seq_len = 0
 
         if in_tokens.shape[-1] >= 1:
-            self.model(self.sequence[:, :-1], self.cache, preprocess_only = True)
+            self.model.forward(self.sequence[:, :-1], self.cache, preprocess_only = True)
 
 
     def gen_feed_tokens(self, in_tokens):
@@ -135,7 +137,7 @@ class ExLlamaGenerator:
             self.sequence = in_tokens.clone()
         else:
             self.sequence = torch.cat((self.sequence, in_tokens), dim = 1)
-        self.model(self.sequence[:, start:-1], self.cache, preprocess_only = True)
+        self.model.forward(self.sequence[:, start:-1], self.cache, preprocess_only = True)
 
         self.sequence_actual = self.sequence
 
@@ -220,7 +222,7 @@ class ExLlamaGenerator:
                                       self.settings.token_repetition_penalty_decay)
 
         # self.cache.debug()
-        logits = self.model(self.sequence[:, -1:], self.cache)
+        logits = self.model.forward(self.sequence[:, -1:], self.cache)
 
         logits /= rep_mask
         token, _ = self.sample(logits,
@@ -377,7 +379,7 @@ class ExLlamaGenerator:
                                               self.settings.token_repetition_penalty_decay)
 
                 # self.cache.debug()
-                logits = self.model(self.sequence[:, -1:], self.cache)
+                logits = self.model.forward(self.sequence[:, -1:], self.cache)
                 logits /= rep_mask
 
                 tokens, probs = self.sample(logits,
@@ -410,7 +412,7 @@ class ExLlamaGenerator:
                                                   self.settings.token_repetition_penalty_decay)
 
                     # self.cache.debug()
-                    logits = self.model(self.sequence[:, -1:], self.cache)
+                    logits = self.model.forward(self.sequence[:, -1:], self.cache)
                     logits /= rep_mask
 
                     tokens, probs = self.sample(logits,

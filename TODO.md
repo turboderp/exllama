@@ -5,7 +5,7 @@
 - [x] Test more models
 - [ ] Consider support for loading GGML models
 - [ ] Utility to scan and validate .safetensors files
-- [ ] Figure out if there are quantized models with irregular groupsize (there are some at least with no groupsize)
+- [x] Figure out if there are quantized models with irregular groupsize (there are some at least with no groupsize)
 
 ## GPU compatibility (etc.)
 
@@ -32,11 +32,11 @@
 - [ ] Better vector-matrix multiplication for de-quantized matrices (or show that it's bandwidth-limited now)
 - [ ] Fused QKV projection
 - [ ] Fused MLP (done, still needs act-order support)
-- [ ] Fused RoPE
+- [x] Fused RoPE
 - [ ] Build attention mask in CUDA rather than PyTorch
-- [ ] Disable attention mask when it isn't needed
+- [x] ~~Disable attention mask when it isn't needed~~ (not possible with SDP)
 - [ ] Figure out why inference appears to be CPU-bound
-- [ ] Measure PyTorch module overhead (nn.Modules aren't really needed for inference)
+- [x] Measure PyTorch module overhead (negligible in eval mode)
 - [ ] Examine if scaled_dot_product_attention is actually the best attention method for single tokens
 - [ ] Rewrite at least the quantized matmul kernel. Should be a bunch of special cases to consider  
 
