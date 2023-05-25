@@ -151,7 +151,7 @@ async def stream_data(req: GenerateRequest):
 
         if req.stream:
             # copy of generate_simple() so that I could yield each token for streaming without having to change generator.py and make merging updates a nightmare:
-            async def generate_simple(prompt, settings = generator.Settings(), max_new_tokens = 128):
+            async def generate_simple(prompt, settings = generator.Settings(), max_new_tokens = req.max_new_tokens):
                 t0 = time.time()
                 new_text = ""
                 last_text = ""
