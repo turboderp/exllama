@@ -49,7 +49,7 @@ if args.directory is not None:
     args.model = st[0]
 else:
     if args.tokenizer is None or args.config is None or args.model is None:
-        print(" !! Please specify either -d or all of -t, -c and -m")
+        print(" !! Please specify -d")
         sys.exit()
 #-------
 
