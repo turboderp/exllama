@@ -184,9 +184,9 @@ async def stream_data(req: GenerateRequest):
                     if token.item() == tokenizer.newline_token_id: break
                     if token.item() == tokenizer.eos_token_id: break
 
-                    if "User: "in token:
+                    if "User: "in new_token:
                         print("rewind")
-                        plen = tokenizer.encode(token).shape[-1]
+                        plen = tokenizer.encode(new_token).shape[-1]
                         generator.gen_rewind(plen)
 
                 # all done:
