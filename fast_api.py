@@ -1,3 +1,4 @@
+import glob
 import time
 import asyncio
 import uvicorn
@@ -26,22 +27,30 @@ parser = argparse.ArgumentParser(description = "Simple FastAPI wrapper for ExLla
 
 parser.add_argument("-t", "--tokenizer", type = str, help = "Tokenizer model path",default = None)
 parser.add_argument("-c", "--config", type = str, help = "Model config path (config.json)", default = None)
-parser.add_argument("-m", "--model", type = str, help = "Model weights path (.pt or .safetensors file)",default = None)
+parser.add_argument("-d", "--directory", type = str, help = "Path to directory containing config.json, model.tokenizer and * .safetensors")
 #...
+# Add the rest of the args here (at least the ones not sent via web request)
+# Also.. start implementing the ones from GenerateRequest
 
 args = parser.parse_args()
 
-# -m model sent, but no -t or -c, we can construct it!
-# python fast_api.py -m /home/nap/llm_models/koala-13B-HF-4bit/koala13B-4bit-128g.safetensors
-if args.tokenizer is None and args.model:
-    directory = os.path.dirname(args.model)
-    args.tokenizer = os.path.join(directory, "tokenizer.model")
-    args.config = os.path.join(directory, "config.json")
-    
-# Validate we have model params:
-if args.model is None or args.tokenizer is None or args.config is None:
-    print("Missing model params, send them in as flags!")
-    sys.exit()
+# Directory check:
+if args.directory is not None:
+    args.tokenizer = os.path.join(args.directory, "tokenizer.model")
+    args.config = os.path.join(args.directory, "config.json")
+    st_pattern = os.path.join(args.directory, "*.safetensors")
+    st = glob.glob(st_pattern)
+    if len(st) == 0:
+        print(f" !! No files matching {st_pattern}")
+        sys.exit()
+    if len(st) > 1:
+        print(f" !! Multiple files matching {st_pattern}")
+        sys.exit()
+    args.model = st[0]
+else:
+    if args.tokenizer is None or args.config is None or args.model is None:
+        print(" !! Please specify -d")
+        sys.exit()
 #-------
 
 
@@ -118,66 +127,6 @@ class GenerateRequest(BaseModel):
     evl: Optional[int] = 1
 				        
 
-@app.post("/agenerate")
-async def stream_data(req: GenerateRequest):
-    while True:
-        try:
-            # Attempt to acquire the semaphore without waiting, in a loop...
-            await asyncio.wait_for(semaphore.acquire(), timeout=0.1)
-            break
-        except asyncio.TimeoutError:
-            print("Server is busy")
-            await asyncio.sleep(1)
-    
-    try:
-        # start timer:
-        t0 = time.time()
-
-        # place user message into prompt:
-        if req.prompt:
-            _MESSAGE = req.prompt.replace("{user_input}", req.message)
-        else:
-            _MESSAGE = req.message
-        #print(_MESSAGE)
-
-        if req.stream:
-            # Generate with streaming:
-            async def generate_simple(prompt, settings = generator.Settings(), max_new_tokens = 128):
-                t0 = time.time()
-                new_text = ""
-                last_text = ""
-                _full_answer = ""
-
-                generator.end_beam_search()
-                generator.settings = settings
-
-                ids = tokenizer.encode(prompt)
-                generator.gen_begin(ids)
-
-                for i in range(max_new_tokens):
-                    token = generator.gen_single_token()
-                    if token.item() == tokenizer.eos_token_id: break
-                    #generator.gen_accept_token(token)
-                    text = tokenizer.decode(generator.sequence[0])
-                    new_text = text[len(_MESSAGE):]
-
-                    # Get new token by taking difference from last response:
-                    new_token = new_text.replace(last_text, "")
-                    last_text = new_text
-
-                    print(new_token, end="", flush=True)
-                    yield new_token
-
-            return StreamingResponse(generate_simple(_MESSAGE))
-        return {"boo":"yah"}
-
-    except Exception as e:
-        return {'response': f"Exception while processing request: {e}"}
-
-    finally:
-        semaphore.release()
-
-
 @app.post("/generate")
 async def stream_data(req: GenerateRequest):
     while True:
@@ -201,48 +150,23 @@ async def stream_data(req: GenerateRequest):
         #print(_MESSAGE)
 
         if req.stream:
-            # Generate with streaming:
-            async def gen():
+            # copy of generate_simple() so that I could yield each token for streaming without having to change generator.py and make merging updates a nightmare:
+            async def generate_simple(prompt, settings = generator.Settings(), max_new_tokens = 128):
                 t0 = time.time()
                 new_text = ""
                 last_text = ""
                 _full_answer = ""
 
-                # Encode _MESSAGE and send to gen_begin:
-                in_tokens = tokenizer.encode(_MESSAGE)
-                num_in_tokens = in_tokens.shape[-1]  # Decode from here
-                generator.gen_begin(in_tokens)
-            
-                # Prune context if it gets too big:
-                expect_tokens = in_tokens.shape[-1] + req.max_new_tokens
-                max_tokens = config.max_seq_len - expect_tokens
-                if generator.gen_num_tokens() >= max_tokens:
-                    generator.gen_prune_to(config.max_seq_len - expect_tokens - 256, tokenizer.newline_token_id) #   extra_prune = 256
+                generator.end_beam_search()
+                generator.settings = settings
 
-                # Generate Tokens:
-                generator.begin_beam_search()
+                ids = tokenizer.encode(prompt)
+                generator.gen_begin(ids)
 
-                for i in range(req.max_new_tokens):
-                
-                    # Disallowing the end condition tokens seems like a clean way to force longer replies.
-                    if i < 4: #min_response_tokens:
-                        generator.disallow_tokens([tokenizer.newline_token_id, tokenizer.eos_token_id])
-                    else:
-                        generator.disallow_tokens(None)
-
-                    # Get a token
-
-                    gen_token = generator.beam_search()
-
-                    # If token is EOS, replace it with newline before continuing
-
-                    if gen_token.item() == tokenizer.eos_token_id:
-                        generator.replace_last_token(tokenizer.newline_token_id)
-
-                    # Decode the current line and print any characters added
-
-                    num_in_tokens += 1
-                    text = tokenizer.decode(generator.sequence_actual[:, -num_in_tokens:][0])
+                for i in range(max_new_tokens):
+                    token = generator.gen_single_token()
+                    if token.item() == tokenizer.eos_token_id: break
+                    text = tokenizer.decode(generator.sequence[0])
                     new_text = text[len(_MESSAGE):]
 
                     # Get new token by taking difference from last response:
@@ -250,40 +174,11 @@ async def stream_data(req: GenerateRequest):
                     last_text = new_text
 
                     print(new_token, end="", flush=True)
+                    #if req.stream:
                     yield new_token
 
-                    # break on newline_token_id so chatbort doesn't start writing for the user...
-                    if gen_token.item() == tokenizer.newline_token_id:
-                        break
-                """
-                for i in range(req.max_new_tokens):
-                    gen_token = generator.gen_single_token()
-                    token = gen_token
-                    if gen_token.item() == tokenizer.eos_token_id:
-                        token = torch.tensor([[tokenizer.newline_token_id]])
-
-                    # accept new token into sequence:
-                    generator.gen_accept_token(token)
-
-                    # Decode response:
-                    num_in_tokens += 1
-                    text = tokenizer.decode(generator.sequence[:, -num_in_tokens:][0])
-                    new_text = text[len(_MESSAGE):]
-
-                    # Get new token by taking difference from last response:
-                    new_token = new_text.replace(last_text, "")
-                    last_text = new_text
-
-                    print(new_token, end="", flush=True)
-                    yield new_token
-
-                    # break on newline_token_id so chatbort doesn't start writing for the user...
-                    if gen_token.item() == tokenizer.newline_token_id:
-                        break
-                """
-
+                # all done:
                 generator.end_beam_search() 
-
                 _full_answer = new_text
 
                 # get num new tokens:
@@ -301,7 +196,7 @@ async def stream_data(req: GenerateRequest):
 
                 print(f"Output generated in {_sec} ({_tokens_sec} tokens/s, {new_tokens}, context {prompt_tokens})")
 
-            return StreamingResponse(gen())
+            return StreamingResponse(generate_simple(_MESSAGE))
         else:
             # No streaming, using generate_simple:
             text = generator.generate_simple(_MESSAGE, max_new_tokens=req.max_new_tokens)
@@ -327,7 +222,6 @@ async def stream_data(req: GenerateRequest):
 
             # return response time here?
             return { new_text }
-
     except Exception as e:
         return {'response': f"Exception while processing request: {e}"}
 
