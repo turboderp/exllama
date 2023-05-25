@@ -165,9 +165,9 @@ async def stream_data(req: GenerateRequest):
 
                 for i in range(max_new_tokens):
                     token = generator.gen_single_token()
-                    if token.item() == tokenizer.eos_token_id:
-                        generator.replace_last_token(tokenizer.newline_token_id)
-                        #break
+                    #if token.item() == tokenizer.eos_token_id:
+                    #    generator.replace_last_token(tokenizer.newline_token_id)
+                    #    #break
                     text = tokenizer.decode(generator.sequence[0])
                     new_text = text[len(_MESSAGE):]
 
