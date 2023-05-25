@@ -181,8 +181,12 @@ async def stream_data(req: GenerateRequest):
 
                     # End conditions
                     #if break_on_newline and 
-                    if token.item() == tokenizer.newline_token_id: break
-                    if token.item() == tokenizer.eos_token_id: break
+                    if token.item() == tokenizer.newline_token_id:
+                        print(f"newline_token_id: {tokenizer.newline_token_id}")
+                        break
+                    if token.item() == tokenizer.eos_token_id:
+                        print(f"eos_token_id: {tokenizer.eos_token_id}")
+                        break
 
                 # all done:
                 generator.end_beam_search() 
