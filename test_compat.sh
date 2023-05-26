@@ -7,6 +7,7 @@ echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/mo
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/TheBloke_airoboros-13B-GPTQ
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/TheBloke_gpt4-x-vicuna-13B-GPTQ
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/TheBloke_GPT4All-13B-snoozy-GPTQ
+echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/TheBloke_guanaco-33B-GPTQ/
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/TheBloke_h2ogpt-oasst1-512-30B-GPTQ   # [1]
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/TheBloke_koala-13B-GPTQ-4bit-128g
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/TheBloke_Manticore-13B-GPTQ
