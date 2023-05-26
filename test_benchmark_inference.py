@@ -21,43 +21,33 @@ torch_devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
 
 class ModelWrapper:
 
-    def __init__(self,
-                 tokenizer_model_path,
-                 model_config_path,
-                 model_path,
-                 attention,
-                 matmul,
-                 mlp,
-                 length,
-                 stream,
-                 gpu_split,
-                 dequant):
+    def __init__(self, args):
 
-        self.tokenizer_model_path = tokenizer_model_path
-        self.model_config_path = model_config_path
-        self.model_path = model_path
+        self.tokenizer_model_path = args.tokenizer
+        self.model_config_path = args.config
+        self.model_path = args.model
         self.cache = None
         self.pkv = None
 
-        config = ExLlamaConfig(model_config_path)
-        config.model_path = model_path
-        config.max_seq_len = length
-        config.is_v1_model = False
+        config = ExLlamaConfig(self.model_config_path)
+        config.model_path = self.model_path
+        config.max_seq_len = args.length
 
         # config.device_map.layers[:] = ["cuda:1"] * 40
         # config.device_map.lm_head = "cuda:1"
         # config.device_map.norm = "cuda:1"
 
-        config.set_auto_map(gpu_split)
-        config.set_dequant(dequant)
-        config.stream_layer_interval = stream
+        config.set_auto_map(args.gpu_split)
+        config.set_dequant(args.dequant)
+        config.stream_layer_interval = args.stream
+        config.debug = args.debug
 
-        config.attention_method = attention
-        config.matmul_method = matmul
-        config.mlp_method = mlp
+        config.attention_method = args.attention
+        config.matmul_method = args.matmul
+        config.mlp_method = args.mlp
 
         self.model = ExLlama(config)
-        self.tokenizer = ExLlamaTokenizer(tokenizer_model_path)
+        self.tokenizer = ExLlamaTokenizer(self.tokenizer_model_path)
 
 
     def begin(self):
@@ -129,6 +119,7 @@ parser.add_argument("-p", "--perf", action = "store_true", help = "Benchmark spe
 parser.add_argument("-ppl", "--perplexity", action = "store_true", help = "Perplexity benchmark (slow)")
 parser.add_argument("-v", "--validate", action = "store_true", help = "Quick perplexity benchmark just to test if model is working at all, and short text completion")
 
+parser.add_argument("-dbg", "--debug", action = "store_true", help = "Run debug pass")
 
 args = parser.parse_args()
 
@@ -164,6 +155,7 @@ print_opts.append("mlp: " + str(args.mlp))
 if args.perf: print_opts.append("perf")
 if args.perplexity: print_opts.append("perplexity")
 if args.validate: print_opts.append("validate")
+if args.debug: print_opts.append("debug")
 if args.stream > 0: print_opts.append(f"stream: {args.stream}")
 if args.gpu_split is not None: print_opts.append(f"gpu_split: {args.gpu_split}")
 if args.dequant is not None: print_opts.append(f"dequant: {args.dequant}")
@@ -172,16 +164,7 @@ print(f" -- Options: {print_opts}")
 
 # Instantiate model
 
-wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer,
-                                                   args.config,
-                                                   args.model,
-                                                   args.attention,
-                                                   args.matmul,
-                                                   args.mlp,
-                                                   args.length,
-                                                   args.stream,
-                                                   args.gpu_split,
-                                                   args.dequant))
+wrapper = timer("Load model", lambda: ModelWrapper(args))
 
 print(f" -- Groupsize (inferred): {wrapper.model.config.groupsize if wrapper.model.config.groupsize is not None else 'None'}")
 print(f" -- Act-order (inferred): {'yes' if wrapper.model.config.act_order else 'no'}")
@@ -196,6 +179,15 @@ max_seq_len = args.length
 ids = torch.randint(0, 31999, (1, max_seq_len - gen_tokens)).cuda()
 
 with torch.no_grad():
+
+    if args.debug:
+
+        print(" !! Inference, debug pass")
+
+        wrapper.begin()
+        logits = timer("Inference", lambda: wrapper.next_logits(ids))
+
+        wrapper.model.config.debug = False
 
     # Benchmark memory and performance
 

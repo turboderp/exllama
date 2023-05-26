@@ -97,6 +97,7 @@ class ExLlamaConfig:
         self.auto_map = None  # List of ints with memory allocation in GB, per CUDA device, overrides device_map
         self.dequant = None  # Number of layers (per GPU) to de-quantize at load time
 
+        self.debug = False
 
     # Parse and set list of GPU VRAM allocations
 
@@ -330,6 +331,27 @@ class Ex4bitLinear(nn.Module):
         _dump_tensor(self.bias, filename + ".bias")
 
 
+    def debug(self, name):
+
+        print(f" !!  - {name}: {self.qweight.device} ", end = "")
+        if self.dequant:
+            print(f"[DQ] {_describe_tensor(self.qweight_dequant, True)}")
+        else:
+            print(f"[Q", end = "")
+            if self.seq_g_idx is not None: print(f",seq_g_idx", end = "")
+            if self.x_map is not None: print(f",x_map", end = "")
+            if self.bias is not None: print(f",bias", end = "")
+            print(f"]", end = "")
+            unique_q = torch.unique(self.qweight[0, :]).numel()
+            width_q = self.qweight.shape[-1]
+            if unique_q < width_q / 2: print(f" ### qweight abnormal", end = "")
+            unique_z = torch.unique(self.qzeros[0, :]).numel()
+            width_z = self.qzeros.shape[-1]
+            if unique_z < width_z / 8: print(f" ### qzeros abnormal", end = "")
+            print(f" scales min/max/std: {self.scales.min().item():.6f}/{self.scales.max().item():.6f}/{self.scales.std().item():.6f}", end = "")
+            print("")
+
+
 # Llama MLP
 
 # class ExLlamaMLP:
@@ -385,6 +407,11 @@ class ExLlamaRMSNorm(nn.Module):
         return hidden_states
 
 
+    def debug(self):
+
+        print(f" !!  - layernorm.weight: {_describe_tensor(self.weight, True)} eps: {self.variance_epsilon:.8f}")
+
+
 # Llama attention
 
 # class ExLlamaAttention:
@@ -422,6 +449,8 @@ class ExLlamaAttention(nn.Module):
         value_states = self.v_proj.forward(hidden_states).view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
 
         # Add keys and values to cache
+
+        if self.config.debug: cache.debug(self.index)
 
         new_keys = cache.key_states[self.index].narrow(2, past_len, q_len)
         new_values = cache.value_states[self.index].narrow(2, past_len, q_len)
@@ -490,12 +519,34 @@ class ExLlamaDecoderLayer(nn.Module):
 
     def forward(self, hidden_states, cache, buffer):
 
+        if self.config.debug:
+            print(f" !! Begin decoder {self.index}")
+            print(f" !! Begin self-attention")
+            print(f" !!  - hidden_states: {_describe_tensor(hidden_states, True)}")
+            buffer.debug()
+            self.input_layernorm.debug()
+            self.self_attn.q_proj.debug("self_attn.q_proj")
+            self.self_attn.k_proj.debug("self_attn.k_proj")
+            self.self_attn.v_proj.debug("self_attn.v_proj")
+            self.self_attn.o_proj.debug("self_attn.o_proj")
+
         residual = hidden_states
         hidden_states = self.input_layernorm.forward(hidden_states, buffer)
         hidden_states = self.self_attn.forward(hidden_states, cache, buffer)
         hidden_states = residual + hidden_states
 
+        if self.config.debug:
+
+            print(f" !! Begin MLP")
+            print(f" !!  - hidden_states: {_describe_tensor(hidden_states, True)}")
+            self.post_attention_layernorm.debug()
+            self.mlp.gate_proj.debug("mlp.gate_proj")
+            self.mlp.up_proj.debug("mlp.up_proj")
+            self.mlp.down_proj.debug("mlp.down_proj")
+
         if self.mlp.dequant or _mlp_switch(self.config, hidden_states):
+
+            if self.config.debug: print(f" !!  - method: normal")
 
             residual = hidden_states
             hidden_states = self.post_attention_layernorm.forward(hidden_states, buffer)
@@ -503,6 +554,8 @@ class ExLlamaDecoderLayer(nn.Module):
             hidden_states = residual + hidden_states
 
         else:
+
+            if self.config.debug: print(f" !!  - method: fused")
 
             hidden_states += cuda_ext.mlp_q4v2(hidden_states,
                                                self.post_attention_layernorm.weight,
@@ -591,9 +644,9 @@ class ExLlamaCache:
             target_view_v.copy_(source_view_v)
 
 
-    def debug(self):
+    def debug(self, index):
 
-        print(self.current_seq_len, self.key_states[0][0, 0, :self.current_seq_len, :])
+        print(f" !!  - cache device: {self.key_states[index].device}, seq_len: {self.current_seq_len}")
 
 
 # Layer streaming
@@ -717,6 +770,24 @@ class ExLlamaDeviceMap:
         raise ValueError("Unknown key: " + key)
 
 
+    def debug(self):
+
+        print(f" !! Device map:")
+        print(f" !!  - embed_tokens: {self.embed_tokens}")
+
+        a = 0
+        while a < len(self.layers):
+            b = min(a + 10, len(self.layers))
+            print(f" !!  - layers [{a}:{b}]:", end = "")
+            for i in range(a, b): print(" " + self.layers[i], end = "")
+            print("")
+            a = b
+
+        print(f" !!  - norm: {self.norm}")
+        print(f" !!  - lm_head: {self.lm_head}")
+
+
+
 class ExLlamaBuffer:
 
     config: ExLlamaConfig
@@ -729,6 +800,7 @@ class ExLlamaBuffer:
 
     attn_mask: torch.Tensor = None
 
+
     # Move to device
 
     def to(self, device):
@@ -736,6 +808,11 @@ class ExLlamaBuffer:
         new = ExLlamaBuffer(self.config)
         new.attn_mask = self.attn_mask.to(device)
         return new
+
+
+    def debug(self):
+
+        print(f" !!  - attn_mask: {_describe_tensor(self.attn_mask, True)}")
 
 
 def _device_to_int(device):
@@ -749,6 +826,22 @@ def _skip_key(key):
     return False
 
 
+def _describe_tensor(tensor, stats = False):
+
+    if tensor is None: return "None"
+    desc = f"device: {tensor.device}"
+    desc += f", shape: {str(list(tensor.shape))}"
+    desc += f", dtype: {str(tensor.dtype).replace('torch.', '')}"
+    if stats:
+        if tensor.dtype in (torch.float16, torch.float32, torch.float64):
+            desc += f", min: {tensor.min().item():.6f}"
+            desc += f", max: {tensor.max().item():.6f}"
+            desc += f", std: {tensor.std().item():.6f}"
+        else:
+            desc += f", min: {tensor.min().item()}"
+            desc += f", max: {tensor.max().item()}"
+    return desc
+
 # class ExLlama:
 class ExLlama(nn.Module):
 
@@ -759,11 +852,19 @@ class ExLlama(nn.Module):
         self.config = config
         self.stream_buffer = None
 
+        if self.config.debug:
+            device_count = torch.cuda.device_count()
+            print(f" !! Available CUDA devices:")
+            for i in range(device_count):
+                print(f'" !!  - cuda:{i}: {torch.cuda.get_device_name(i)}')
+
         # Forward streaming config to device map so we only load the first layer on GPU
 
         self.config.device_map.stream_layer_interval = self.config.stream_layer_interval
 
         # Load model weights
+
+        if self.config.debug: print(f" !! Loading safetensors file: {self.config.model_path}")
 
         tensors = {}
         with safe_open(self.config.model_path, framework="pt", device="cpu") as f:
@@ -777,6 +878,8 @@ class ExLlama(nn.Module):
             half_element_size = torch.tensor([], dtype = torch.float16).element_size()
 
             if self.config.auto_map is not None:
+
+                if self.config.debug: print(f" !! Begin auto device map")
 
                 self.config.device_map.embed_tokens = "cpu"
                 self.config.device_map.layers = ["cuda:0"] + ["?"] * (self.config.num_hidden_layers - 1)
@@ -800,6 +903,11 @@ class ExLlama(nn.Module):
                     if key.startswith("lm_head."):
                         tensor = f.get_tensor(key)
                         head_size += tensor.numel() * tensor.element_size()
+
+                if self.config.debug: print(f" !! Decoder size: {decoder_size:,} bytes")
+                if self.config.debug: print(f" !! Decoder size, DQ: {decoder_dq_size:,} bytes")
+                if self.config.debug: print(f" !! Norm size: {norm_size:,} bytes")
+                if self.config.debug: print(f" !! Head size: {head_size:,} bytes")
 
                 # Assign layers automatically
 
@@ -830,14 +938,21 @@ class ExLlama(nn.Module):
                     device_usage += this_layer_size
                     layer_index_device += 1
 
+                if self.config.debug: self.config.device_map.debug()
+
             # Load tensors, move to device(s)
 
+            if self.config.debug: print(f" !! Begin load tensors")
             for key in f.keys():
 
                 if _skip_key(key): continue
 
                 device = self.config.device_map.map(key, loading = True)
                 tensor = f.get_tensor(key)
+
+                if self.config.debug:
+                    if key.startswith("model.layers.0.") or not key.startswith("model.layers."):
+                        print(f" !!  - {key} read: {_describe_tensor(tensor)}")
 
                 if key.endswith(".scales"): tensor = tensor.half()
                 if key == "lm_head.weight": tensor = tensor.float() if device == "cpu" else tensor.half()
@@ -847,6 +962,11 @@ class ExLlama(nn.Module):
                 if key.endswith(".post_attention_layernorm.weight"): tensor = tensor.half()
 
                 tensor = tensor.to(device, non_blocking = True)
+
+                if self.config.debug:
+                    if key.startswith("model.layers.0.") or not key.startswith("model.layers."):
+                        print(f" !!  - {key} map: {_describe_tensor(tensor, device.startswith('cuda'))}")
+
                 tensors[key] = tensor
                 # print(key + " -> " + device)
 
@@ -867,6 +987,8 @@ class ExLlama(nn.Module):
 
         # Prepare position embeddings for max seq length
 
+        if self.config.debug: print(f" !! Computing RoPE table for seq length: {self.config.max_seq_len}")
+
         devs = self.config.device_map.get_layers_devs()
 
         self.sincos = {}
@@ -881,6 +1003,7 @@ class ExLlama(nn.Module):
             cos = emb.cos()[None, None, :, :].half()
 
             self.sincos[device] = (sin, cos)
+            if self.config.debug: print(f" !! - stored for device: {device}")
 
         # Layers
 
@@ -914,6 +1037,8 @@ class ExLlama(nn.Module):
 
     def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False):
 
+        if self.config.debug: print(f" !! Begin forward pass")
+
         batch_size, seq_len = input_ids.shape
         past_len = cache.current_seq_len
 
@@ -944,10 +1069,18 @@ class ExLlama(nn.Module):
 
         hidden_states = self.embed_tokens(input_ids.to(self.config.device_map.embed_tokens))
 
+        if self.config.debug: print(f" !! Built initial hidden state: {_describe_tensor(hidden_states, True)}")
+
         # Split buffers to devices
 
         buffers = {devs[0]: buffer}
-        for device in devs[1:]: buffers[device] = buffer.to(device)
+        for device in devs[1:]:
+            buffers[device] = buffer.to(device)
+
+        if self.config.debug:
+            for device in devs:
+                print(f" !! Prepared buffer for device: {device}")
+                buffers[device].debug()
 
         # Decoder layers
 
@@ -957,16 +1090,21 @@ class ExLlama(nn.Module):
 
         if layer_streaming:
 
+            if self.config.debug: print(f" !! Using layer streaming (no debug output for this yet)")
+
             next_streaming_layer = self.config.stream_layer_interval - 1
             # background_thread = threading.Thread(target = self.stream_buffer.load_layer, args = (self.layers[next_streaming_layer],))
             # background_thread.start()
             self.stream_buffer.load_layer(self.layers[next_streaming_layer])
 
-
+        device = hidden_states.device
         for i, decoder_layer in enumerate(self.layers):
 
-            device = self.config.device_map.layers[i]
-            hidden_states = hidden_states.to(device)
+            next_device = self.config.device_map.layers[i]
+            if device != next_device:
+                if self.config.debug: print(f" !! Moving hidden states from {device} to {next_device}")
+                hidden_states = hidden_states.to(next_device)
+                device = next_device
 
             if i == next_streaming_layer:
 
@@ -994,32 +1132,32 @@ class ExLlama(nn.Module):
 
         # Norm
 
-        hidden_states = hidden_states.to(self.config.device_map.norm)
+        next_device = self.config.device_map.norm
+        if device != next_device:
+            if self.config.debug: print(f" !! Moving hidden states from {device} to {next_device}")
+            hidden_states = hidden_states.to(next_device)
+            device = next_device
+
+        if self.config.debug: print(f" !! pre norm, hidden_states: {_describe_tensor(hidden_states, True)}")
+
         hidden_states = self.norm.forward(hidden_states, buffer)
 
         # Head
 
-        if last_id_only: hidden_states = hidden_states[:, -1:, :]
-
-        hidden_states = hidden_states.to(self.config.device_map.lm_head)
+        if last_id_only: hidden_states = hidden_states[:, -1:, :].contiguous()
         if self.config.device_map.lm_head == "cpu": hidden_states = hidden_states.float()
+
+        next_device = self.config.device_map.lm_head
+        if device != next_device:
+            if self.config.debug: print(f" !! Moving hidden states from {device} to {next_device}")
+            hidden_states = hidden_states.to(next_device)
+            device = next_device
+
+        if self.config.debug: print(f" !! pre lm_head, hidden_states: {_describe_tensor(hidden_states, True)}")
+
         logits = self.lm_head(hidden_states)
         # logits = cuda_ext.matmul_half(hidden_states, self.lm_head_data, cublas = False)
 
-        return logits.float().to(self.config.device_map.embed_tokens)
+        if self.config.debug: print(f" !! logits: {_describe_tensor(logits, True)}")
 
-        # TODO: Accept labels and calc (optional) loss, also test backprop
-        # HF implementation for ref.:
-        #
-        # loss = None
-        # if labels is not None:
-        #     # Shift so that tokens < n predict n
-        #     shift_logits = logits[..., :-1, :].contiguous()
-        #     shift_labels = labels[..., 1:].contiguous()
-        #     # Flatten the tokens
-        #     loss_fct = CrossEntropyLoss()
-        #     shift_logits = shift_logits.view(-1, self.config.vocab_size)
-        #     shift_labels = shift_labels.view(-1)
-        #     # Enable model parallelism
-        #     shift_labels = shift_labels.to(shift_logits.device)
-        #     loss = loss_fct(shift_logits, shift_labels)
+        return logits.float().to(self.config.device_map.embed_tokens)
