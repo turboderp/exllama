@@ -129,6 +129,7 @@ parser.add_argument("-p", "--perf", action = "store_true", help = "Benchmark spe
 parser.add_argument("-ppl", "--perplexity", action = "store_true", help = "Perplexity benchmark (slow)")
 parser.add_argument("-v", "--validate", action = "store_true", help = "Quick perplexity benchmark just to test if model is working at all, and short text completion")
 
+
 args = parser.parse_args()
 
 if args.directory is not None:
