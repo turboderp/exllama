@@ -106,24 +106,6 @@ past 2048 tokens anyway, but with some fine-tuning, who knows?
 | A6000/48GB (headless)  | 30B  | 9,032 t   | 46,863 MB            | 645 t/s   | 12 t/s |
 | A100/80GB (headless)   | 65B  | 9,520 t   | 79,009 MB            | 650 t/s   | 9 t/s  |
 
-### Comparisons
-
-For reference, here are the best results I was able to achieve with GPTQ-for-LLaMa for the same task, using 
-Sterlind's repo [here](https://github.com/sterlind/GPTQ-for-LLaMa/tree/eaa9955d8700dc8566f0c443054233e9c4503f66) which
-appears to be the fastest. The new Triton branch is, as far as I can tell, slower, and the CUDA versions have gotten
-slower as well over time.
-
-|                                         | Seq. len. | VRAM          | Long seq.     | Ind.       | Ppl      |
-|-----------------------------------------|-----------|---------------|---------------|------------|----------|
-| 7B 4bit 128g, HF                        | 2,048 t   | 8,940 MB      | 2,218 t/s     | 45 t/s     | 6.44     |
-| 13B 4bit 128g, HF                       | 2,048 t   | 14,902 MB     | 1,413 t/s     | 36 t/s     | 5.61     |
-| 30B 4bit 128g, HF <sup>1</sup>          | 256 t     | 21,063 MB     | 168 t/s       | 26 t/s     | 4.61     |
-| 7B 4bit 128g, HF, 16-bit                | 2,048 t   | 6,058 MB      | 2,887 t/s     | 45 t/s     | 6.45     |
-| 13B 4bit 128g, HF, 16-bit               | 2,048 t   | 10,563 MB     | 2,212 t/s     | 36 t/s     | 5.62     |
-| 30B 4bit 128g, HF, 16-bit <sup>1</sup>  | 1,024 t   | 20,715 MB     | 850 t/s       | 23 t/s     | 4.60     |
-
-<sup>1</sup> Max sequence length reduced to avoid OoM
-
 ## Todo
 
 Moved the todo list [here](TODO.md).  
