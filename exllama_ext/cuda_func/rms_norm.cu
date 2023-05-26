@@ -1,10 +1,10 @@
 #include "rms_norm.h"
-#include "util.h"
-#include "matrix.h"
+#include "../util.h"
+#include "../matrix.h"
 
 const int THREADS_X = 16;
 const int THREADS_Y = 4;
-const int BLOCKSIZE_X = 32;
+const int BLOCKSIZE_X = 4;
 
 // scratch = sum(x * x, dim = -1)
 
@@ -21,14 +21,6 @@ __global__ void rms_norm_row_product_kernel
     if (row >= rows) return;
     if (column >= dim) return;
 
-    // Zero output
-
-//      if (column == 0)
-//      {
-//         scratch[row] = {};
-//         __syncthreads();
-//      }
-
     // Accumulate
 
     float acc = 0.0f;
@@ -38,7 +30,7 @@ __global__ void rms_norm_row_product_kernel
     for (int k = 0; k < BLOCKSIZE_X; k++)
     {
         float m = __half2float(x[idx++]);
-        acc += m * m;
+        acc = fma(m, m, acc);
     }
 
     atomicAdd(&scratch[row], acc);
@@ -82,7 +74,6 @@ __global__ void rms_norm_kernel
     }
 }
 
-
 // x = x * w / sqrt(row_mean(x * x) + epsilon)
 //
 // works in-place if x == out
@@ -92,7 +83,6 @@ cudaError_t rms_norm_cuda
     half* x,
     const half* w,
     half* out,
-    float* scratch,
     const float epsilon,
     const int rows,
     const int dim
@@ -111,6 +101,10 @@ cudaError_t rms_norm_cuda
         1
     );
 
+    float* scratch;
+    cudaMalloc(&scratch, rows * sizeof(float));
+    cudaMemset(scratch, 0, rows * sizeof(float));
+
     rms_norm_row_product_kernel<<<blocks, threads>>>(x, scratch, rows, dim);
     rms_norm_kernel<<<blocks, threads>>>(x, w, out, scratch, epsilon, r_dim, rows, dim);
 
@@ -118,4 +112,3 @@ cudaError_t rms_norm_cuda
 
     return _cuda_err;
 }
-

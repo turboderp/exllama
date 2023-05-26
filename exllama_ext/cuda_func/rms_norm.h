@@ -10,7 +10,6 @@ cudaError_t rms_norm_cuda
     half* x,
     const half* w,
     half* out,
-    float* scratch,
     const float epsilon,
     const int rows,
     const int dim

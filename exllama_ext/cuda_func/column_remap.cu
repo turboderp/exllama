@@ -1,5 +1,5 @@
 #include "column_remap.h"
-#include "util.h"
+#include "../util.h"
 
 const int SHUF_BLOCKSIZE_X = 256;
 const int SHUF_BLOCKSIZE_Y = 16;

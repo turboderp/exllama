@@ -92,7 +92,7 @@ class ExLlamaConfig:
         self.max_seq_len = 2048  # Reduce to save memory. Can also be increased, but the pretrained models produce degenerate output after 2048 tokens in any case. Should be possible to finetune for longer sequence lengths.
         self.attention_method = self.AttentionMethod.PYTORCH_SCALED_DP
         self.matmul_method = self.MatmulMethod.SWITCHED
-        self.mlp_method = self.MLPMethod.NORMAL  # Currently no benefit to fused MLP (also broken)
+        self.mlp_method = self.MLPMethod.NORMAL  # NORMAL uses regular MLP only. Fused is still slightly slower
         self.device_map = ExLlamaDeviceMap(self.num_hidden_layers)
         self.auto_map = None  # List of ints with memory allocation in GB, per CUDA device, overrides device_map
         self.dequant = None  # Number of layers (per GPU) to de-quantize at load time
@@ -142,7 +142,6 @@ def _matmul_switch(config, x):
 
 def _mlp_switch(config, x):
 
-    if config.act_order: return True  # Currently only implemented for no-act-order models
     if config.mlp_method == ExLlamaConfig.MLPMethod.FUSED: return False
     if config.mlp_method == ExLlamaConfig.MLPMethod.NORMAL: return True
 
@@ -153,6 +152,7 @@ def _mlp_switch(config, x):
 
 # 4-bit linear layer implementation
 
+#class Ex4bitLinear:
 class Ex4bitLinear(nn.Module):
 
     def __init__(self, config, in_features, out_features, has_bias, tensors, key, dequant = False):
@@ -309,7 +309,8 @@ class Ex4bitLinear(nn.Module):
             else:
 
                 out = cuda_ext.matmul_q4v2(x, self.quant_args(), _matmul_switch(self.config, x))
-                if self.bias is not None: out += self.bias
+
+            if self.bias is not None: out += self.bias
 
             # if self.key == "model.layers.0.mlp.gate_proj":
             #
@@ -331,6 +332,7 @@ class Ex4bitLinear(nn.Module):
 
 # Llama MLP
 
+# class ExLlamaMLP:
 class ExLlamaMLP(nn.Module):
 
     def __init__(self, config, tensors, key, dequant = False):
@@ -346,28 +348,12 @@ class ExLlamaMLP(nn.Module):
         self.act_fn = nn.SiLU()
 
 
-    def forward_fused(self, x, rms_norm_weight, buffer):
-
-        assert not self.dequant
-        x = cuda_ext.mlp_q4v2(x,
-                              buffer.x_temp,
-                              buffer.x_col_temp,
-                              buffer.x_act_temp,
-                              rms_norm_weight,
-                              self.config.rms_norm_eps,
-                              self.gate_proj.quant_args(),
-                              self.up_proj.quant_args(),
-                              self.down_proj.quant_args())
-
-        return x
-
-
     def forward(self, x, buffer):
 
-        y = self.gate_proj(x)
+        y = self.gate_proj.forward(x)
         y = self.act_fn(y)
-        y *= self.up_proj(x)
-        y = self.down_proj(y)
+        y *= self.up_proj.forward(x)
+        y = self.down_proj.forward(y)
 
         return y
 
@@ -382,6 +368,7 @@ class ExLlamaMLP(nn.Module):
 
 # RMS Layer norm.
 
+# class ExLlamaRMSNorm:
 class ExLlamaRMSNorm(nn.Module):
 
     def __init__(self, config, tensors, key):
@@ -400,6 +387,7 @@ class ExLlamaRMSNorm(nn.Module):
 
 # Llama attention
 
+# class ExLlamaAttention:
 class ExLlamaAttention(nn.Module):
 
     def __init__(self, config, tensors, key, sin, cos, index, dequant = False):
@@ -423,15 +411,15 @@ class ExLlamaAttention(nn.Module):
 
         # Project q, k, v, apply position embeddings to k and v
 
-        query_states = self.q_proj(hidden_states)
-        key_states = self.k_proj(hidden_states)
+        query_states = self.q_proj.forward(hidden_states)
+        key_states = self.k_proj.forward(hidden_states)
 
         cuda_ext.rope_(query_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
         cuda_ext.rope_(key_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
 
         query_states = query_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
         key_states = key_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
-        value_states = self.v_proj(hidden_states).view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
+        value_states = self.v_proj.forward(hidden_states).view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
 
         # Add keys and values to cache
 
@@ -480,11 +468,12 @@ class ExLlamaAttention(nn.Module):
         # Output projection
 
         attn_output = attn_output.reshape(bsz, q_len, self.config.hidden_size)
-        attn_output = self.o_proj(attn_output)
+        attn_output = self.o_proj.forward(attn_output)
 
         return attn_output
 
 
+# class ExLlamaDecoderLayer:
 class ExLlamaDecoderLayer(nn.Module):
 
     def __init__(self, config, tensors, key, index, sin, cos, dequant = False):
@@ -499,27 +488,29 @@ class ExLlamaDecoderLayer(nn.Module):
         self.input_layernorm = ExLlamaRMSNorm(self.config, tensors, key + ".input_layernorm.weight")
         self.post_attention_layernorm = ExLlamaRMSNorm(self.config, tensors, key + ".post_attention_layernorm.weight")
 
-
     def forward(self, hidden_states, cache, buffer):
 
         residual = hidden_states
-        hidden_states = self.input_layernorm(hidden_states, buffer)
-        hidden_states = self.self_attn(hidden_states, cache, buffer)
+        hidden_states = self.input_layernorm.forward(hidden_states, buffer)
+        hidden_states = self.self_attn.forward(hidden_states, cache, buffer)
         hidden_states = residual + hidden_states
 
-        # TODO: Support dequantized layer in fused MLP. Also, finish implementing fused MLP
-
-        #if self.mlp.dequant or _mlp_switch(self.config, hidden_states):
-        if True:
+        if self.mlp.dequant or _mlp_switch(self.config, hidden_states):
 
             residual = hidden_states
-            hidden_states = self.post_attention_layernorm(hidden_states, buffer)
-            hidden_states = self.mlp(hidden_states, buffer)
+            hidden_states = self.post_attention_layernorm.forward(hidden_states, buffer)
+            hidden_states = self.mlp.forward(hidden_states, buffer)
             hidden_states = residual + hidden_states
 
         else:
 
-            hidden_states = self.mlp.forward_fused(hidden_states, self.post_attention_layernorm.weight, buffer)
+            hidden_states += cuda_ext.mlp_q4v2(hidden_states,
+                                               self.post_attention_layernorm.weight,
+                                               self.config.rms_norm_eps,
+                                               self.mlp.gate_proj.quant_args(),
+                                               self.mlp.up_proj.quant_args(),
+                                               self.mlp.down_proj.quant_args(),
+                                               self.config.intermediate_size)
 
         return hidden_states
 
@@ -738,29 +729,12 @@ class ExLlamaBuffer:
 
     attn_mask: torch.Tensor = None
 
-    # Fused MLP
-
-    x_temp: torch.Tensor = None
-    x_col_temp: torch.Tensor = None
-    x_act_temp: torch.Tensor = None
-
-    def prepare_fused_mlp(self, hidden_state, first_device):
-
-        self.x_temp = torch.empty(hidden_state.shape, device = first_device, dtype = torch.float16)
-        # self.x_temp = torch.empty((1, self.config.max_seq_len, self.config.hidden_size), device = first_device, dtype = torch.float16)
-        self.x_col_temp = torch.empty((self.x_temp.shape[0],), device = first_device, dtype = torch.float32)
-        self.x_act_temp = torch.empty(self.x_temp.shape[:-1] + (self.config.intermediate_size,), device = first_device, dtype = torch.float16)
-
     # Move to device
 
     def to(self, device):
 
         new = ExLlamaBuffer(self.config)
-
-        new.x_temp = None if self.x_temp is None else self.x_temp.to(device)
-        new.x_col_temp = None if self.x_col_temp is None else self.x_temp.to(device)
-        new.x_act_temp = None if self.x_act_temp is None else self.x_temp.to(device)
-
+        new.attn_mask = self.attn_mask.to(device)
         return new
 
 
@@ -775,6 +749,7 @@ def _skip_key(key):
     return False
 
 
+# class ExLlama:
 class ExLlama(nn.Module):
 
     def __init__(self, config):
@@ -934,8 +909,8 @@ class ExLlama(nn.Module):
 
             modules.append(layer)
 
+        # self.layers = modules
         self.layers = nn.ModuleList(modules)
-
 
     def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False):
 
@@ -969,12 +944,6 @@ class ExLlama(nn.Module):
 
         hidden_states = self.embed_tokens(input_ids.to(self.config.device_map.embed_tokens))
 
-        # Prepare fused MLP buffers if not switching
-
-        if not _mlp_switch(self.config, hidden_states):
-
-            buffer.prepare_fused_mlp(hidden_states, devs[0])
-
         # Split buffers to devices
 
         buffers = {devs[0]: buffer}
@@ -1004,7 +973,7 @@ class ExLlama(nn.Module):
                 # background_thread.join()
                 self.stream_buffer.load_layer_sync()
 
-                hidden_states = decoder_layer(hidden_states, cache, buffers[device])
+                hidden_states = decoder_layer.forward(hidden_states, cache, buffers[device])
 
                 next_streaming_layer += self.config.stream_layer_interval
                 if next_streaming_layer < len(self.layers):
@@ -1015,7 +984,7 @@ class ExLlama(nn.Module):
 
             else:
 
-                hidden_states = decoder_layer(hidden_states, cache, buffers[device])
+                hidden_states = decoder_layer.forward(hidden_states, cache, buffers[device])
 
         cache.current_seq_len += seq_len
 
@@ -1026,7 +995,7 @@ class ExLlama(nn.Module):
         # Norm
 
         hidden_states = hidden_states.to(self.config.device_map.norm)
-        hidden_states = self.norm(hidden_states, buffer)
+        hidden_states = self.norm.forward(hidden_states, buffer)
 
         # Head
 

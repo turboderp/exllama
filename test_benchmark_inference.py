@@ -27,6 +27,7 @@ class ModelWrapper:
                  model_path,
                  attention,
                  matmul,
+                 mlp,
                  length,
                  stream,
                  gpu_split,
@@ -53,6 +54,7 @@ class ModelWrapper:
 
         config.attention_method = attention
         config.matmul_method = matmul
+        config.mlp_method = mlp
 
         self.model = ExLlama(config)
         self.tokenizer = ExLlamaTokenizer(tokenizer_model_path)
@@ -117,6 +119,7 @@ parser.add_argument("-d", "--directory", type = str, help = "Path to directory c
 
 parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP)
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
+parser.add_argument("-mlp", "--mlp", type = ExLlamaConfig.MLPMethod.argparse, choices = list(ExLlamaConfig.MLPMethod), help="Matmul method", default = ExLlamaConfig.MLPMethod.NORMAL)
 parser.add_argument("-s", "--stream", type = int, help = "Stream layer interval", default = 0)
 parser.add_argument("-gs", "--gpu_split", type = str, help = "Comma-separated list of VRAM (in GB) to use per GPU device for model layers, e.g. -gs 20,7,7")
 parser.add_argument("-dq", "--dequant", type = str, help = "Number of layers (per GPU) to de-quantize at load time")
@@ -156,6 +159,7 @@ print(f" -- Sequence length: {args.length}")
 print_opts = []
 print_opts.append("attention: " + str(args.attention))
 print_opts.append("matmul: " + str(args.matmul))
+print_opts.append("mlp: " + str(args.mlp))
 if args.perf: print_opts.append("perf")
 if args.perplexity: print_opts.append("perplexity")
 if args.validate: print_opts.append("validate")
@@ -172,6 +176,7 @@ wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer,
                                                    args.model,
                                                    args.attention,
                                                    args.matmul,
+                                                   args.mlp,
                                                    args.length,
                                                    args.stream,
                                                    args.gpu_split,
@@ -292,9 +297,8 @@ with torch.no_grad():
 
             wrapper.model.config.matmul_method = ExLlamaConfig.MatmulMethod.SWITCHED
             generator = ExLlamaGenerator(wrapper.model, wrapper.tokenizer, wrapper.cache)
-            settings = ExLlamaGenerator.Settings()
-            settings.top_k = 1
-            text = generator.generate_simple("To be or not to be, that is the", settings, max_new_tokens = 20)
+            generator.settings.top_k = 1
+            text = generator.generate_simple("To be or not to be, that is the", max_new_tokens = 20)
             text = text.replace("\n", "\\n")
             print(f" ** Generation: {text}")
 

@@ -1,5 +1,5 @@
 #include "q4v2_sequential.h"
-#include "util.h"
+#include "../util.h"
 
 const int UNSHUF_BLOCKSIZE_X = 64;
 
@@ -42,7 +42,6 @@ __global__ void q4v2_sequential_kernel
 
     w_new2[w_new2_row * w2_stride + w2_column] = dst;
 }
-
 
 // Unshuffle rows in w to sequentialize group index
 //

@@ -1,6 +1,6 @@
 #include "half_matmul.h"
-#include "util.h"
-#include "matrix.h"
+#include "../util.h"
+#include "../matrix.h"
 
 // Block size
 
@@ -49,7 +49,6 @@ __global__ void half_matmul_kernel
     atomicAdd((half2*)out_.item_ptr(row, column), acc);
 }
 
-
 cudaError_t half_matmul_cuda
 (
     const half* x,
@@ -84,7 +83,6 @@ cudaError_t half_matmul_cuda
     return _cuda_err;
 }
 
-
 // cuBLAS can't be beat for large matrices, probably
 
 cudaError_t half_matmul_cublas_cuda
@@ -112,4 +110,3 @@ cudaError_t half_matmul_cublas_cuda
 
     return _cuda_err;
 }
-

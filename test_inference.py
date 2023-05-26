@@ -34,16 +34,22 @@ cache = ExLlamaCache(model)
 
 tokenizer = ExLlamaTokenizer(tokenizer_model_path)
 generator = ExLlamaGenerator(model, tokenizer, cache)
+generator.settings.token_repetition_penalty_max = 1.2
+generator.settings.token_repetition_penalty_sustain = 20
+generator.settings.token_repetition_penalty_decay = 50
 
-generator.settings.beams = 2
-generator.settings.beam_length = 16
-
-prompt = "Today is a good day to"
+prompt = \
+"On 19 February 1952, Headlam became senior air staff officer (SASO) at Eastern Area Command in Penrith, New South " \
+"Wales. During his term as SASO, the RAAF began re-equipping with English Electric Canberra jet bombers and CAC " \
+"Sabre jet fighters. The Air Force also underwent a major organisational change, as it transitioned from a " \
+"geographically based command-and-control system to one based on function, resulting in the establishment of Home " \
+"(operational), Training, and Maintenance Commands. Eastern Area Command, considered a de facto operational " \
+"headquarters owing to the preponderance of combat units under its control, was reorganised as Home Command in " \
+"October 1953. Headlam was appointed an Officer of the Order of the British Empire (OBE) in the 1954 New Year " \
+"Honours for his \"exceptional ability and devotion to duty\". He was promoted to acting air commodore in May. His " \
+"appointment as aide-de-camp to Queen Elizabeth II was announced on 7 October 1954."
 
 gen_tokens = 200
-
-for i in range(gen_tokens):
-
-    text = generator.generate_simple(prompt, max_new_tokens = gen_tokens)
-    print(text)
+text = generator.generate_simple(prompt, max_new_tokens = gen_tokens)
+print(text)
 
