@@ -75,19 +75,6 @@ print(f" -- Groupsize (inferred): {model.config.groupsize if model.config.groups
 #-------
 
 
-#'''
-# Set these from GenerateRequest, per request. (after we get everything working)
-generator.settings = ExLlamaGenerator.Settings()
-generator.settings.temperature = 0.95
-generator.settings.top_k = 20
-generator.settings.top_p = 0.65
-generator.settings.min_p = 0.06
-generator.settings.token_repetition_penalty_max = 1.15
-generator.settings.token_repetition_penalty_sustain = 256
-generator.settings.token_repetition_penalty_decay = generator.settings.token_repetition_penalty_sustain // 2
-#'''
-
-
 # Setup FastAPI:
 app = FastAPI()
 semaphore = asyncio.Semaphore(1)
@@ -121,11 +108,15 @@ class GenerateRequest(BaseModel):
     prompt: Optional[str] = None
     max_new_tokens: Optional[int] = 200
     temperature: Optional[float] = 0.7
-    # options:
+    top_k: Optional[int] = 20
+    top_p: Optional[float] = 0.65
+    min_p: Optional[float] = 0.06
+    token_repetition_penalty_max: Optional[float] = 1.15
+    token_repetition_penalty_sustain: Optional[int] = 256
     stream: Optional[bool] = True
+    # options:
     log: Optional[bool] = True
-    evl: Optional[int] = 1
-				        
+    #evl: Optional[int] = 1	        
 
 @app.post("/generate")
 async def stream_data(req: GenerateRequest):
@@ -149,16 +140,25 @@ async def stream_data(req: GenerateRequest):
             _MESSAGE = req.message
         #print(_MESSAGE)
 
+        # Set these from GenerateRequest:
+        generator.settings = ExLlamaGenerator.Settings()
+        generator.settings.temperature = req.temperature
+        generator.settings.top_k = req.top_k
+        generator.settings.top_p = req.top_p
+        generator.settings.min_p = req.min_p
+        generator.settings.token_repetition_penalty_max = req.token_repetition_penalty_max
+        generator.settings.token_repetition_penalty_sustain = req.token_repetition_penalty_sustain
+        generator.settings.token_repetition_penalty_decay = req.token_repetition_penalty_decay if req.token_repetition_penalty_decay else req.token_repetition_penalty_sustain / 2
+
         if req.stream:
             # copy of generate_simple() so that I could yield each token for streaming without having to change generator.py and make merging updates a nightmare:
-            async def generate_simple(prompt, settings = generator.Settings(), max_new_tokens = req.max_new_tokens):
+            async def generate_simple(prompt, max_new_tokens = req.max_new_tokens):
                 t0 = time.time()
                 new_text = ""
                 last_text = ""
                 _full_answer = ""
 
                 generator.end_beam_search()
-                generator.settings = settings
 
                 ids = tokenizer.encode(prompt)
                 generator.gen_begin(ids)
@@ -202,16 +202,15 @@ async def stream_data(req: GenerateRequest):
                 _sec = t1-t0
                 _tokens_sec = new_tokens/(_sec)
 
-                print(f"full answer: {_full_answer}")
+                #print(f"full answer: {_full_answer}")
 
                 print(f"Output generated in {_sec} ({_tokens_sec} tokens/s, {new_tokens}, context {prompt_tokens})")
 
             return StreamingResponse(generate_simple(_MESSAGE))
         else:
-            # add settings for generator.settings for generate_simple
             # No streaming, using generate_simple:
             text = generator.generate_simple(_MESSAGE, max_new_tokens=req.max_new_tokens)
-            print(text)
+            #print(text)
 
             # remove prompt from response:
             new_text = text.replace(_MESSAGE,"")

@@ -161,7 +161,17 @@
 
 ### Input:
 {user_input}`
-                } 
+                } else if(name=="instruct"){
+                    document.getElementById('prompt_str').value = `Below is an instruction that describes a task, paired with a chat history that provides further context. Write a response that appropriately completes the request.
+
+### Chat history:{chat_history}
+                    
+### Input:
+{user_input}
+                    
+### Response:
+`
+                }
             }
 
             function processStream()
@@ -358,24 +368,14 @@
                 // set focus on textarea:
                 msg.focus();
 
-                // add an event listener for instruct:
-                //let instruct = document.getElementById("instruct");
-                let chatbort = document.getElementById("chatbort");
-                let bluemoon = document.getElementById("bluemoon");
+                // add an event listener for prompt stye:
+                let promptStyle = document.getElementById("promptStyle");
 
-                chatbort.addEventListener("click", function() {
-                    get_prompt("chatbort")
-                    chatbort.style.borderColor = "orange";
-                    bluemoon.style.borderColor = "black";
+                promptStyle.addEventListener("change", function() {
+                    get_prompt(promptStyle.value)
                     restart_conversation();
                 });
 
-                bluemoon.addEventListener("click", function() {
-                    get_prompt("bluemoon")
-                    chatbort.style.borderColor = "black";
-                    bluemoon.style.borderColor = "orange";
-                    restart_conversation();
-                });
 
                 // Listeners for sliders:
 
@@ -435,11 +435,12 @@
             
             <div class="edit_options" style="display:none;">
                 <br>
-                <b>[Prompt Style]:</b><br>
-                <!--drop down maybe?-->
-                <!--<button id="instruct" class="button mx-1 p-1" style="border-color:orange;">(instruct)</button>-->
-                <button id="chatbort" class="button mx-1 p-1">(chatbort)</button>
-                <button id="bluemoon" class="button mx-1 p-1">(bluemoon)</button>
+                <b>[Prompt Style]:</b>
+                <select id="promptStyle" class="select mx-1 p-1">
+                    <option value="instruct">instruct</option>
+                    <option value="chatbort">chatbort</option>
+                    <option value="bluemoon">bluemoon</option>
+                </select>
                 <br><br>
             
                 <b>[Prompt]:</b>
@@ -459,7 +460,7 @@
             <div>
                 <span class="edit_options md:float-left" style="display:none;">
                     <b>[Max New Tokens]: </b><span id="tokens">200</span><br>
-                    <input id="max_tokens" type="range" min="100" max="1024" value="200">
+                    <input id="max_tokens" type="range" min="100" max="1024" value="50"><!--200, set lower because i am testing while training xD-->
                 </span>
 
                 <!-- User Name + Bot Name options down here? -->
