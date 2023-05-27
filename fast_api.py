@@ -117,7 +117,7 @@ class GenerateRequest(BaseModel):
     token_repetition_penalty_decay: Optional[int] = None
     stream: Optional[bool] = True
     # options:
-    log: Optional[bool] = True
+    #log: Optional[bool] = True
     #evl: Optional[int] = 1	        
 
 @app.post("/generate")
@@ -151,10 +151,10 @@ async def stream_data(req: GenerateRequest):
         generator.settings.token_repetition_penalty_max = req.token_repetition_penalty_max
         generator.settings.token_repetition_penalty_sustain = req.token_repetition_penalty_sustain
         decay = req.token_repetition_penalty_decay if req.token_repetition_penalty_decay else req.token_repetition_penalty_sustain / 2
+        print(f"decay: {decay}")
         generator.settings.token_repetition_penalty_decay = decay
 
-        print(f"token_repetition_penalty_decay: {req.token_repetition_penalty_decay}")
-        print(f"token_repetition_penalty_sustain: {req.token_repetition_penalty_sustain}")
+        print(f"token_repetition_penalty_decay: {generator.settings.token_repetition_penalty_decay}")
 
         if req.stream:
             # copy of generate_simple() so that I could yield each token for streaming without having to change generator.py and make merging updates a nightmare:
