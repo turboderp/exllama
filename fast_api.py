@@ -150,7 +150,7 @@ async def stream_data(req: GenerateRequest):
         generator.settings.min_p = req.min_p
         generator.settings.token_repetition_penalty_max = req.token_repetition_penalty_max
         generator.settings.token_repetition_penalty_sustain = req.token_repetition_penalty_sustain
-        decay = req.token_repetition_penalty_decay if req.token_repetition_penalty_decay else req.token_repetition_penalty_sustain / 2
+        decay = int(req.token_repetition_penalty_decay if req.token_repetition_penalty_decay else req.token_repetition_penalty_sustain / 2)
         print(f"decay: {decay}")
         generator.settings.token_repetition_penalty_decay = decay
 
