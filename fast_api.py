@@ -152,7 +152,11 @@ async def stream_data(req: GenerateRequest):
         generator.settings.token_repetition_penalty_sustain = req.token_repetition_penalty_sustain
         generator.settings.token_repetition_penalty_decay = req.token_repetition_penalty_decay if req.token_repetition_penalty_decay else req.token_repetition_penalty_sustain / 2
 
-        print(req)
+        print(f"token_repetition_penalty_decay: {req.token_repetition_penalty_decay}")
+        print(f"token_repetition_penalty_sustain: {req.token_repetition_penalty_sustain}")
+        func n req.token_repetition_penalty_decay if req.token_repetition_penalty_decay else req.token_repetition_penalty_sustain / 2
+        print(f"func: {func}")
+        #print(req)
 
         if req.stream:
             # copy of generate_simple() so that I could yield each token for streaming without having to change generator.py and make merging updates a nightmare:
