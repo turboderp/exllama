@@ -41,6 +41,7 @@ class ModelWrapper:
         config.set_dequant(args.dequant)
         config.stream_layer_interval = args.stream
         config.debug = args.debug
+        config.gpu_peer_fix = args.gpu_peer_fix
 
         config.attention_method = args.attention
         config.matmul_method = args.matmul
@@ -120,6 +121,7 @@ parser.add_argument("-ppl", "--perplexity", action = "store_true", help = "Perpl
 parser.add_argument("-v", "--validate", action = "store_true", help = "Quick perplexity benchmark just to test if model is working at all, and short text completion")
 
 parser.add_argument("-dbg", "--debug", action = "store_true", help = "Run debug pass")
+parser.add_argument("-gpfix", "--gpu_peer_fix", action = "store_true", help = "Prevent direct copies of data between GPUs")
 
 args = parser.parse_args()
 
@@ -156,6 +158,7 @@ if args.perf: print_opts.append("perf")
 if args.perplexity: print_opts.append("perplexity")
 if args.validate: print_opts.append("validate")
 if args.debug: print_opts.append("debug")
+if args.gpu_peer_fix: print_opts.append("gpu_peer_fix")
 if args.stream > 0: print_opts.append(f"stream: {args.stream}")
 if args.gpu_split is not None: print_opts.append(f"gpu_split: {args.gpu_split}")
 if args.dequant is not None: print_opts.append(f"dequant: {args.dequant}")

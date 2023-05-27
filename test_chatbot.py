@@ -45,6 +45,8 @@ parser.add_argument("-repps", "--repetition_penalty_sustain", type = int, help =
 parser.add_argument("-beams", "--beams", type = int, help = "Number of beams for beam search", default = 1)
 parser.add_argument("-beamlen", "--beam_length", type = int, help = "Number of future tokens to consider", default = 1)
 
+parser.add_argument("-gpfix", "--gpu_peer_fix", action = "store_true", help = "Prevent direct copies of data between GPUs")
+
 args = parser.parse_args()
 
 if args.directory is not None:
@@ -87,6 +89,7 @@ if args.botfirst: print_opts.append("botfirst")
 if args.stream > 0: print_opts.append(f"stream: {args.stream}")
 if args.gpu_split is not None: print_opts.append(f"gpu_split: {args.gpu_split}")
 if args.dequant is not None: print_opts.append(f"dequant: {args.dequant}")
+if args.gpu_peer_fix: print_opts.append("gpu_peer_fix")
 
 print(f" -- Options: {print_opts}")
 
@@ -115,6 +118,7 @@ config.attention_method = args.attention
 config.matmul_method = args.matmul
 config.mlp_method = args.mlp
 config.stream_layer_interval = args.stream
+config.gpu_peer_fix = args.gpu_peer_fix
 if args.length is not None: config.max_seq_len = args.length
 config.set_auto_map(args.gpu_split)
 config.set_dequant(args.dequant)

@@ -37,7 +37,8 @@
 - [x] ~~Disable attention mask when it isn't needed~~ (not possible with SDP)
 - [ ] Figure out why inference appears to be CPU-bound
 - [x] Measure PyTorch module overhead (negligible in eval mode)
-- [ ] Examine if scaled_dot_product_attention is actually the best attention method for single tokens
+- [x] Examine if scaled_dot_product_attention is actually the best attention method for single tokens (it's not)
+- [ ] Implement attention in CUDA
 - [ ] Rewrite at least the quantized matmul kernel. Should be a bunch of special cases to consider  
 
 ## Generation
