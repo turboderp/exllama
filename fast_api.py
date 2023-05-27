@@ -175,8 +175,7 @@ async def stream_data(req: GenerateRequest):
                     new_token = new_text.replace(last_text, "")
                     last_text = new_text
 
-                    print(new_token, end="", flush=True)
-                    #if req.stream:
+                    #print(new_token, end="", flush=True)
                     yield new_token
 
                     # End conditions
@@ -186,7 +185,7 @@ async def stream_data(req: GenerateRequest):
                     #    break
                     if token.item() == tokenizer.eos_token_id:
                         print(f"eos_token_id: {tokenizer.eos_token_id}")
-                    #    break
+                        break
 
                 # all done:
                 generator.end_beam_search() 
@@ -209,6 +208,7 @@ async def stream_data(req: GenerateRequest):
 
             return StreamingResponse(generate_simple(_MESSAGE))
         else:
+            # add settings for generator.settings for generate_simple
             # No streaming, using generate_simple:
             text = generator.generate_simple(_MESSAGE, max_new_tokens=req.max_new_tokens)
             print(text)
