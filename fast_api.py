@@ -113,6 +113,7 @@ class GenerateRequest(BaseModel):
     min_p: Optional[float] = 0.06
     token_repetition_penalty_max: Optional[float] = 1.15
     token_repetition_penalty_sustain: Optional[int] = 256
+    token_repetition_penalty_decay: Optional[int] = None
     stream: Optional[bool] = True
     # options:
     log: Optional[bool] = True
