@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 
+#include "cuda_buffers.h"
 #include "cpu_func/rep_penalty.h"
 #include "cuda_func/column_remap.h"
 #include "cuda_func/half_matmul.h"
@@ -51,6 +52,12 @@ void check_cuda(cudaError_t ret)
 #define TORCH_CHECK_SHAPES_OPT(__x, __dim_x, __y, __dim_y, __scale_y) TORCH_CHECK((__x).device().is_meta() || (__x).size(__dim_x) == (__y).size(__dim_y) * __scale_y, #__x " and " #__y " have incompatible shapes")
 #define TORCH_CHECK_SHAPE_MOD(__x, __dim_x, __mod) TORCH_CHECK((__x).size(__dim_x) % __mod == 0, #__x ".shape[" STRINGIFY(__dim_x) "] must be a multiple of " STRINGIFY(__mod))
 
+#define TORCH_CHECK_DEVICE_INDEX(__index) \
+do { \
+    TORCH_CHECK(__index >= 0, "no device index"); \
+    TORCH_CHECK(__index < CUDA_MAX_DEVICES, "invalid device index"); \
+} while(0)
+
 #define TORCH_CHECK_QUANT(__w, __w_scales, __w_zeros, __seq_g_idx, __x_map) \
 do { \
     TORCH_CHECK_DTYPE(__w, kInt); \
@@ -67,6 +74,47 @@ int get_groupsize(torch::Tensor w, torch::Tensor w_zeros)
     int groupsize = w.size(0) * 8 / w_zeros.size(0);
     TORCH_CHECK(groupsize * w_zeros.size(0) == w.size(0) * 8, "w.shape[-2] must be a multiple of zeros.shape[-2]")
     return groupsize;
+}
+
+// Prepare buffers for forward pass
+
+void prepare_buffers
+(
+    torch::Device device,
+    int rows,
+    int mlp_rows,
+    int intermediate_size,
+    int hidden_size
+)
+{
+    int device_index = device.index();
+    TORCH_CHECK_DEVICE_INDEX(device_index);
+    const at::cuda::OptionalCUDAGuard device_guard(device);
+
+    check_cuda(
+        prepare_buffers_cuda
+        (
+            device_index,
+            rows,
+            mlp_rows,
+            intermediate_size,
+            hidden_size
+        )
+    );
+}
+
+void free_buffers
+(
+    torch::Device device
+)
+{
+    int device_index = device.index();
+    TORCH_CHECK_DEVICE_INDEX(device_index);
+    const at::cuda::OptionalCUDAGuard device_guard(device);
+
+    check_cuda(
+        free_buffers_cuda(device_index)
+    );
 }
 
 // Matmul half @ quant -> half
@@ -286,16 +334,12 @@ void column_remap
     );
 }
 
-// Llama MLP. Unfinished. Works for no-act-order models but is still 5% slower than regular MLP with quantized layers
+// Llama MLP. Unfinished. Works on all models but is still 5% slower than regular MLP with quantized layers
 
 void q4v2_mlp
 (
     torch::Tensor x,                // shape == (height, dim)
-
-    torch::Tensor x_temp,           // shape == x.shape
-    torch::Tensor x_temp2,           // shape == x.shape
-    torch::Tensor temp1,            // shape == (x.shape[0], gate.shape[1]) == (height, width)
-    torch::Tensor temp2,            // shape == (x.shape[0], gate.shape[1]) == (height, width)
+    torch::Tensor out,              // shape == x.shape
 
     torch::Tensor rms_norm_weight,  // shape == (x.shape[1],) == (dim,)
     float epsilon,
@@ -323,20 +367,14 @@ void q4v2_mlp
     TORCH_CHECK_QUANT(up, up_scales, up_zeros, up_seq_g_idx, up_x_map);
     TORCH_CHECK_QUANT(down, down_scales, down_zeros, down_seq_g_idx, down_x_map);
     TORCH_CHECK_DTYPE(x, kHalf);
-    TORCH_CHECK_DTYPE(temp1, kHalf);
-    TORCH_CHECK_DTYPE(temp2, kHalf);
     TORCH_CHECK_DTYPE(rms_norm_weight, kHalf);
-    TORCH_CHECK_SHAPES(x, 0, x_temp, 0, 1);
-    TORCH_CHECK_SHAPES(x, 1, x_temp, 1, 1);
+    TORCH_CHECK_SHAPES(x, 0, out, 0, 1);
+    TORCH_CHECK_SHAPES(x, 1, out, 1, 1);
     TORCH_CHECK_SHAPES(x, 1, gate, 0, 8);
     TORCH_CHECK_SHAPES(x, 1, up, 0, 8);
     TORCH_CHECK_SHAPES(x, 1, down, 1, 1);
     TORCH_CHECK_SHAPES(gate, 1, down, 0, 8);
     TORCH_CHECK_SHAPE_MOD(x, 1, 256);
-    TORCH_CHECK_SHAPES(x, 0, temp1, 0, 1);
-    TORCH_CHECK_SHAPES(x, 0, temp2, 0, 1);
-    TORCH_CHECK_SHAPES(temp1, 1, gate, 1, 1);
-    TORCH_CHECK_SHAPES(temp2, 1, gate, 1, 1);
 
     int gate_groupsize = get_groupsize(gate, gate_zeros);
     int up_groupsize = get_groupsize(up, up_zeros);
@@ -345,17 +383,16 @@ void q4v2_mlp
     int dim = x.size(1);
     int width = gate.size(1);
 
-    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
+    torch::Device device = x.device();
+    int device_index = device.index();
+    TORCH_CHECK_DEVICE_INDEX(device_index);
+    const at::cuda::OptionalCUDAGuard device_guard(device);
 
     check_cuda(
         q4v2_mlp_cuda
         (
             (half*) x.data_ptr(),
-
-            (half*) x_temp.data_ptr(),
-            (half*) x_temp2.data_ptr(),
-            (half*) temp1.data_ptr(),
-            (half*) temp2.data_ptr(),
+            (half*) out.data_ptr(),
 
             (half*) rms_norm_weight.data_ptr(),
             epsilon,
@@ -383,7 +420,9 @@ void q4v2_mlp
 
             height,
             dim,
-            width
+            width,
+
+            device_index
         )
     );
 }
@@ -409,7 +448,10 @@ void rms_norm
     int rows = x.size(0);
     int dim = x.size(1);
 
-    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
+    torch::Device device = x.device();
+    int device_index = device.index();
+    TORCH_CHECK_DEVICE_INDEX(device_index);
+    const at::cuda::OptionalCUDAGuard device_guard(device);
 
     check_cuda(
         rms_norm_cuda
@@ -419,7 +461,8 @@ void rms_norm
             (half*) out.data_ptr(),
             epsilon,
             rows,
-            dim
+            dim,
+            device_index
         )
     );
 }
@@ -501,4 +544,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
   m.def("rms_norm", &rms_norm, "rms norm");
   m.def("rope", &rope, "rotary position embeddings");
   m.def("rep_penalty", &rep_penalty, "repetition penalty mask");
-}
+  m.def("prepare_buffers", &prepare_buffers, "prepare buffers");
+  m.def("free_buffers", &prepare_buffers, "free buffers");
+ }

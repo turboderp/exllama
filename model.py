@@ -14,7 +14,7 @@ from typing import List
 # Magic numbers
 
 optimal_switch_thd = 6  # Model mostly runs one token at a time, or many. So this probably doesn't matter too much.
-
+attn_switch_thd = 16
 
 class ParsedEnum(Enum):
 
@@ -36,9 +36,9 @@ class ExLlamaConfig:
 
     class AttentionMethod(ParsedEnum):
 
-        PYTORCH_MATMUL = 1  # Regular attention from HF implementation. Dog poop.
+        PYTORCH_MATMUL = 1  # Regular attention from HF implementation, tweaked a little
         PYTORCH_SCALED_DP = 2  # Seems more memory-efficient than xformers
-
+        SWITCHED = 3  # Switch between matmul and SDP (best)
 
     class MatmulMethod(ParsedEnum):
 
@@ -51,7 +51,6 @@ class ExLlamaConfig:
 
         NORMAL = 1  # Regular MLP as in LlamaModel (best)
         SWITCHED = 2  # Switch between normal and fused MLP
-        FUSED = 3  # Always use fused MLP
 
 
     # Load config from Llama config.json
@@ -90,9 +89,9 @@ class ExLlamaConfig:
 
         self.stream_layer_interval = 0  # Store every nth layer in system RAM and
         self.max_seq_len = 2048  # Reduce to save memory. Can also be increased, but the pretrained models produce degenerate output after 2048 tokens in any case. Should be possible to finetune for longer sequence lengths.
-        self.attention_method = self.AttentionMethod.PYTORCH_SCALED_DP
+        self.attention_method = self.AttentionMethod.SWITCHED
         self.matmul_method = self.MatmulMethod.SWITCHED
-        self.mlp_method = self.MLPMethod.NORMAL  # NORMAL uses regular MLP only. Fused is still slightly slower
+        self.mlp_method = self.MLPMethod.SWITCHED  # NORMAL uses regular MLP only
         self.device_map = ExLlamaDeviceMap(self.num_hidden_layers)
         self.auto_map = None  # List of ints with memory allocation in GB, per CUDA device, overrides device_map
         self.dequant = None  # Number of layers (per GPU) to de-quantize at load time
@@ -137,19 +136,25 @@ def _matmul_switch(config, x):
 
     if config.matmul_method == ExLlamaConfig.MatmulMethod.QUANT_ONLY: return False
     if config.matmul_method == ExLlamaConfig.MatmulMethod.PYTORCH_ONLY: return True
-
     xdp = 1
     for y in x.shape[:-1]: xdp *= y
     return xdp > optimal_switch_thd
 
 def _mlp_switch(config, x):
 
-    if config.mlp_method == ExLlamaConfig.MLPMethod.FUSED: return False
     if config.mlp_method == ExLlamaConfig.MLPMethod.NORMAL: return True
-
+    if config.act_order: return True  # TODO: act-order causes a VRAM allocation in the quant matmul which becomes a bottleneck here. For now, normal MLP is still faster in that case
     xdp = 1
     for y in x.shape[:-1]: xdp *= y
     return xdp > 1
+
+def _attn_switch(config, x):
+
+    if config.attention_method == ExLlamaConfig.AttentionMethod.PYTORCH_MATMUL: return False
+    if config.attention_method == ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP: return True
+    xdp = 1
+    for y in x.shape[:-1]: xdp *= y
+    return xdp < attn_switch_thd
 
 
 # 4-bit linear layer implementation
@@ -465,21 +470,21 @@ class ExLlamaAttention(nn.Module):
 
         # Attention
 
-        # -- HF Transformers regular attention, O(n^2) memory usage, bunch of mallocs
+        # -- HF Transformers regular attention, faster on shorter sequences, same VRAM usage
 
-        if self.config.attention_method == ExLlamaConfig.AttentionMethod.PYTORCH_MATMUL:
+        if _attn_switch(self.config, hidden_states):
 
-            attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.config.head_dim)
+            attn_weights = torch.matmul(query_states, key_states.transpose(2, 3))
+            attn_weights /= math.sqrt(self.config.head_dim)
             if buffer.attn_mask.shape[2] > 1: attn_weights = attn_weights + buffer.attn_mask
             # attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min))
-            attn_weights = nn.functional.softmax(attn_weights, dim = -1, dtype = torch.float32).to(query_states.dtype)
+            attn_weights = nn.functional.softmax(attn_weights, dim = -1, dtype = torch.float16).to(query_states.dtype)
             attn_output = torch.matmul(attn_weights, value_states)
             attn_output = attn_output.transpose(1, 2)
-            del attn_weights
 
         # -- Scaled dot-product attention from PyTorch 2, should be comparable to xformers (?)
 
-        elif self.config.attention_method == ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP:
+        else:
 
             # Torch's SDP attention has a built-in causal mask feature which we can use only when there is no past, i.e.
             # it can only apply a square attention mask. It saves quite a bit of VRAM but in practice Torch seems to use
@@ -492,8 +497,6 @@ class ExLlamaAttention(nn.Module):
                 attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask = None, is_causal = True)
 
             attn_output = attn_output.transpose(1, 2)
-
-        else: raise ValueError("Wut?")
 
         # Output projection
 
@@ -517,6 +520,7 @@ class ExLlamaDecoderLayer(nn.Module):
 
         self.input_layernorm = ExLlamaRMSNorm(self.config, tensors, key + ".input_layernorm.weight")
         self.post_attention_layernorm = ExLlamaRMSNorm(self.config, tensors, key + ".post_attention_layernorm.weight")
+
 
     def forward(self, hidden_states, cache, buffer):
 
@@ -788,7 +792,6 @@ class ExLlamaDeviceMap:
         print(f" !!  - lm_head: {self.lm_head}")
 
 
-
 class ExLlamaBuffer:
 
     config: ExLlamaConfig
@@ -914,10 +917,11 @@ class ExLlama(nn.Module):
                         tensor = f.get_tensor(key)
                         head_size += tensor.numel() * tensor.element_size()
 
-                if self.config.debug: print(f" !! Decoder size: {decoder_size:,} bytes")
-                if self.config.debug: print(f" !! Decoder size, DQ: {decoder_dq_size:,} bytes")
-                if self.config.debug: print(f" !! Norm size: {norm_size:,} bytes")
-                if self.config.debug: print(f" !! Head size: {head_size:,} bytes")
+                if self.config.debug:
+                    print(f" !! Decoder size: {decoder_size:,} bytes")
+                    print(f" !! Decoder size, DQ: {decoder_dq_size:,} bytes")
+                    print(f" !! Norm size: {norm_size:,} bytes")
+                    print(f" !! Head size: {head_size:,} bytes")
 
                 # Assign layers automatically
 
@@ -978,7 +982,6 @@ class ExLlama(nn.Module):
                         print(f" !!  - {key} map: {_describe_tensor(tensor, device.startswith('cuda'))}")
 
                 tensors[key] = tensor
-                # print(key + " -> " + device)
 
         # Head
 
@@ -1044,6 +1047,23 @@ class ExLlama(nn.Module):
 
         # self.layers = modules
         self.layers = nn.ModuleList(modules)
+
+        # Prepare CUDA buffers
+
+        for dev in self.config.device_map.get_layers_devs():
+            cuda_ext.prepare_cuda_buffers(torch.device(dev),
+                                          self.config.max_seq_len,
+                                          optimal_switch_thd,
+                                          self.config.intermediate_size,
+                                          self.config.hidden_size)
+
+
+    def __del__(self):
+
+        if torch is None: return
+        for dev in self.config.device_map.get_layers_devs():
+            torch_device = torch.device(dev)
+            if torch_device is not None: cuda_ext.free_cuda_buffers(torch_device)
 
 
     def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False):

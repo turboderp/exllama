@@ -69,13 +69,13 @@ Chatbot examples:
 ### New implementation
 | Model    | Size | groupsize | act             | Seq. len.            | VRAM      | Prompt    | Best    | Worst   | Ppl  |
 |----------|------|-----------|-----------------|----------------------|-----------|-----------|---------|---------|------|
-| Llama    | 7B   | 128       | no              | 2,048 t              | 5,063 MB  | 2,894 t/s | 147 t/s | 116 t/s | 6.45 |
-| Llama    | 13B  | 128       | no              | 2,048 t              | 8,937 MB  | 2,357 t/s | 91 t/s  | 72 t/s  | 5.62 |
-| Llama    | 30B  | 128       | no              | 2,048 t              | 20,496 MB | 1,517 t/s | 43 t/s  | 34 t/s  | 4.60 |
-| Llama    | 30B  | 128       | yes             | 2,048 t              | 20,509 MB | 1,432 t/s | 42 t/s  | 33 t/s  | 4.55 |
-| Llama    | 30B  | 32        | yes             | 1,500 t <sup>1</sup> | 21,190 MB | 1,108 t/s | 38 t/s  | 32 t/s  | 4.52 |
-| Koala    | 13B  | 128       | yes             | 2,048 t              | 8,944 MB  | 2,086 t/s | 86 t/s  | 69 t/s  | 6.73 |
-| WizardLM | 30B  | -         | no <sup>2</sup> | 2,048 t              | 19,900 MB | 1,421 t/s | 44 t/s  | 35 t/s  | 5.75 |
+| Llama    | 7B   | 128       | no              | 2,048 t              | 5,063 MB  | 2,750 t/s | 151 t/s | 129 t/s | 6.45 |
+| Llama    | 13B  | 128       | no              | 2,048 t              | 8,937 MB  | 2,316 t/s | 94 t/s  | 80 t/s  | 5.62 |
+| Llama    | 30B  | 128       | no              | 2,048 t              | 20,496 MB | 1,314 t/s | 44 t/s  | 37 t/s  | 4.60 |
+| Llama    | 30B  | 128       | yes             | 2,048 t              | 20,509 MB | 1,283 t/s | 41 t/s  | 36 t/s  | 4.55 |
+| Llama    | 30B  | 32        | yes             | 1,550 t <sup>1</sup> | 21,190 MB | 1,108 t/s | 38 t/s  | 34 t/s  | 4.52 |
+| Koala    | 13B  | 128       | yes             | 2,048 t              | 8,944 MB  | 1,950 t/s | 86 t/s  | 75 t/s  | 6.73 |
+| WizardLM | 30B  | -         | no <sup>2</sup> | 2,048 t              | 19,900 MB | 1,266 t/s | 45 t/s  | 38 t/s  | 5.75 |
 
 <sup>1</sup> Can not achieve full sequence length without OoM (yet)  
 <sup>2</sup> Not quite sure if this is act-order or not. Weights have no group index, at least   
@@ -145,3 +145,6 @@ popular finetunes right now. I'll add more to the list as I come across them. Th
 **2023-05-24**: Added fused rotary embeddings and some minor optimizations. 13% faster on 7B, 9% on 13B. Small
 improvement on larger models. Added best-case scores to benchmark results and some clarification. For easier
 comparisons to other implementations, or whatever.
+
+**2023-05-27**: Better memory management in CUDA. Introduced auto switch between Torch's SDP backend and regular 
+matmul attention with some tweaks. Finished CUDA MLP. All in all about 10% faster with these updates.

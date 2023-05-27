@@ -1,4 +1,5 @@
 #include "rms_norm.h"
+#include "../cuda_buffers.h"
 #include "../util.h"
 #include "../matrix.h"
 
@@ -85,10 +86,14 @@ cudaError_t rms_norm_cuda
     half* out,
     const float epsilon,
     const int rows,
-    const int dim
+    const int dim,
+    const int device_index
 )
 {
     cudaError_t _cuda_err = cudaSuccess;
+
+    CudaBuffers* buffers = get_buffers(device_index);
+    buffers->zero_rms_norm_scratch(rows);
 
     float r_dim = 1.0f / (float) dim;
 
@@ -101,14 +106,12 @@ cudaError_t rms_norm_cuda
         1
     );
 
-    float* scratch;
-    cudaMalloc(&scratch, rows * sizeof(float));
-    cudaMemset(scratch, 0, rows * sizeof(float));
-
-    rms_norm_row_product_kernel<<<blocks, threads>>>(x, scratch, rows, dim);
-    rms_norm_kernel<<<blocks, threads>>>(x, w, out, scratch, epsilon, r_dim, rows, dim);
+    rms_norm_row_product_kernel<<<blocks, threads>>>(x, buffers->rms_norm_scratch, rows, dim);
+    rms_norm_kernel<<<blocks, threads>>>(x, w, out, buffers->rms_norm_scratch, epsilon, r_dim, rows, dim);
 
 //_cuda_fail:
+
+    //if (scratch) cudaFree(scratch);
 
     return _cuda_err;
 }

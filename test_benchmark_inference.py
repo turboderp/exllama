@@ -16,6 +16,7 @@ testdata_path = "testdata.jsonl"
 torch.set_grad_enabled(False)
 torch.cuda._lazy_init()
 torch.backends.cuda.matmul.allow_tf32 = True
+# torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True
 torch.set_printoptions(precision = 10)
 torch_devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
 
@@ -108,9 +109,9 @@ parser.add_argument("-c", "--config", type = str, help = "Model config path (con
 parser.add_argument("-m", "--model", type = str, help = "Model weights path (.pt or .safetensors file)")
 parser.add_argument("-d", "--directory", type = str, help = "Path to directory containing config.json, model.tokenizer and * .safetensors")
 
-parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP)
+parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.SWITCHED)
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
-parser.add_argument("-mlp", "--mlp", type = ExLlamaConfig.MLPMethod.argparse, choices = list(ExLlamaConfig.MLPMethod), help="Matmul method", default = ExLlamaConfig.MLPMethod.NORMAL)
+parser.add_argument("-mlp", "--mlp", type = ExLlamaConfig.MLPMethod.argparse, choices = list(ExLlamaConfig.MLPMethod), help="Matmul method", default = ExLlamaConfig.MLPMethod.SWITCHED)
 parser.add_argument("-s", "--stream", type = int, help = "Stream layer interval", default = 0)
 parser.add_argument("-gs", "--gpu_split", type = str, help = "Comma-separated list of VRAM (in GB) to use per GPU device for model layers, e.g. -gs 20,7,7")
 parser.add_argument("-dq", "--dequant", type = str, help = "Number of layers (per GPU) to de-quantize at load time")

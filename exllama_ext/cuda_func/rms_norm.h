@@ -12,7 +12,8 @@ cudaError_t rms_norm_cuda
     half* out,
     const float epsilon,
     const int rows,
-    const int dim
+    const int dim,
+    const int device_index
 );
 
 #endif

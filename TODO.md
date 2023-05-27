@@ -31,7 +31,7 @@
 - [x] Support for de-quantizing select matrices at load time
 - [ ] Better vector-matrix multiplication for de-quantized matrices (or show that it's bandwidth-limited now)
 - [ ] Fused QKV projection
-- [ ] Fused MLP (working but still needs optimizations)
+- [x] Fused MLP
 - [x] Fused RoPE
 - [ ] Build attention mask in CUDA rather than PyTorch
 - [x] ~~Disable attention mask when it isn't needed~~ (not possible with SDP)

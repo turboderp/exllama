@@ -8,11 +8,7 @@
 cudaError_t q4v2_mlp_cuda
 (
     half* x,                        // shape == (height, dim)
-
-    half* x_temp,                   // shape == x.shape
-    half* x_temp2,                  // shape == x.shape
-    half* temp1,                    // shape == (x.shape[0], gate.shape[1]) == (height, width)
-    half* temp2,                    // shape == (x.shape[0], gate.shape[1]) == (height, width)
+    half* out,                      // shape == x.shape
 
     const half* rms_norm_weight,    // shape == (x.shape[1],) == (dim,)
     float epsilon,
@@ -40,7 +36,9 @@ cudaError_t q4v2_mlp_cuda
 
     const int height,
     const int dim,
-    const int width
+    const int width,
+
+    const int device_index
 );
 
 #endif

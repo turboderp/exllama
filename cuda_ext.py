@@ -13,6 +13,7 @@ extension_name = "exllama_ext"
 exllama_ext = load(
     name = extension_name,
     sources = [
+        os.path.join(library_dir, "exllama_ext/cuda_buffers.cu"),
         os.path.join(library_dir, "exllama_ext/cpu_func/rep_penalty.cpp"),
         os.path.join(library_dir, "exllama_ext/cuda_func/column_remap.cu"),
         os.path.join(library_dir, "exllama_ext/cuda_func/half_matmul.cu"),
@@ -28,6 +29,9 @@ exllama_ext = load(
     # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
 )
 
+from exllama_ext import prepare_buffers
+from exllama_ext import free_buffers
+
 from exllama_ext import column_remap
 from exllama_ext import half_matmul
 from exllama_ext import half_matmul_cublas
@@ -39,6 +43,19 @@ from exllama_ext import rms_norm
 from exllama_ext import rope
 
 from exllama_ext import rep_penalty
+
+# Buffers for forward pass
+# TODO: This should pass a handle to the ExLlama object so we can allocate one set of buffers per instance. Currently
+# only supports one set of buffers globally
+
+def prepare_cuda_buffers(device, rows, mlp_rows, intermediate_size, hidden_size):
+
+    prepare_buffers(device, rows, mlp_rows, intermediate_size, hidden_size)
+
+def free_cuda_buffers(device):
+
+    free_buffers(device)
+
 
 # Dummy tensor to pass instead of g_idx since there is no way to pass "None" to a C++ extension
 
@@ -187,23 +204,16 @@ def mlp_q4v2(x,
              down_proj,
              intermediate_size):
 
-    # outshape = x.shape
+    outshape = x.shape
     x = x.view(-1, x.shape[-1])
+    out = torch.empty_like(x)
 
     # TODO: A second buffer for the down projection shouldn't be needed since multiplying in-place without zeroing the
     # input buffer should have the same effect as adding the residual connection. Except the matmul goes crazy when the
     # output buffer isn't initialized to zeros. Could be an fp16 rounding issue. (?)
 
-    x_temp = torch.zeros_like(x)
-    x_temp2 = torch.zeros_like(x)
-    temp1 = torch.zeros((x.shape[0], intermediate_size), device = x.device, dtype = torch.float16)
-    temp2 = torch.zeros((x.shape[0], intermediate_size), device = x.device, dtype = torch.float16)
-
     q4v2_mlp(x,
-             x_temp,
-             x_temp2,
-             temp1,
-             temp2,
+             out,
              rms_norm_weight,
              epsilon,
              gate_proj["qweight"],
@@ -222,7 +232,7 @@ def mlp_q4v2(x,
              down_proj["seq_g_idx"] if down_proj["seq_g_idx"] is not None else none_tensor,
              down_proj["x_map"] if down_proj["x_map"] is not None else none_tensor)
 
-    return x_temp2
+    return out.view(outshape)
 
 
 # RMS norm: x = x * w / sqrt(row_mean(x * x) + epsilon)
