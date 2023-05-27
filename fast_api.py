@@ -237,7 +237,7 @@ async def stream_data(req: GenerateRequest):
             print(f"Output generated in {_sec} ({_tokens_sec} tokens/s, {new_tokens}, context {prompt_tokens})")
 
             # return response time here?
-            return { new_text[0] }
+            return { new_text }
     except Exception as e:
         return {'response': f"Exception while processing request: {e}"}
 
