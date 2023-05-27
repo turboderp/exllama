@@ -154,7 +154,7 @@ async def stream_data(req: GenerateRequest):
 
         print(f"token_repetition_penalty_decay: {req.token_repetition_penalty_decay}")
         print(f"token_repetition_penalty_sustain: {req.token_repetition_penalty_sustain}")
-        func n req.token_repetition_penalty_decay if req.token_repetition_penalty_decay else req.token_repetition_penalty_sustain / 2
+        func = req.token_repetition_penalty_decay if req.token_repetition_penalty_decay else req.token_repetition_penalty_sustain / 2
         print(f"func: {func}")
         #print(req)
 
