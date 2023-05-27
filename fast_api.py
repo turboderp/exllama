@@ -151,7 +151,7 @@ async def stream_data(req: GenerateRequest):
 
         if req.stream:
             # copy of generate_simple() so that I could yield each token for streaming without having to change generator.py and make merging updates a nightmare:
-            async def generate_simple(prompt, settings = generator.Settings(), max_new_tokens = 128):
+            async def generate_simple(prompt, settings = generator.Settings(), max_new_tokens = req.max_new_tokens):
                 t0 = time.time()
                 new_text = ""
                 last_text = ""
@@ -165,7 +165,9 @@ async def stream_data(req: GenerateRequest):
 
                 for i in range(max_new_tokens):
                     token = generator.gen_single_token()
-                    if token.item() == tokenizer.eos_token_id: break
+                    #if token.item() == tokenizer.eos_token_id:
+                    #    generator.replace_last_token(tokenizer.newline_token_id)
+                    #    #break
                     text = tokenizer.decode(generator.sequence[0])
                     new_text = text[len(_MESSAGE):]
 
@@ -176,6 +178,15 @@ async def stream_data(req: GenerateRequest):
                     print(new_token, end="", flush=True)
                     #if req.stream:
                     yield new_token
+
+                    # End conditions
+                    #if break_on_newline and 
+                    if token.item() == tokenizer.newline_token_id:
+                        print(f"newline_token_id: {tokenizer.newline_token_id}")
+                    #    break
+                    if token.item() == tokenizer.eos_token_id:
+                        print(f"eos_token_id: {tokenizer.eos_token_id}")
+                    #    break
 
                 # all done:
                 generator.end_beam_search() 
