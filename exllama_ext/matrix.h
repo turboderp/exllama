@@ -36,6 +36,7 @@ public:
     __device__ inline half2 item_half2(int row, int column) const { return ((half2*)data)[(row * width + column) / 2]; }
     __device__ inline half* item_ptr(int row, int column) { return &data[row * width + column]; }
     __device__ inline void set(int row, int column, half value) { data[row * width + column] = value; }
+    __device__ inline void set_half2(int row, int column, half2 value) { ((half2*)data)[(row * width + column) / 2] = value; }
 };
 
 class MatrixView_q4_row

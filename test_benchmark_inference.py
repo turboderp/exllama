@@ -21,41 +21,34 @@ torch_devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
 
 class ModelWrapper:
 
-    def __init__(self,
-                 tokenizer_model_path,
-                 model_config_path,
-                 model_path,
-                 attention,
-                 matmul,
-                 length,
-                 stream,
-                 gpu_split,
-                 dequant):
+    def __init__(self, args):
 
-        self.tokenizer_model_path = tokenizer_model_path
-        self.model_config_path = model_config_path
-        self.model_path = model_path
+        self.tokenizer_model_path = args.tokenizer
+        self.model_config_path = args.config
+        self.model_path = args.model
         self.cache = None
         self.pkv = None
 
-        config = ExLlamaConfig(model_config_path)
-        config.model_path = model_path
-        config.max_seq_len = length
-        config.is_v1_model = False
+        config = ExLlamaConfig(self.model_config_path)
+        config.model_path = self.model_path
+        config.max_seq_len = args.length
 
         # config.device_map.layers[:] = ["cuda:1"] * 40
         # config.device_map.lm_head = "cuda:1"
         # config.device_map.norm = "cuda:1"
 
-        config.set_auto_map(gpu_split)
-        config.set_dequant(dequant)
-        config.stream_layer_interval = stream
+        config.set_auto_map(args.gpu_split)
+        config.set_dequant(args.dequant)
+        config.stream_layer_interval = args.stream
+        config.debug = args.debug
+        config.gpu_peer_fix = args.gpu_peer_fix
 
-        config.attention_method = attention
-        config.matmul_method = matmul
+        config.attention_method = args.attention
+        config.matmul_method = args.matmul
+        config.mlp_method = args.mlp
 
         self.model = ExLlama(config)
-        self.tokenizer = ExLlamaTokenizer(tokenizer_model_path)
+        self.tokenizer = ExLlamaTokenizer(self.tokenizer_model_path)
 
 
     def begin(self):
@@ -117,6 +110,7 @@ parser.add_argument("-d", "--directory", type = str, help = "Path to directory c
 
 parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP)
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
+parser.add_argument("-mlp", "--mlp", type = ExLlamaConfig.MLPMethod.argparse, choices = list(ExLlamaConfig.MLPMethod), help="Matmul method", default = ExLlamaConfig.MLPMethod.NORMAL)
 parser.add_argument("-s", "--stream", type = int, help = "Stream layer interval", default = 0)
 parser.add_argument("-gs", "--gpu_split", type = str, help = "Comma-separated list of VRAM (in GB) to use per GPU device for model layers, e.g. -gs 20,7,7")
 parser.add_argument("-dq", "--dequant", type = str, help = "Number of layers (per GPU) to de-quantize at load time")
@@ -125,6 +119,9 @@ parser.add_argument("-l", "--length", type = int, help = "Maximum sequence lengt
 parser.add_argument("-p", "--perf", action = "store_true", help = "Benchmark speed and VRAM usage")
 parser.add_argument("-ppl", "--perplexity", action = "store_true", help = "Perplexity benchmark (slow)")
 parser.add_argument("-v", "--validate", action = "store_true", help = "Quick perplexity benchmark just to test if model is working at all, and short text completion")
+
+parser.add_argument("-dbg", "--debug", action = "store_true", help = "Run debug pass")
+parser.add_argument("-gpfix", "--gpu_peer_fix", action = "store_true", help = "Prevent direct copies of data between GPUs")
 
 args = parser.parse_args()
 
@@ -156,8 +153,12 @@ print(f" -- Sequence length: {args.length}")
 print_opts = []
 print_opts.append("attention: " + str(args.attention))
 print_opts.append("matmul: " + str(args.matmul))
+print_opts.append("mlp: " + str(args.mlp))
 if args.perf: print_opts.append("perf")
 if args.perplexity: print_opts.append("perplexity")
+if args.validate: print_opts.append("validate")
+if args.debug: print_opts.append("debug")
+if args.gpu_peer_fix: print_opts.append("gpu_peer_fix")
 if args.stream > 0: print_opts.append(f"stream: {args.stream}")
 if args.gpu_split is not None: print_opts.append(f"gpu_split: {args.gpu_split}")
 if args.dequant is not None: print_opts.append(f"dequant: {args.dequant}")
@@ -166,15 +167,7 @@ print(f" -- Options: {print_opts}")
 
 # Instantiate model
 
-wrapper = timer("Load model", lambda: ModelWrapper(args.tokenizer,
-                                                   args.config,
-                                                   args.model,
-                                                   args.attention,
-                                                   args.matmul,
-                                                   args.length,
-                                                   args.stream,
-                                                   args.gpu_split,
-                                                   args.dequant))
+wrapper = timer("Load model", lambda: ModelWrapper(args))
 
 print(f" -- Groupsize (inferred): {wrapper.model.config.groupsize if wrapper.model.config.groupsize is not None else 'None'}")
 print(f" -- Act-order (inferred): {'yes' if wrapper.model.config.act_order else 'no'}")
@@ -190,6 +183,15 @@ ids = torch.randint(0, 31999, (1, max_seq_len - gen_tokens)).cuda()
 
 with torch.no_grad():
 
+    if args.debug:
+
+        print(" !! Inference, debug pass")
+
+        wrapper.begin()
+        logits = timer("Inference", lambda: wrapper.next_logits(ids))
+
+        wrapper.model.config.debug = False
+
     # Benchmark memory and performance
 
     if args.perf:
@@ -204,19 +206,22 @@ with torch.no_grad():
         t = time.time() - t
         print(f" ** Speed: {ids.shape[-1] / t:.2f} tokens/second")
 
-        t = time.time()
+        for j in range(2):
 
-        print(f" -- Generating {gen_tokens} tokens...")
-        for i in range(gen_tokens):
+            t = time.time()
+            print(f" -- Generating {gen_tokens} tokens, {ids.shape[-1]} token prompt...")
+            for i in range(gen_tokens):
 
-            logits = logits[0, -1, :]
-            token = torch.argmax(logits)
+                logits = logits[0, -1, :]
+                token = torch.argmax(logits)
+                next_id = token.unsqueeze(0).unsqueeze(0)
+                logits = wrapper.next_logits(next_id)
 
-            next_id = token.unsqueeze(0).unsqueeze(0)
-            logits = wrapper.next_logits(next_id)
+            t = time.time() - t
+            print(f" ** Speed: {gen_tokens / t:.2f} tokens/second")
 
-        t = time.time() - t
-        print(f" ** Speed: {gen_tokens / t:.2f} tokens/second")
+            ids = ids[:, :4]
+            wrapper.cache.current_seq_len = 4
 
         mem("Inference")
         mem("Total", total = True)
@@ -288,9 +293,8 @@ with torch.no_grad():
 
             wrapper.model.config.matmul_method = ExLlamaConfig.MatmulMethod.SWITCHED
             generator = ExLlamaGenerator(wrapper.model, wrapper.tokenizer, wrapper.cache)
-            settings = ExLlamaGenerator.Settings()
-            settings.top_k = 1
-            text = generator.generate_simple("To be or not to be, that is the", settings, max_new_tokens = 20)
+            generator.settings.top_k = 1
+            text = generator.generate_simple("To be or not to be, that is the", max_new_tokens = 20)
             text = text.replace("\n", "\\n")
             print(f" ** Generation: {text}")
 
