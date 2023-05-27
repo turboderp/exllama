@@ -17,8 +17,8 @@
                 // construct prompt:
                 construct_prompt();
 
-                //fetch("http://localhost:7862/generate", {
-                fetch("http://wintermute:7862/generate", {
+                //fetch("http://wintermute:7862/generate", {
+                fetch("http://localhost:7862/generate", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json"
@@ -35,7 +35,7 @@
                         //token_repetition_penalty_max: 1.15,
                         //token_repetition_penalty_sustain: 256,
                         //token_repetition_penalty_decay: 128,
-                        stream: false,
+                        //stream: true,
 				        //custom_stopping_strings: document.getElementById("stopping_str").value
                     }),
                 })
@@ -60,7 +60,12 @@
 
                             // Process the streamed data
                             let decodedData = new TextDecoder().decode(value);
-                            //console.log(JSON.stringify(decodedData));
+
+                            try {
+                                decodedData = JSON.parse(decodedData);
+                            } catch(err) {
+                                // do nothing
+                            }
 
                             add_message_to_chat(decodedData)
 
@@ -184,10 +189,11 @@
             }
         }
 
+        
         function check_model()
         {
-            //fetch("http://localhost:7862/check", {
-            fetch("http://wintermute:7862/check")
+            //fetch("http://wintermute:7862/check")
+            fetch("http://localhost:7862/check")
             .then(response => response.json()) // Parse response as JSON
             .then(data => {
                 const parts = data.model.split('/'); // Split the path by '/'
