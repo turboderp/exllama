@@ -194,8 +194,8 @@
                 console.log(_PROMPT)
                 //console.log(_chat_history)
 
-                //fetch("http://localhost:7862/generate", {
-                fetch("http://wintermute:7862/generate", {
+                fetch("http://localhost:7862/generate", {
+                //fetch("http://wintermute:7862/generate", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json"
@@ -344,8 +344,8 @@
 
             function check_model()
             {
-                //fetch("http://localhost:7862/check", {
-                fetch("http://wintermute:7862/check")
+                fetch("http://localhost:7862/check", {
+                //fetch("http://wintermute:7862/check")
                 .then(response => response.json()) // Parse response as JSON
                 .then(data => {
                     const parts = data.model.split('/'); // Split the path by '/'

@@ -54,13 +54,14 @@ else:
 #-------
 
 
-# Instantiate model and generator
+# Instantiate config:
 config = ExLlamaConfig(args.config)
 config.model_path = args.model
 config.max_seq_len = 2048
 #config.attention_method = ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP
 #config.matmul_method = ExLlamaConfig.MatmulMethod.SWITCHED
 
+# Instantiate model and generator:
 model = ExLlama(config)
 cache = ExLlamaCache(model)
 tokenizer = ExLlamaTokenizer(args.tokenizer)
