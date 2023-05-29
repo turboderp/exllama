@@ -19,11 +19,25 @@ class ExLlamaGenerator:
         beam_length = 1
 
 
+    model: ExLlama
+    sequence: torch.Tensor or None
+    sequence_actual: torch.Tensor or None
+    settings: Settings
+    beams: int or None
+    max_beam_length: int
+    in_beam_search: True
+    disallowed_tokens: list[int] or None
+
     def __init__(self, model, tokenizer, cache):
 
         self.model = model
         self.tokenizer = tokenizer
         self.cache = cache
+        self.reset()
+
+
+    def reset(self):
+
         self.cache.current_seq_len = 0
         self.sequence = None
         self.sequence_actual = None
@@ -101,6 +115,33 @@ class ExLlamaGenerator:
 
         if in_tokens.shape[-1] >= 1:
             self.model.forward(self.sequence[:, :-1], self.cache, preprocess_only = True)
+
+
+    def gen_begin_reuse(self, in_tokens):
+
+        self.end_beam_search()
+        if self.sequence is None or self.cache.current_seq_len == 0:
+            self.gen_begin(in_tokens)
+            return 0
+
+        reuse = 0
+        while reuse < self.sequence.shape[-1] and self.sequence[0, reuse] == in_tokens[0, reuse]:
+            reuse += 1
+
+        if reuse < 2:
+            self.gen_begin(in_tokens)
+            return 0
+
+        print (f"Reusing cache: {reuse} tokens")
+
+        self.cache.current_seq_len = reuse - 1
+        if reuse < in_tokens.shape[-1]:
+            self.sequence = self.sequence[:, :reuse]
+            self.sequence_actual = self.sequence.clone()
+            self.gen_feed_tokens(in_tokens[:, reuse:])
+            return reuse
+        else:
+            return in_tokens.shape[-1]
 
 
     def gen_feed_tokens(self, in_tokens):
