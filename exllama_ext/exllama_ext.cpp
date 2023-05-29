@@ -545,5 +545,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
   m.def("rope", &rope, "rotary position embeddings");
   m.def("rep_penalty", &rep_penalty, "repetition penalty mask");
   m.def("prepare_buffers", &prepare_buffers, "prepare buffers");
-  m.def("free_buffers", &prepare_buffers, "free buffers");
+  m.def("free_buffers", &free_buffers, "free buffers");
  }
