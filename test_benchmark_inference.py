@@ -197,6 +197,15 @@ with torch.no_grad():
 
     if args.perf:
 
+        # Warming up apparently makes a huge difference
+
+        for i in range(1, 4):
+            print(f" -- Warmup pass {i}...")
+            wrapper.begin()
+            logits = timer("Warmup", lambda: wrapper.next_logits(ids))
+
+        # Do the actual benchmark
+
         wrapper.begin()
 
         t = time.time()
