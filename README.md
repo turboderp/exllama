@@ -69,13 +69,13 @@ Chatbot examples:
 ### New implementation
 | Model    | Size | groupsize | act             | Seq. len.            | VRAM      | Prompt    | Best    | Worst   | Ppl  |
 |----------|------|-----------|-----------------|----------------------|-----------|-----------|---------|---------|------|
-| Llama    | 7B   | 128       | no              | 2,048 t              | 5,063 MB  | 2,750 t/s | 151 t/s | 129 t/s | 6.45 |
-| Llama    | 13B  | 128       | no              | 2,048 t              | 8,937 MB  | 2,316 t/s | 94 t/s  | 80 t/s  | 5.62 |
-| Llama    | 30B  | 128       | no              | 2,048 t              | 20,496 MB | 1,314 t/s | 44 t/s  | 37 t/s  | 4.60 |
-| Llama    | 30B  | 128       | yes             | 2,048 t              | 20,509 MB | 1,283 t/s | 41 t/s  | 36 t/s  | 4.55 |
-| Llama    | 30B  | 32        | yes             | 1,550 t <sup>1</sup> | 21,190 MB | 1,108 t/s | 38 t/s  | 34 t/s  | 4.52 |
-| Koala    | 13B  | 128       | yes             | 2,048 t              | 8,944 MB  | 1,950 t/s | 86 t/s  | 75 t/s  | 6.73 |
-| WizardLM | 30B  | -         | no <sup>2</sup> | 2,048 t              | 19,900 MB | 1,266 t/s | 45 t/s  | 38 t/s  | 5.75 |
+| Llama    | 7B   | 128       | no              | 2,048 t              | 5,063 MB  | 9,382 t/s | 151 t/s | 129 t/s | 6.45 |
+| Llama    | 13B  | 128       | no              | 2,048 t              | 8,937 MB  | 5,427 t/s | 94 t/s  | 80 t/s  | 5.62 |
+| Llama    | 30B  | 128       | no              | 2,048 t              | 20,496 MB | 2,291 t/s | 44 t/s  | 37 t/s  | 4.60 |
+| Llama    | 30B  | 128       | yes             | 2,048 t              | 20,509 MB | 2,166 t/s | 41 t/s  | 36 t/s  | 4.55 |
+| Llama    | 30B  | 32        | yes             | 1,550 t <sup>1</sup> | 21,218 MB | 2,152 t/s | 38 t/s  | 34 t/s  | 4.52 |
+| Koala    | 13B  | 128       | yes             | 2,048 t              | 8,944 MB  | 5,127 t/s | 86 t/s  | 75 t/s  | 6.73 |
+| WizardLM | 30B  | -         | no <sup>2</sup> | 2,048 t              | 19,900 MB | 2,313 t/s | 45 t/s  | 38 t/s  | 5.75 |
 
 <sup>1</sup> Can not achieve full sequence length without OoM (yet)  
 <sup>2</sup> Not quite sure if this is act-order or not. Weights have no group index, at least   
@@ -117,14 +117,6 @@ confirmed to be working right now.
 
 ## Recent updates
 
-**2023-05-17**: Tested 32g models (30B weights take up a bit too much space still to work on 24 GB of VRAM with full
-context.) Added error handling to C++/CUDA parts. Cleaned up and simplified the CUDA code a lot, preparing for fused
-layers.
-
-**2023-05-18**: Added basic layer streaming. Experimental for now. Modern GPUs should be designed for concurrent data
-transfer and execution, and there should be enough bandwidth to stream in every *n*th layer while the preceding *n*-1
-layers are processing. It's still too slow to be useful for generation, though. Also doesn't work with multiple GPUs.
-
 **2023-05-19**: Wrote a CUDA implementation of the layer norm. Turns out it was a bit of a bottleneck for the smaller
 models. Noticeably faster now.
 
@@ -148,3 +140,10 @@ comparisons to other implementations, or whatever.
 
 **2023-05-27**: Better memory management in CUDA. Introduced auto switch between Torch's SDP backend and regular 
 matmul attention with some tweaks. Finished CUDA MLP. All in all about 10% faster with these updates.
+
+**2023-05-29**: Web UI is _almost_ up and running. Having to learn JavaScript, and it turns out I hate JavaScript. But
+ChatGPT is an incredible resource for learning new languages, I gotta say, so it's not as painful as it could have
+been. Anyway, in the process of working with the UI I discovered I've been measuring prompt speed incorrectly. Either
+Torch or CUDA or the GPU driver does some sort of caching or self-calibration or lazy initialization during the first
+pass through the model, so subsequent passes are actually _way_ faster than what I've been recording. Doesn't do much
+for individual tokens, but benchmarks updated anyway. Closing in on 10k tokens/second for 7B. (!)
