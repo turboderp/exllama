@@ -22,10 +22,28 @@ __device__ __forceinline__ void atomicAdd_half(half* address, half val)
     while (assumed != old);
 }
 
+// atomicAdd for half2 types
+
+__device__ __forceinline__ void atomicAdd_half2(half2* address, half2 val)
+{
+    unsigned int* address_as_ui = (unsigned int*)address;
+    unsigned int old = *address_as_ui;
+    unsigned int assumed;
+    do
+    {
+        assumed = old;
+        half2 old_val = *((half2*)&old);
+        half2 new_val = __hadd2(old_val, val);
+        old = atomicCAS(address_as_ui, assumed, *((unsigned int*)&new_val));
+    }
+    while (assumed != old);
+}
+
 #ifdef __CUDA_ARCH__
 #if __CUDA_ARCH__ < 700
 
 __device__ __forceinline__ void atomicAdd(half* address, half val) { atomicAdd_half(address, val); }
+__device__ __forceinline__ void atomicAdd(half2* address, half2 val) { atomicAdd_half2(address, val); }
 
 #endif
 #endif
