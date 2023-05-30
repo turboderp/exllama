@@ -1,5 +1,5 @@
-#ifndef _cuda_buffers_h
-#define _cuda_buffers_h
+#ifndef _cuda_buffers_cuh
+#define _cuda_buffers_cuh
 
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>

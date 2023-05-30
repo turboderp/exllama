@@ -1,5 +1,5 @@
-#ifndef _cuda_compat_h
-#define _cuda_compat_h
+#ifndef _cuda_compat_cuh
+#define _cuda_compat_cuh
 
 // atomicAdd for half types, to support CC < 7.x
 

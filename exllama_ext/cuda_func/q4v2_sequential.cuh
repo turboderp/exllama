@@ -1,5 +1,5 @@
-#ifndef _q4v2_sequential_h
-#define _q4v2_sequential_h
+#ifndef _q4v2_sequential_cuh
+#define _q4v2_sequential_cuh
 
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>

@@ -1,7 +1,7 @@
-#include "rms_norm.h"
-#include "../cuda_buffers.h"
-#include "../util.h"
-#include "../matrix.h"
+#include "rms_norm.cuh"
+#include "../cuda_buffers.cuh"
+#include "../util.cuh"
+#include "../matrix.cuh"
 
 const int THREADS_X = 16;
 const int THREADS_Y = 4;

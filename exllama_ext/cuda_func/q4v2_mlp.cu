@@ -1,9 +1,9 @@
-#include "q4v2_mlp.h"
-#include "q4v2_matmul.h"
-#include "rms_norm.h"
-#include "../cuda_buffers.h"
-#include "../util.h"
-#include "../matrix.h"
+#include "q4v2_mlp.cuh"
+#include "q4v2_matmul.cuh"
+#include "rms_norm.cuh"
+#include "../cuda_buffers.cuh"
+#include "../util.cuh"
+#include "../matrix.cuh"
 
 const int THREADS_X = 32;
 const int THREADS_Y = 4;

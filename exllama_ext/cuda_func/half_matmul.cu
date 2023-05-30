@@ -1,7 +1,7 @@
-#include "half_matmul.h"
-#include "../util.h"
-#include "../matrix.h"
-#include "../cuda_compat.h"
+#include "half_matmul.cuh"
+#include "../util.cuh"
+#include "../matrix.cuh"
+#include "../cuda_compat.cuh"
 
 // Block size
 

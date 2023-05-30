@@ -1,5 +1,5 @@
-#include "q4v2_sequential.h"
-#include "../util.h"
+#include "q4v2_sequential.cuh"
+#include "../util.cuh"
 
 const int UNSHUF_BLOCKSIZE_X = 64;
 

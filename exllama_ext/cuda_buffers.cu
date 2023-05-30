@@ -1,4 +1,4 @@
-#include "cuda_buffers.h"
+#include "cuda_buffers.cuh"
 
 CudaBuffers* g_buffers[CUDA_MAX_DEVICES] = {NULL};
 

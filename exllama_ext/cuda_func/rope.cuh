@@ -1,5 +1,5 @@
-#ifndef _rope_h
-#define _rope_h
+#ifndef _rope_cuh
+#define _rope_cuh
 
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>

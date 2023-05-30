@@ -1,8 +1,8 @@
-#include "q4v2_matmul.h"
-#include "column_remap.h"
-#include "../util.h"
-#include "../matrix.h"
-#include "../cuda_compat.h"
+#include "q4v2_matmul.cuh"
+#include "column_remap.cuh"
+#include "../util.cuh"
+#include "../matrix.cuh"
+#include "../cuda_compat.cuh"
 
 // Block size
 

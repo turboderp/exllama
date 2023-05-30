@@ -6,17 +6,18 @@
 #include <cstdint>
 #include <cstdio>
 
-#include "cuda_buffers.h"
 #include "cpu_func/rep_penalty.h"
-#include "cuda_func/column_remap.h"
-#include "cuda_func/half_matmul.h"
-#include "cuda_func/q4v2_matmul.h"
-#include "cuda_func/q4v2_mlp.h"
-#include "cuda_func/q4v2_recons.h"
-#include "cuda_func/q4v2_sequential.h"
-#include "cuda_func/rms_norm.h"
-#include "cuda_func/rope.h"
-#include "util.h"
+
+#include "cuda_buffers.cuh"
+#include "cuda_func/column_remap.cuh"
+#include "cuda_func/half_matmul.cuh"
+#include "cuda_func/q4v2_matmul.cuh"
+#include "cuda_func/q4v2_mlp.cuh"
+#include "cuda_func/q4v2_recons.cuh"
+#include "cuda_func/q4v2_sequential.cuh"
+#include "cuda_func/rms_norm.cuh"
+#include "cuda_func/rope.cuh"
+#include "util.cuh"
 
 // Check CUDA return code. We don't want to include Torch headers in the .cu files because parsing them adds almost a
 // minute to the compile time on a 12900K. Also passing exceptions back to Python is super tricky, so in place of

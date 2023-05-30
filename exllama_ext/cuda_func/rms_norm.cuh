@@ -1,5 +1,5 @@
-#ifndef _rms_norm_h
-#define _rms_norm_h
+#ifndef _rms_norm_cuh
+#define _rms_norm_cuh
 
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>

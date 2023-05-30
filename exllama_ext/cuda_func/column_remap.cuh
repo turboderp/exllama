@@ -1,5 +1,5 @@
-#ifndef _column_remap_h
-#define _column_remap_h
+#ifndef _column_remap_cuh
+#define _column_remap_cuh
 
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>

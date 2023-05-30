@@ -1,6 +1,6 @@
-#include "rope.h"
-#include "../util.h"
-#include "../matrix.h"
+#include "rope.cuh"
+#include "../util.cuh"
+#include "../matrix.cuh"
 
 const int THREADS_X = 32;
 const int THREADS_Y = 4;

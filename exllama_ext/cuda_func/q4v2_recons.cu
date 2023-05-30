@@ -1,6 +1,6 @@
-#include "q4v2_recons.h"
-#include "../util.h"
-#include "../matrix.h"
+#include "q4v2_recons.cuh"
+#include "../util.cuh"
+#include "../matrix.cuh"
 
 // Block size
 

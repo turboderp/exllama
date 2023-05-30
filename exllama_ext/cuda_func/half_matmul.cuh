@@ -1,5 +1,5 @@
-#ifndef _half_matmul_h
-#define _half_matmul_h
+#ifndef _half_matmul_cuh
+#define _half_matmul_cuh
 
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>

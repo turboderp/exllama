@@ -1,5 +1,5 @@
-#ifndef _util_h
-#define _util_h
+#ifndef _util_cuh
+#define _util_cuh
 
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
