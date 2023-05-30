@@ -141,7 +141,6 @@ __global__ void q4v2_matmul_kernel
 
     half result = __hadd(acc.x, acc.y);
     atomicAdd(out_.item_ptr(x_row, w_column), result);
-
 }
 
 // Compute y = x @ w

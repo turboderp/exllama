@@ -3,11 +3,12 @@ import torch
 from torch.cuda.amp import custom_bwd, custom_fwd
 from torch.utils.cpp_extension import load
 import os
+import sys
 
 # TODO: This is a kludge to make the C++ extension load when the library is imported elsewhere. May not be needed
 # with the package installed, if so maybe find better solution.
 
-library_dir = "../exllama/"
+library_dir = os.path.dirname(os.path.abspath(__file__))
 extension_name = "exllama_ext"
 
 exllama_ext = load(
@@ -129,7 +130,7 @@ def dequantize_q4v2(quant_args):
     x_map = quant_args["x_map"]
 
     qweight_recons = torch.empty((w.shape[0] * 8, w.shape[1]), dtype = torch.float16, device = w.device)
-    q4v2_recons(w, qweight_recons, scales, zeros, seq_g_idx if seq_g_idx is not None else none_tensor)
+    q4v2_recons(w, qweight_recons, scales, zeros, seq_g_idx if seq_g_idx is not None else none_tensor, none_tensor)
 
     if x_map is not None:
 
