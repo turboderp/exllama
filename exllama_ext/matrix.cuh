@@ -1,5 +1,5 @@
-#ifndef _matrix_h
-#define _matrix_h
+#ifndef _matrix_cuh
+#define _matrix_cuh
 
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
