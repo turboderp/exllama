@@ -6,10 +6,7 @@ import cuda_ext
 import json
 import math
 from enum import Enum
-import threading
-import sys
 import struct
-from typing import List
 
 # Magic numbers
 
@@ -49,8 +46,8 @@ class ExLlamaConfig:
 
     class MLPMethod(ParsedEnum):
 
-        NORMAL = 1  # Regular MLP as in LlamaModel (best)
-        SWITCHED = 2  # Switch between normal and fused MLP
+        NORMAL = 1  # Regular MLP as in LlamaModel
+        SWITCHED = 2  # Switch between normal and fused MLP (best)
 
 
     # Load config from Llama config.json
@@ -87,7 +84,6 @@ class ExLlamaConfig:
 
         # Optional settings
 
-        self.stream_layer_interval = 0  # Store every nth layer in system RAM and
         self.max_seq_len = 2048  # Reduce to save memory. Can also be increased, but the pretrained models produce degenerate output after 2048 tokens in any case. Should be possible to finetune for longer sequence lengths.
         self.attention_method = self.AttentionMethod.SWITCHED
         self.matmul_method = self.MatmulMethod.SWITCHED
@@ -257,45 +253,6 @@ class Ex4bitLinear(nn.Module):
     cpu_qzeros: torch.Tensor
     cpu_seq_g_idx: torch.Tensor
     cpu_x_map: torch.Tensor
-
-    def convert_streaming(self, stream_linear):
-
-        # Copy tensors to CPU
-
-        self.cpu_qweight = self.qweight.to("cpu")
-        self.cpu_scales = self.scales.to("cpu")
-        self.cpu_qzeros = self.qzeros.to("cpu")
-        self.cpu_seq_g_idx = self.seq_g_idx.to("cpu") if self.seq_g_idx is not None else None
-        self.x_map = self.x_map.to("cpu") if self.x_map is not None else None
-        self.bias = self.bias.to("cpu") if self.x_map is not None else None
-
-        # Replace reference with linear provided by stream buffer
-
-        self.qweight = stream_linear.qweight
-        self.scales = stream_linear.scales
-        self.qzeros = stream_linear.qzeros
-        self.seq_g_idx = stream_linear.seq_g_idx
-        self.x_map = stream_linear.x_map
-        self.bias = stream_linear.bias
-
-        self.streaming = True
-
-
-    streaming: bool = False
-    is_loaded: bool = False
-
-    def load_streaming(self):
-
-        # Own references point to the same tensors as all other streamed linears, CPU copies are unique to this linear
-
-        self.qweight.copy_(self.cpu_qweight, non_blocking = True)
-        self.scales.copy_(self.cpu_scales, non_blocking = True)
-        self.qzeros.copy_(self.cpu_qzeros, non_blocking = True)
-        if self.seq_g_idx is not None: self.seq_g_idx.copy_(self.cpu_seq_g_idx, non_blocking = True)
-        if self.x_map is not None: self.x_map.copy_(self.cpu_x_map, non_blocking = True)
-        if self.bias is not None: self.bias.copy_(self.cpu_x_map, non_blocking = True)
-
-        self.is_loaded = True
 
 
     def forward(self, x):
@@ -654,91 +611,6 @@ class ExLlamaCache:
         print(f" !!  - cache device: {self.key_states[index].device}, seq_len: {self.current_seq_len}")
 
 
-# Layer streaming
-# TODO: Currently assumes single GPU
-
-class ExLlamaStreamer:
-
-    mlp_gate_proj: Ex4bitLinear
-    mlp_up_proj: Ex4bitLinear
-    mlp_down_proj: Ex4bitLinear
-
-    self_attn_q_proj: Ex4bitLinear
-    self_attn_k_proj: Ex4bitLinear
-    self_attn_v_proj: Ex4bitLinear
-    self_attn_o_proj: Ex4bitLinear
-
-    # Copy the first layer to be streamed
-
-    def __init__(self, config, layer):
-
-        self.config = config
-
-        # Reference all relevant tensors in the first layer. All linears in subsequent layers will reference these
-        # and dereference their own while maintaining CPU copies
-
-        self.mlp_gate_proj = layer.mlp.gate_proj
-        self.mlp_up_proj = layer.mlp.up_proj
-        self.mlp_down_proj = layer.mlp.down_proj
-
-        self.self_attn_q_proj = layer.self_attn.q_proj
-        self.self_attn_k_proj = layer.self_attn.k_proj
-        self.self_attn_v_proj = layer.self_attn.v_proj
-        self.self_attn_o_proj = layer.self_attn.o_proj
-
-        # Separate CUDA stream for background transfer
-        # TODO: Just using first stream layer device, we really need a stream buffer per device
-
-        self.cuda_stream = torch.cuda.Stream(self.mlp_gate_proj.qweight.device)
-
-
-    # Set up layer for streaming
-
-    def convert_linear(self, self_linear, linear):
-
-        assert self_linear.qweight.shape == linear.qweight.shape
-        assert self_linear.scales.shape == linear.scales.shape
-        assert self_linear.qzeros.shape == linear.qzeros.shape
-        assert self_linear.seq_g_idx is None or self_linear.seq_g_idx.shape == linear.seq_g_idx.shape
-        assert self_linear.x_map is None or self_linear.x_map.shape == linear.x_map.shape
-        assert self_linear.bias is None or self_linear.bias.shape == linear.bias.shape
-
-        linear.convert_streaming(self_linear)
-
-
-    def convert_layer(self, layer):
-
-        self.convert_linear(self.mlp_gate_proj, layer.mlp.gate_proj)
-        self.convert_linear(self.mlp_up_proj, layer.mlp.up_proj)
-        self.convert_linear(self.mlp_down_proj, layer.mlp.down_proj)
-
-        self.convert_linear(self.self_attn_q_proj, layer.self_attn.q_proj)
-        self.convert_linear(self.self_attn_k_proj, layer.self_attn.k_proj)
-        self.convert_linear(self.self_attn_v_proj, layer.self_attn.v_proj)
-        self.convert_linear(self.self_attn_o_proj, layer.self_attn.o_proj)
-
-
-    # Load layer
-
-    def load_layer(self, layer):
-
-        with torch.cuda.stream(self.cuda_stream):
-
-            layer.mlp.gate_proj.load_streaming()
-            layer.mlp.up_proj.load_streaming()
-            layer.mlp.down_proj.load_streaming()
-
-            layer.self_attn.q_proj.load_streaming()
-            layer.self_attn.k_proj.load_streaming()
-            layer.self_attn.v_proj.load_streaming()
-            layer.self_attn.o_proj.load_streaming()
-
-
-    def load_layer_sync(self):
-
-        self.cuda_stream.synchronize()
-
-
 # Device map for the model.
 
 class ExLlamaDeviceMap:
@@ -751,7 +623,6 @@ class ExLlamaDeviceMap:
         self.lm_head = "cuda:0"
         self.norm = "cuda:0"
         self.layers = ["cuda:0"] * self.num_layers
-        self.stream_layer_interval = 0
 
 
     def get_layers_devs(self):
@@ -767,9 +638,6 @@ class ExLlamaDeviceMap:
 
         if key.startswith("model.layers."):
             num = int(key.split(".")[2])
-            if loading and self.stream_layer_interval > 0 and (num + 1) % self.stream_layer_interval == 0:
-                if key.startswith(f"model.layers.{num}.mlp."): return "cpu"
-                if key.startswith(f"model.layers.{num}.self_attn."): return "cpu"
             return self.layers[num]
 
         raise ValueError("Unknown key: " + key)
@@ -803,7 +671,6 @@ class ExLlamaBuffer:
     # Attention mask
 
     attn_mask: torch.Tensor = None
-
 
     # Move to device
 
@@ -863,17 +730,12 @@ class ExLlama(nn.Module):
         self.eval()
 
         self.config = config
-        self.stream_buffer = None
 
         if self.config.debug:
             device_count = torch.cuda.device_count()
             print(f" !! Available CUDA devices:")
             for i in range(device_count):
                 print(f'" !!  - cuda:{i}: {torch.cuda.get_device_name(i)}')
-
-        # Forward streaming config to device map so we only load the first layer on GPU
-
-        self.config.device_map.stream_layer_interval = self.config.stream_layer_interval
 
         # Load model weights
 
@@ -1020,8 +882,6 @@ class ExLlama(nn.Module):
 
         # Layers
 
-        layer_streaming = self.config.stream_layer_interval > 0
-
         modules = []
         device_layer_index = [0] * len(devs)
 
@@ -1038,10 +898,6 @@ class ExLlama(nn.Module):
                 if device_layer < self.config.dequant[device_idx]: dequant = True
 
             layer = ExLlamaDecoderLayer(self.config, tensors, f"model.layers.{i}", i, sin, cos, dequant = dequant)
-
-            if layer_streaming and i > 0 and (i + 1) % self.config.stream_layer_interval == 0:
-                if self.stream_buffer is None: self.stream_buffer = ExLlamaStreamer(self.config, layer)  # Use first layer as prototype
-                self.stream_buffer.convert_layer(layer)
 
             modules.append(layer)
 
@@ -1116,41 +972,12 @@ class ExLlama(nn.Module):
 
         # Decoder layers
 
-        next_streaming_layer = -1
-        background_thread = None
-        layer_streaming = self.config.stream_layer_interval > 0
-
-        if layer_streaming:
-
-            if self.config.debug: print(f" !! Using layer streaming (no debug output for this yet)")
-
-            next_streaming_layer = self.config.stream_layer_interval - 1
-            # background_thread = threading.Thread(target = self.stream_buffer.load_layer, args = (self.layers[next_streaming_layer],))
-            # background_thread.start()
-            self.stream_buffer.load_layer(self.layers[next_streaming_layer])
-
         for i, decoder_layer in enumerate(self.layers):
 
             device = self.config.device_map.layers[i]
             hidden_states = _move_tensor(hidden_states, device, "hidden_states", self.config)
 
-            if i == next_streaming_layer:
-
-                # background_thread.join()
-                self.stream_buffer.load_layer_sync()
-
-                hidden_states = decoder_layer.forward(hidden_states, cache, buffers[device])
-
-                next_streaming_layer += self.config.stream_layer_interval
-                if next_streaming_layer < len(self.layers):
-                    # background_thread = threading.Thread(target = self.stream_buffer.load_layer, args = (self.layers[next_streaming_layer],))
-                    # background_thread.start()
-                    torch.cuda.synchronize()  # Need to let last streamed layer finish with the buffers
-                    self.stream_buffer.load_layer(self.layers[next_streaming_layer])
-
-            else:
-
-                hidden_states = decoder_layer.forward(hidden_states, cache, buffers[device])
+            hidden_states = decoder_layer.forward(hidden_states, cache, buffers[device])
 
         cache.current_seq_len += seq_len
 
