@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>EXLlama</title>
+        <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css') }}">
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    </head>
+    <body>
+        <svg style="display: none;">
+            <defs>
+                <symbol id="pencil-icon" viewBox="0 0 24 24">
+                    <path d="M16.84,2.73C16.45,2.73 16.07,2.88 15.77,3.17L13.65,5.29L18.95,10.6L21.07,8.5C21.67,7.89 21.67,6.94 21.07,6.36L17.9,3.17C17.6,2.88 17.22,2.73 16.84,2.73M12.94,6L4.84,14.11L7.4,14.39L7.58,16.68L9.86,16.85L10.15,19.41L18.25,11.3M4.25,15.04L2.5,21.73L9.2,19.94L8.96,17.78L6.65,17.61L6.47,15.29"/>
+                </symbol>
+            </defs>
+        </svg>
+        <svg style="display: none;">
+            <defs>
+                <symbol id="delete-icon" viewBox="0 0 24 24">
+                    <path d="M9,3V4H4V6H5V19C5,20.1 5.9,21 7,21H17C18.1,21 19,20.1 19,19V6H20V4H15V3H9M7,6H17V19H7V6M9,8V17H11V8H9M13,8V17H15V8H13Z"/>
+                </symbol>
+            </defs>
+        </svg>
+
+        <div id="chat-container">
+            <div id="sessions-column">
+                <!-- Sessions go here. -->
+            </div>
+            <div id="chat-column">
+                <div id="chatbox">
+                    <!-- Chat goes here. -->
+                </div>
+                <div id="chat-gradient-bot"></div>
+                <div id="chat-gradient-top"></div>
+                <div id="chat-input-form">
+                    <textarea id="user-input" placeholder="Type here..." rows="1"></textarea>
+                </div>
+            </div>
+            <div id="control-column">
+
+                <div class="controls-frame">
+                    <div class="header no-select">Model<span class="arrow">▼</span></div>
+                    <div class="contents" id="model_info" style="display: none;">
+                        <textarea class="textfield_info" id="tf_model_info" spellcheck="false" disabled="true"></textarea>
+                    </div>
+                </div>
+
+                <div class="controls-frame">
+                    <div class="header no-select">Fixed prompt<span class="arrow">▼</span></div>
+                    <div class="contents" style="display: none;">
+                        <textarea class="textfield" id="tf_fixed_prompt" rows="10" spellcheck="false"></textarea>
+                        <label class="custom-checkbox no-select" id="cb_keep_fixed_prompt"><input type="checkbox" hidden /><span class="checkbox-container"></span><span class="label-text">Keep in context</span></label>
+                    </div>
+                </div>
+
+                <div class="controls-frame">
+                    <div class="header no-select">Participants<span class="arrow">▲</span></div>
+                    <div class="contents" id="participants">
+                    </div>
+                </div>
+
+                <div class="controls-frame">
+                    <div class="header no-select">Sampler<span class="arrow">▲</span></div>
+                    <div class="contents" id="gen_settings"></div>
+                </div>
+
+                <div class="controls-frame">
+                    <div class="header no-select">Stop condition<span class="arrow">▲</span></div>
+                    <div class="contents" id="stop_settings"></div>
+                    <div class="contents">
+                        <label class="custom-checkbox no-select" id="cb_gen_endnewline"><input type="checkbox" hidden /><span class="checkbox-container"></span><span class="label-text">End on newline</span></label>
+                    </div>
+                </div>
+
+                <div class="controls-frame">
+                    <div class="header no-select">Repetition penalty<span class="arrow">▲</span></div>
+                    <div class="contents" id="repp_settings"></div>
+                </div>
+
+            </div>
+        </div>
+        <script src="{{ url_for('static', filename='main.js') }}"></script>
+    </body>
+</html>

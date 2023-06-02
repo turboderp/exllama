@@ -13,7 +13,7 @@ is subject to change.
 
 ## Hardware/software requirements
 
-I am developing on an RTX 4090 and an RTX 3070-Ti. Both cards support the CUDA kernel, but there might be
+I am developing on an RTX 4090 and an RTX 3090-Ti. Both cards support the CUDA kernel, but there might be
 incompatibilities with older cards. I have no way of testing that right now.
 
 I have no idea if this works on Windows/WSL, but feel free to try and contribute/give feedback.
@@ -26,14 +26,7 @@ This list might be incomplete:
 * `safetensors` 0.3.1
 * `sentencepiece`
 * `ninja`
-
-## Limitations
-
-As of currently (working on it):
-
-- No support for v1 models without groupsize
-- I've encountered models with nonstandard layouts and datatypes (e.g. float32 embedding table). It'll take a while
-to make sure all the possible permutations are supported.
+* `flask` (only for the web UI)
 
 ## How to
 
@@ -63,6 +56,22 @@ Chatbot examples:
 
     python test_chatbot.py -d <path_to_model_files> -un "Maxine" -p prompt_assistant.txt -nnl \
       -temp 1.00 -topp 0.95 -beams 5 -beamlen 20
+
+## Web UI
+
+I made a simple web UI for it. Like the rest of the project, it's a work in progress. Don't look at the JavaScript,
+it was mostly written by ChatGPT and it will haunt your dreams. But it sort of works, and it's kinda fun, especially
+multibot mode:
+
+![_screenshot.jpg](_screenshot.jpg)
+
+To run it:
+
+    pip install flask
+
+    python webui/app.py -d <path_to_model_files>
+
+Note that sessions are stored in `~/exllama_sessions/`. 
 
 ## Results so far
 
@@ -94,10 +103,23 @@ internals.
 Perplexity is measured only to verify that the models are working. The dataset used is a particular, small sample from
 WikiText, so scores are not necessarily comparable to other Llama benchmarks.
 
+### Dual GPU results
+
+Since many seem to be interested in running 65B models, I can confirm that this works with two 24 GB GPUs. The
+following benchmarks are from a 4090 + 3090-Ti with `-gs 17.2,24`:
+
+| Model    | Size | groupsize | act | Seq. len.            | VRAM      | Prompt  | Best   | Worst  | Ppl  |
+|----------|------|-----------|-----|----------------------|-----------|---------|--------|--------|------|
+| Llama    | 65B  | 128       | yes | 2,048 t              | 39,804 MB | 926 t/s | 19 t/s | 17 t/s | 4.20 |
+| Llama    | 65B  | 32        | yes | 2,048 t              | 43,424 MB | 895 t/s | 16 t/s | 15 t/s | 4.11 |
+
+
 ### Testing long sequences
+
 The following tests were all done on **30B/65B, 4bit 128g** with various settings, just to test the max sequence length
 and get a sense of what can be achieved with different or multiple GPUs right now. Llama goes incoherent generating 
-past 2048 tokens anyway, but with some fine-tuning, who knows? 
+past 2048 tokens anyway, but with some fine-tuning, who knows? Note that these tests were run a while ago and the
+speeds are no longer current.
 
 |                        | Size | Seq. len. | VRAM                 | Long seq. | Ind.   | 
 |------------------------|------|-----------|----------------------|-----------|--------|
@@ -147,3 +169,7 @@ been. Anyway, in the process of working with the UI I discovered I've been measu
 Torch or CUDA or the GPU driver does some sort of caching or self-calibration or lazy initialization during the first
 pass through the model, so subsequent passes are actually _way_ faster than what I've been recording. Doesn't do much
 for individual tokens, but benchmarks updated anyway. Closing in on 10k tokens/second for 7B. (!)
+
+**2023-06-02**: Web UI is now in a fairly working state. Expect it to be a little scuffed in places. There will be a
+rewrite at some point to make the client-side code less seizure-inducing. It has multibot mode, chat rewind and editing
+features, sessions, and more. I'm going to build it out with support for instruct prompting and such, in time.

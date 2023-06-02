@@ -22,3 +22,8 @@ class ExLlamaTokenizer:
         ids = ids.tolist()
         text = self.tokenizer.Decode(ids)
         return text
+
+    def num_tokens(self, text):
+
+        ids = self.tokenizer.Encode(text)
+        return len(ids)
