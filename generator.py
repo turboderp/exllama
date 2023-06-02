@@ -125,7 +125,7 @@ class ExLlamaGenerator:
             return 0
 
         reuse = 0
-        while reuse < self.sequence.shape[-1] and self.sequence[0, reuse] == in_tokens[0, reuse]:
+        while reuse < self.sequence.shape[-1] and reuse < in_tokens.shape[-1] and self.sequence[0, reuse] == in_tokens[0, reuse]:
             reuse += 1
 
         if reuse < 2:
