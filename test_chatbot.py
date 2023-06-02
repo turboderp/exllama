@@ -24,7 +24,6 @@ parser.add_argument("-d", "--directory", type = str, help = "Path to directory c
 parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.SWITCHED)
 parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
 parser.add_argument("-mlp", "--mlp", type = ExLlamaConfig.MLPMethod.argparse, choices = list(ExLlamaConfig.MLPMethod), help="Matmul method", default = ExLlamaConfig.MLPMethod.SWITCHED)
-parser.add_argument("-s", "--stream", type = int, help = "Stream layer interval", default = 0)
 parser.add_argument("-gs", "--gpu_split", type = str, help = "Comma-separated list of VRAM (in GB) to use per GPU device for model layers, e.g. -gs 20,7,7")
 parser.add_argument("-dq", "--dequant", type = str, help = "Number of layers (per GPU) to de-quantize at load time")
 
@@ -86,7 +85,6 @@ print_opts.append("matmul: " + str(args.matmul))
 print_opts.append("mlp: " + str(args.mlp))
 if args.no_newline: print_opts.append("no_newline")
 if args.botfirst: print_opts.append("botfirst")
-if args.stream > 0: print_opts.append(f"stream: {args.stream}")
 if args.gpu_split is not None: print_opts.append(f"gpu_split: {args.gpu_split}")
 if args.dequant is not None: print_opts.append(f"dequant: {args.dequant}")
 if args.gpu_peer_fix: print_opts.append("gpu_peer_fix")
@@ -117,7 +115,6 @@ config.model_path = args.model
 config.attention_method = args.attention
 config.matmul_method = args.matmul
 config.mlp_method = args.mlp
-config.stream_layer_interval = args.stream
 config.gpu_peer_fix = args.gpu_peer_fix
 if args.length is not None: config.max_seq_len = args.length
 config.set_auto_map(args.gpu_split)
