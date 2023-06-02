@@ -22,8 +22,8 @@
 
 ## VRAM optimization
 
-- [ ] Fix layer streaming so it isn't unusably slow
-- [ ] Allow layer streaming to integrate with other features like device splitting
+- [x] ~~Fix layer streaming so it isn't unusably slow~~ (removed)
+- [x] ~~Allow layer streaming to integrate with other features like device splitting~~ Nope
 - [ ] Provide alternative backend to allow layers on CPU
 
 ## Speed optimization
@@ -39,7 +39,7 @@
 - [x] Measure PyTorch module overhead (negligible in eval mode)
 - [x] Examine if scaled_dot_product_attention is actually the best attention method for single tokens (it's not)
 - [ ] Implement attention in CUDA
-- [ ] Rewrite at least the quantized matmul kernel. Should be a bunch of special cases to consider  
+- [ ] Rewrite at least the quantized matmul kernel. Should be a bunch of special cases to consider
 
 ## Generation
 
@@ -53,10 +53,20 @@
 
 ## Interface
 
-- [ ] Simple web interface?
+- [x] Simple web interface?
 - [ ] API server 
+
+## Web UI
+
+- [ ] Controls to enable beam search
+- [ ] Rewrite/refactor all the JavaScript and CSS
+- [ ] Support for prompt formats/instruct mode
+- [ ] Make it a little prettier
+- [ ] Test various edge cases
+- [ ] Better error handling
 
 ## ??
 
 - [ ] Allow for backpropagation
 - [ ] LoRA training features
+- [ ] Soft prompt training
