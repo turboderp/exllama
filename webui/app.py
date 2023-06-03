@@ -116,7 +116,8 @@ def api_userinput():
 
 # Load the model
 
-model, tokenizer = init_model()
+model, tokenizer, machine = init_model()
+_host, _port = machine.split(":")
 
 # Get the session ready
 
@@ -124,6 +125,7 @@ prepare_sessions(model, tokenizer)
 session = get_initial_session()
 
 # Start the web server
+if _host == "localhost":
+    Timer(1, lambda: webbrowser.open(f'http://{machine}/')).start()
 
-Timer(1, lambda: webbrowser.open('http://127.0.0.1:5000/')).start()
-app.run()
+app.run(host=_host, port=_port)

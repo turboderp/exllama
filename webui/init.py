@@ -23,6 +23,8 @@ def init_model():
 
     parser.add_argument("-gpfix", "--gpu_peer_fix", action="store_true", help="Prevent direct copies of data between GPUs")
 
+    parser.add_argument("-host", "--host", type = str, help = "IP:PORT eg, 0.0.0.0:7862", default = "localhost:5000")
+
     args = parser.parse_args()
 
     # Get model files from --directory
@@ -82,4 +84,4 @@ def init_model():
     print(f" -- Groupsize (inferred): {model.config.groupsize if model.config.groupsize is not None else 'None'}")
     print(f" -- Act-order (inferred): {'yes' if model.config.act_order else 'no'}")
 
-    return model, tokenizer
+    return model, tokenizer, args.host
