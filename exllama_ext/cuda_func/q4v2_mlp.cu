@@ -116,8 +116,9 @@ cudaError_t q4v2_mlp_cuda
     const int device_index
 )
 {
-    cudaError_t _cuda_err = cudaSuccess;
 
+    cudaError_t _cuda_err = cudaSuccess;
+/*
     CudaBuffers* buffers = get_buffers(device_index);
     buffers->zero_mlp_temp(height);
 
@@ -176,6 +177,6 @@ cudaError_t q4v2_mlp_cuda
 //     }
 
 //_cuda_fail:
-
+*/
     return _cuda_err;
 }

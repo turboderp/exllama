@@ -31,7 +31,6 @@ exllama_ext = load(
 )
 
 from exllama_ext import prepare_buffers
-from exllama_ext import free_buffers
 
 from exllama_ext import column_remap
 from exllama_ext import half_matmul
@@ -45,26 +44,19 @@ from exllama_ext import rope
 
 from exllama_ext import rep_penalty
 
-# Buffers for forward pass
-# TODO: This should pass a handle to the ExLlama object so we can allocate one set of buffers per instance. Currently
-# only supports one set of buffers globally
-
-def prepare_cuda_buffers(device, rows, mlp_rows, intermediate_size, hidden_size):
-
-    prepare_buffers(device, rows, mlp_rows, intermediate_size, hidden_size)
-
-def free_cuda_buffers(device):
-
-    free_buffers(device)
-
 
 # Dummy tensor to pass instead of g_idx since there is no way to pass "None" to a C++ extension
 
 none_tensor = torch.empty((1, 1), device = "meta")
 
-def _dump_tensor(t, name):
 
-    t.cpu().numpy().tofile(name)
+# Buffers for forward pass
+# TODO: This should pass a handle to the ExLlama object so we can allocate one set of buffers per instance. Currently
+# only supports one set of buffers globally
+
+def prepare_cuda_buffers(device, temp_state, temp_mlp, temp_rms_norm):
+
+    prepare_buffers(device, temp_state, temp_mlp, temp_rms_norm)
 
 
 def _matmul_q4v2_matmul(x, w, scales, zeros, seq_g_idx, x_map):

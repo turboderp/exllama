@@ -93,7 +93,8 @@ cudaError_t rms_norm_cuda
     cudaError_t _cuda_err = cudaSuccess;
 
     CudaBuffers* buffers = get_buffers(device_index);
-    buffers->zero_rms_norm_scratch(rows);
+    float* temp = buffers->temp_rms_norm;
+    cudaMemsetAsync(temp, 0, rows * sizeof(float));
 
     float r_dim = 1.0f / (float) dim;
 
@@ -106,8 +107,8 @@ cudaError_t rms_norm_cuda
         1
     );
 
-    rms_norm_row_product_kernel<<<blocks, threads>>>(x, buffers->rms_norm_scratch, rows, dim);
-    rms_norm_kernel<<<blocks, threads>>>(x, w, out, buffers->rms_norm_scratch, epsilon, r_dim, rows, dim);
+    rms_norm_row_product_kernel<<<blocks, threads>>>(x, temp, rows, dim);
+    rms_norm_kernel<<<blocks, threads>>>(x, w, out, temp, epsilon, r_dim, rows, dim);
 
 //_cuda_fail:
 

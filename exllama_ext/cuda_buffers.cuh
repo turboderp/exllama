@@ -11,43 +11,30 @@ const int CUDA_MAX_DEVICES = 16;
 class CudaBuffers
 {
 public:
-    int rows;
-    int mlp_rows;
-    int intermediate_size;
-    int hidden_size;
+    int device;
 
-    float* rms_norm_scratch;    // [rows]
-    half* mlp_temp;             // [2 * mlp_rows * intermediate_size]
-    half* state_temp;           // [rows * hidden_size]
+    half* temp_state;           // [max_hidden_rows * hidden_dim]
+    half* temp_mlp;             // [hidden_dim * intermediate_size]
+    float* temp_rms_norm;       // [max_hidden_rows]
 
     CudaBuffers
     (
-        const int _rows,
-        const int _mlp_rows,
-        const int _intermediate_size,
-        const int _hidden_size
+        int _device,
+        half* _temp_state,
+        half* _temp_mlp,
+        float* _temp_rms_norm
     );
     ~CudaBuffers();
-
-    void zero_rms_norm_scratch(const int _rows);
-    void zero_mlp_temp(const int _mlp_rows);
-    void zero_state_temp(const int _rows);
 };
 
 CudaBuffers* get_buffers(const int device_index);
 
-cudaError_t prepare_buffers_cuda
+void prepare_buffers_cuda
 (
-    const int device_index,
-    const int rows,
-    const int mlp_rows,
-    const int intermediate_size,
-    const int hidden_size
-);
-
-cudaError_t free_buffers_cuda
-(
-    const int device_index
+    int _device,
+    half* _temp_state,
+    half* _temp_mlp,
+    float* _temp_rms_norm
 );
 
 #endif

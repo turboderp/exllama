@@ -77,46 +77,29 @@ int get_groupsize(torch::Tensor w, torch::Tensor w_zeros)
     return groupsize;
 }
 
-// Prepare buffers for forward pass
+// Prepare buffers for device
 
 void prepare_buffers
 (
     torch::Device device,
-    int rows,
-    int mlp_rows,
-    int intermediate_size,
-    int hidden_size
+    torch::Tensor temp_state,
+    torch::Tensor temp_mlp,
+    torch::Tensor temp_rms_norm
 )
 {
     int device_index = device.index();
     TORCH_CHECK_DEVICE_INDEX(device_index);
     const at::cuda::OptionalCUDAGuard device_guard(device);
 
-    check_cuda(
-        prepare_buffers_cuda
-        (
-            device_index,
-            rows,
-            mlp_rows,
-            intermediate_size,
-            hidden_size
-        )
+    prepare_buffers_cuda
+    (
+        device_index,
+        (half*) temp_state.data_ptr(),
+        (half*) temp_mlp.data_ptr(),
+        (float*) temp_rms_norm.data_ptr()
     );
 }
 
-void free_buffers
-(
-    torch::Device device
-)
-{
-    int device_index = device.index();
-    TORCH_CHECK_DEVICE_INDEX(device_index);
-    const at::cuda::OptionalCUDAGuard device_guard(device);
-
-    check_cuda(
-        free_buffers_cuda(device_index)
-    );
-}
 
 // Matmul half @ quant -> half
 
@@ -535,6 +518,7 @@ void rep_penalty
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
+  m.def("prepare_buffers", &prepare_buffers, "prepare_buffers");
   m.def("q4v2_matmul", &q4v2_matmul, "q4v2 matrix multiplication");
   m.def("q4v2_mlp", &q4v2_mlp, "q4v2 llama mlp");
   m.def("q4v2_recons", &q4v2_recons, "q4v2 matrix reconstruction");
@@ -545,6 +529,4 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
   m.def("rms_norm", &rms_norm, "rms norm");
   m.def("rope", &rope, "rotary position embeddings");
   m.def("rep_penalty", &rep_penalty, "repetition penalty mask");
-  m.def("prepare_buffers", &prepare_buffers, "prepare buffers");
-  m.def("free_buffers", &free_buffers, "free buffers");
  }

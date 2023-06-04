@@ -463,7 +463,7 @@ class ExLlamaDecoderLayer(nn.Module):
             self.mlp.up_proj.debug("mlp.up_proj")
             self.mlp.down_proj.debug("mlp.down_proj")
 
-        if _mlp_switch(self.config, hidden_states):
+        if True or _mlp_switch(self.config, hidden_states):
 
             if self.config.debug: print(f" !!  - method: normal")
 
@@ -849,20 +849,24 @@ class ExLlama(nn.Module):
 
         # Prepare CUDA buffers
 
+        self.buffers = []
         for dev in self.config.device_map.get_layers_devs():
+
+            device_buffers = {}
+            self.buffers.append(device_buffers)
+
+            temp_state = torch.zeros((config.max_seq_len, config.hidden_size), dtype = torch.float16, device = dev)
+            temp_mlp = torch.zeros((config.hidden_size, config.intermediate_size), dtype = torch.float16, device = dev)
+            temp_rms_norm = torch.zeros((config.max_seq_len), dtype = torch.float32, device = dev)
+
+            device_buffers["temp_state"] = temp_state
+            device_buffers["temp_mlp"] = temp_mlp
+            device_buffers["temp_rms_norm"] = temp_rms_norm
+
             cuda_ext.prepare_cuda_buffers(torch.device(dev),
-                                          self.config.max_seq_len,
-                                          optimal_switch_thd,
-                                          self.config.intermediate_size,
-                                          self.config.hidden_size)
-
-
-    def __del__(self):
-
-        if torch is None: return
-        for dev in self.config.device_map.get_layers_devs():
-            torch_device = torch.device(dev)
-            if torch_device is not None: cuda_ext.free_cuda_buffers(torch_device)
+                                          temp_state,
+                                          temp_mlp,
+                                          temp_rms_norm)
 
 
     def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False):
