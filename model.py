@@ -201,7 +201,6 @@ class Ex4bitLinear(nn.Module):
     def forward(self, x):
 
         out = cuda_ext.ext_q4_matmul(x, self.q4, self.width, self.config.matmul_recons_thd)
-        # out = cuda_ext.ext_q4v2_matmul(x, self.quant_args(), _matmul_switch(self.config, x))
         if self.bias is not None: out.add_(self.bias)
 
 
@@ -386,7 +385,7 @@ class ExLlamaAttention(nn.Module):
 # class ExLlamaDecoderLayer:
 class ExLlamaDecoderLayer(nn.Module):
 
-    def __init__(self, config, tensors, key, index, sin, cos, dequant = False):
+    def __init__(self, config, tensors, key, index, sin, cos):
         super().__init__()
 
         self.config = config
@@ -448,10 +447,6 @@ class ExLlamaDecoderLayer(nn.Module):
                                                    self.config.intermediate_size)
 
         return hidden_states
-
-        # _dump_tensor(hidden_states, "cuda_test/mlp/test_mlp_x_prenorm")
-        # _dump_tensor(self.post_attention_layernorm.weight, "cuda_test/mlp/test_mlp_norm_weight")
-        # _dump_tensor(hidden_states, "cuda_test/mlp/test_mlp_x_postresidual")
 
 
 # Persistent cache for inference. Allocate the whole thing up front.

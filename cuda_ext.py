@@ -38,10 +38,8 @@ from exllama_ext import prepare_buffers
 from exllama_ext import make_q4
 from exllama_ext import q4_matmul
 
-from exllama_ext import column_remap
 from exllama_ext import half_matmul
 from exllama_ext import half_matmul_cublas
-from exllama_ext import q4v2_matmul
 from exllama_ext import q4v2_mlp
 from exllama_ext import q4v2_recons
 from exllama_ext import q4v2_sequential
@@ -126,47 +124,6 @@ def ext_half_matmul(x, w, cublas = False):
         half_matmul(x, w, output)
 
     return output.view(outshape)  ##
-
-
-# Matrix multiplication, returns x @ 4-bit matrix (qweight, scales, zeros, g_idx)
-
-
-def ext_q4v2_matmul(x, quant_args, switch):
-
-    w = quant_args["qweight"]
-    scales = quant_args["scales"]
-    zeros = quant_args["zeros"]
-    seq_g_idx = quant_args["seq_g_idx"]
-    x_map = quant_args["x_map"]
-
-    assert w.shape[0] * 8 == x.shape[-1]
-
-    outshape = x.shape[:-1] + (w.shape[1],)
-
-    if x_map is not None:
-
-        x_shape = x.shape
-        x = x.view(-1, x.shape[-1])
-        x_mapped = torch.empty_like(x)
-        column_remap(x, x_mapped, x_map)
-        x = x_mapped.view(x_shape)
-
-    if switch:
-
-        qweight_recons = torch.empty((w.shape[0] * 8, w.shape[1]), dtype = torch.float16, device = w.device)
-        q4v2_recons(w, qweight_recons, scales, zeros, seq_g_idx if seq_g_idx is not None else none_tensor, x_map if x_map is not None else none_tensor)
-
-        output = ext_half_matmul(x, qweight_recons, cublas = True)
-
-    else:
-
-        outshape = x.shape[:-1] + (w.shape[1],)
-        x = x.view(-1, x.shape[-1])
-        output = torch.empty((x.shape[0], w.shape[-1]), dtype=torch.float16, device=x.device)
-
-        q4v2_matmul(x, w, output, scales, zeros, seq_g_idx if seq_g_idx is not None else none_tensor, none_tensor)
-
-    return output.view(outshape)
 
 
 # RoPE embeddings, in_place

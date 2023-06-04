@@ -191,50 +191,6 @@ void q4_matmul
     }
 }
 
-// Matmul half @ quant -> half
-
-void q4v2_matmul
-(
-    torch::Tensor x,
-    torch::Tensor w,
-    torch::Tensor out,
-    torch::Tensor w_scales,
-    torch::Tensor w_zeros,
-    torch::Tensor seq_g_idx,
-    torch::Tensor x_map
-)
-{
-    TORCH_CHECK_QUANT(w, w_scales, w_zeros, seq_g_idx, x_map);
-    TORCH_CHECK_DTYPE(x, kHalf);
-    TORCH_CHECK_SHAPE_MOD(x, 1, 256);
-    TORCH_CHECK_SHAPES(x, 1, w, 0, 8);
-    TORCH_CHECK_DTYPE(out, kHalf);
-
-    int groupsize = get_groupsize(w, w_zeros);
-    int height = x.size(0);
-    int dim = x.size(1);
-    int width = w.size(1);
-
-    const at::cuda::OptionalCUDAGuard device_guard(device_of(w_scales));
-
-    check_cuda(
-        q4v2_matmul_cuda
-        (
-            (half*) x.data_ptr(),
-            (uint32_t*) w.data_ptr(),
-            (half*) out.data_ptr(),
-            (half*) w_scales.data_ptr(),
-            (uint32_t*) w_zeros.data_ptr(),
-            height,
-            dim,
-            width,
-            groupsize,
-            seq_g_idx.device().is_meta() ? NULL : (uint16_t*) seq_g_idx.data_ptr(),
-            x_map.device().is_meta() ? NULL : (uint32_t*) x_map.data_ptr()
-        )
-    );
-}
-
 // Reconstruct half matrix from quant
 
 void q4v2_recons
@@ -611,7 +567,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("make_q4", &make_q4, "make_q4");
     m.def("q4_matmul", &q4_matmul, "q4 matrix multiplication");
 
-    m.def("q4v2_matmul", &q4v2_matmul, "q4v2 matrix multiplication");
     m.def("q4v2_mlp", &q4v2_mlp, "q4v2 llama mlp");
     m.def("q4v2_recons", &q4v2_recons, "q4v2 matrix reconstruction");
     m.def("q4v2_sequential", &q4v2_sequential, "q4v2 matrix serialization");
