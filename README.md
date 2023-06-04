@@ -76,15 +76,15 @@ Note that sessions are stored in `~/exllama_sessions/`.
 ## Results so far
 
 ### New implementation
-| Model    | Size | groupsize | act             | Seq. len.            | VRAM      | Prompt    | Best    | Worst   | Ppl  |
-|----------|------|-----------|-----------------|----------------------|-----------|-----------|---------|---------|------|
-| Llama    | 7B   | 128       | no              | 2,048 t              | 5,063 MB  | 9,382 t/s | 151 t/s | 129 t/s | 6.45 |
-| Llama    | 13B  | 128       | no              | 2,048 t              | 8,937 MB  | 5,427 t/s | 94 t/s  | 80 t/s  | 5.62 |
-| Llama    | 30B  | 128       | no              | 2,048 t              | 20,496 MB | 2,291 t/s | 44 t/s  | 37 t/s  | 4.60 |
-| Llama    | 30B  | 128       | yes             | 2,048 t              | 20,509 MB | 2,166 t/s | 41 t/s  | 36 t/s  | 4.55 |
-| Llama    | 30B  | 32        | yes             | 1,550 t <sup>1</sup> | 21,218 MB | 2,152 t/s | 38 t/s  | 34 t/s  | 4.52 |
-| Koala    | 13B  | 128       | yes             | 2,048 t              | 8,944 MB  | 5,127 t/s | 86 t/s  | 75 t/s  | 6.73 |
-| WizardLM | 30B  | -         | no <sup>2</sup> | 2,048 t              | 19,900 MB | 2,313 t/s | 45 t/s  | 38 t/s  | 5.75 |
+| Model    | Size | groupsize | act             | Seq. len.            | VRAM      | Prompt     | Best    | Worst   | Ppl  |
+|----------|------|-----------|-----------------|----------------------|-----------|------------|---------|---------|------|
+| Llama    | 7B   | 128       | no              | 2,048 t              | 5,194 MB  | 10,460 t/s | 160 t/s | 133 t/s | 6.45 |
+| Llama    | 13B  | 128       | no              | 2,048 t              | 9,127 MB  | 5,831 t/s  | 97 t/s  | 83 t/s  | 5.60 |
+| Llama    | 30B  | 128       | no              | 2,048 t              | 20,795 MB | 2,481 t/s  | 46 t/s  | 39 t/s  | 4.60 |
+| Llama    | 30B  | 128       | yes             | 2,048 t              | 20,795 MB | 2,343 t/s  | 44 t/s  | 37 t/s  | 4.55 |
+| Llama    | 30B  | 32        | yes             | 1,550 t <sup>1</sup> | 21,486 MB | 2,308 t/s  | 40 t/s  | 36 t/s  | 4.52 |
+| Koala    | 13B  | 128       | yes             | 2,048 t              | 9,127 MB  | 5,529 t/s  | 86 t/s  | 79 t/s  | 6.73 |
+| WizardLM | 30B  | -         | no <sup>2</sup> | 2,048 t              | 20,199 MB | 2,313 t/s  | 44 t/s  | 39 t/s  | 5.75 |
 
 <sup>1</sup> Can not achieve full sequence length without OoM (yet)  
 <sup>2</sup> Not quite sure if this is act-order or not. Weights have no group index, at least   
@@ -110,8 +110,8 @@ following benchmarks are from a 4090 + 3090-Ti with `-gs 17.2,24`:
 
 | Model    | Size | groupsize | act | Seq. len.            | VRAM      | Prompt  | Best   | Worst  | Ppl  |
 |----------|------|-----------|-----|----------------------|-----------|---------|--------|--------|------|
-| Llama    | 65B  | 128       | yes | 2,048 t              | 39,804 MB | 926 t/s | 19 t/s | 17 t/s | 4.20 |
-| Llama    | 65B  | 32        | yes | 2,048 t              | 43,424 MB | 895 t/s | 16 t/s | 15 t/s | 4.11 |
+| Llama    | 65B  | 128       | yes | 2,048 t              | 39,804 MB | 990 t/s | 20 t/s | 18 t/s | 4.20 |
+| Llama    | 65B  | 32        | yes | 2,048 t              | 43,424 MB | 976 t/s | 17 t/s | 16 t/s | 4.11 |
 
 
 ### Testing long sequences
@@ -139,14 +139,6 @@ confirmed to be working right now.
 
 ## Recent updates
 
-**2023-05-19**: Wrote a CUDA implementation of the layer norm. Turns out it was a bit of a bottleneck for the smaller
-models. Noticeably faster now.
-
-**2023-05-21**: Added beam search implementation. It doesn't process beams in parallel which saves a lot of VRAM but
-does slow it down a bit. There should be ways to mitigate the slowdown. It's not clear how much better beam search
-performs in practice, but it's at least theoretically superior and there are other features coming which will build
-on it, like multi-token repetition penalties and (de-)censoring.
-
 **2023-05-22**: Added option to auto-split layers across multiple GPUs based on VRAM allocation. 
 
 **2023-05-22**: Added option to dequantize layers at load-time which _should_ speed up inference, but it turns out
@@ -173,3 +165,6 @@ for individual tokens, but benchmarks updated anyway. Closing in on 10k tokens/s
 **2023-06-02**: Web UI is now in a fairly working state. Expect it to be a little scuffed in places. There will be a
 rewrite at some point to make the client-side code less seizure-inducing. It has multibot mode, chat rewind and editing
 features, sessions, and more. I'm going to build it out with support for instruct prompting and such, in time.
+
+**2024-06-04**: Refactored a whole bunch to move more of the work into the extension, setting up for more tuning
+options to come soon and eventually auto tuning. Also optimized a little, for about a 5% speedup.
