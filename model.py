@@ -31,19 +31,6 @@ class ParsedEnum(Enum):
 
 class ExLlamaConfig:
 
-    class AttentionMethod(ParsedEnum):
-
-        PYTORCH_MATMUL = 1  # Regular attention from HF implementation, tweaked a little
-        PYTORCH_SCALED_DP = 2  # Seems more memory-efficient than xformers
-        SWITCHED = 3  # Switch between matmul and SDP (best)
-
-
-    class MLPMethod(ParsedEnum):
-
-        NORMAL = 1  # Regular MLP as in LlamaModel
-        SWITCHED = 2  # Switch between normal and fused MLP (best)
-
-
     # Load config from Llama config.json
 
     def __init__(self, model_config_path):
@@ -80,8 +67,6 @@ class ExLlamaConfig:
         # Optional settings
 
         self.max_seq_len = 2048  # Reduce to save memory. Can also be increased, but the pretrained models produce degenerate output after 2048 tokens in any case. Should be possible to finetune for longer sequence lengths.
-        self.attention_method = self.AttentionMethod.SWITCHED
-        self.mlp_method = self.MLPMethod.SWITCHED  # NORMAL uses regular MLP only
         self.gpu_peer_fix = False # Apparently Torch can have problems transferring tensors directly one GPU to another sometimes. Enable this to move tensors via system RAM instead, where needed
         self.auto_map = None  # List of ints with memory allocation in GB, per CUDA device, overrides device_map
         self.debug = False
@@ -90,6 +75,7 @@ class ExLlamaConfig:
 
         self.matmul_recons_thd = 8
         self.fused_mlp_thd = 8
+        self.stp_thd = 32
 
     # Parse and set list of GPU VRAM allocations
 
@@ -112,25 +98,6 @@ def _dump_tensor(t, name):
         with open(name + ".shape", "wb") as file:
             shape_struct = struct.pack("<ii", t.shape[0], t.shape[1])
             file.write(shape_struct)
-
-
-# Switching
-
-def _mlp_switch(config, x):
-
-    if config.fused_mlp_thd == 0: return False
-
-    xdp = 1
-    for y in x.shape[:-1]: xdp *= y
-    return xdp < config.fused_mlp_thd
-
-def _attn_switch(config, x):
-
-    if config.attention_method == ExLlamaConfig.AttentionMethod.PYTORCH_MATMUL: return False
-    if config.attention_method == ExLlamaConfig.AttentionMethod.PYTORCH_SCALED_DP: return True
-    xdp = 1
-    for y in x.shape[:-1]: xdp *= y
-    return xdp < attn_switch_thd
 
 
 # 4-bit linear layer implementation
@@ -338,7 +305,7 @@ class ExLlamaAttention(nn.Module):
 
         # -- HF Transformers regular attention, faster on shorter sequences, same VRAM usage
 
-        if _attn_switch(self.config, hidden_states):
+        if self.config.sdp_thd == 0 or q_len < self.config.sdp_thd:
 
             attn_weights = torch.matmul(query_states, key_states.transpose(2, 3))
             attn_weights /= math.sqrt(self.config.head_dim)
@@ -371,6 +338,11 @@ class ExLlamaAttention(nn.Module):
 
         return attn_output
 
+
+def _rows(x):
+    xdp = 1
+    for y in x.shape[:-1]: xdp *= y
+    return xdp
 
 # class ExLlamaDecoderLayer:
 class ExLlamaDecoderLayer(nn.Module):
@@ -415,7 +387,7 @@ class ExLlamaDecoderLayer(nn.Module):
             self.mlp.up_proj.debug("mlp.up_proj")
             self.mlp.down_proj.debug("mlp.down_proj")
 
-        if _mlp_switch(self.config, hidden_states):
+        if self.config.fused_mlp_thd > 0 and _rows(hidden_states) <= self.config.fused_mlp_thd:
 
             if self.config.debug: print(f" !!  - method: fused")
 

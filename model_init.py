@@ -9,14 +9,13 @@ def add_args(parser):
     parser.add_argument("-m", "--model", type = str, help = "Model weights path (.pt or .safetensors file)")
     parser.add_argument("-d", "--directory", type = str, help = "Path to directory containing config.json, model.tokenizer and * .safetensors")
 
-    parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.SWITCHED)
-    parser.add_argument("-mlp", "--mlp", type = ExLlamaConfig.MLPMethod.argparse, choices = list(ExLlamaConfig.MLPMethod), help="Matmul method", default = ExLlamaConfig.MLPMethod.SWITCHED)
-
     parser.add_argument("-gs", "--gpu_split", type = str, help = "Comma-separated list of VRAM (in GB) to use per GPU device for model layers, e.g. -gs 20,7,7")
     parser.add_argument("-l", "--length", type = int, help = "Maximum sequence length", default = 2048)
     parser.add_argument("-gpfix", "--gpu_peer_fix", action = "store_true", help = "Prevent direct copies of data between GPUs")
 
     parser.add_argument("-mmrt", "--matmul_recons_thd", type = int, help = "No. rows at which to use reconstruction and cuBLAS for quant matmul. 0 = never, 1 = always", default = 8)
+    parser.add_argument("-fmt", "--fused_mlp_thd", type = int, help = "Maximum no. for which to use fused MLP. 0 = never", default = 8)
+    parser.add_argument("-sdpt", "--sdp_thd", type = int, help = "No. rows at which to switch to scaled_dot_product_attention. 0 = never, 1 = always", default = 8)
 
 
 # Get model files from --directory
@@ -46,8 +45,6 @@ def get_model_files(args):
 def print_options(args, extra_options = None):
 
     print_opts = []
-    print_opts.append("attention: " + str(args.attention))
-    print_opts.append("mlp: " + str(args.mlp))
     if args.gpu_split is not None: print_opts.append(f"gpu_split: {args.gpu_split}")
     if args.gpu_peer_fix: print_opts.append("gpu_peer_fix")
 
@@ -57,8 +54,12 @@ def print_options(args, extra_options = None):
     print(f" -- Model config: {args.config}")
     print(f" -- Model: {args.model}")
     print(f" -- Sequence length: {args.length}")
+
     print(f" -- Tuning:")
-    print(f" -- - matmul_recons_thd: {args.matmul_recons_thd}")
+    print(f" -- --matmul_recons_thd: {args.matmul_recons_thd}" + (" (disabled)" if args.matmul_recons_thd == 0 else ""))
+    print(f" -- --fused_mlp_thd: {args.fused_mlp_thd}" + (" (disabled)" if args.fused_mlp_thd == 0 else ""))
+    print(f" -- --sdp_thd: {args.sdp_thd}" + (" (disabled)" if args.sdp_thd == 0 else ""))
+
     print(f" -- Options: {print_opts}")
 
 
@@ -73,10 +74,9 @@ def make_config(args):
     config.set_auto_map(args.gpu_split)
     config.gpu_peer_fix = args.gpu_peer_fix
 
-    config.attention_method = args.attention
-    config.mlp_method = args.mlp
-
     config.matmul_recons_thd = args.matmul_recons_thd
+    config.matmul_recons_thd = args.fused_mlp_thd
+    config.sdp_thd = args.sdp_thd
 
     return config
 

@@ -60,7 +60,7 @@ __global__ void q4_matmul_kernel
     if constexpr (use_groupsize)
     {
         // For quant matrices where groupsize divides BLOCK_SIZE_Z we always start on a group boundary, so this
-        // coule be slightly faster
+        // could be slightly faster
 
         for (int k = x_column, group = x_column / groupsize; k < x_column + iterations * 8; )
         {
@@ -130,11 +130,11 @@ void q4_matmul_cuda
 
     int block_size_z;
     if (w->width == 4096) block_size_z = 384;           // 7B
-    else if (w->width == 11008) block_size_z = 384;
+    else if (w->width == 11008) block_size_z = 256;
     else if (w->width == 5120) block_size_z = 384;      // 13B
     else if (w->width == 13824) block_size_z = 256;
     else if (w->width == 6656) block_size_z = 256;      // 33B
-    else if (w->width == 17920) block_size_z = 256;
+    else if (w->width == 17920) block_size_z = 128;
     else block_size_z = 256;
 
     //cudaMemsetAsync(out, 0, x_height * w->width * sizeof(half));

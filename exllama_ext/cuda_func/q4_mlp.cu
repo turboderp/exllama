@@ -59,27 +59,6 @@ __global__ void silu_mul_cuda_kernel
     x_.set_half2(row, column, x_item);
 }
 
-// __global__ void half_add_cuda_kernel
-// (
-//     half* x,
-//     const half* y,
-//     const int height,
-//     const int width
-// )
-// {
-//     MatrixView_half_rw x_(x, height, width);
-//     MatrixView_half y_(y, height, width);
-//
-//     int column = (THREADS_X * blockIdx.x + threadIdx.x) * 2;
-//     int row = THREADS_Y * blockIdx.y + threadIdx.y;
-//     if (row >= height) return;
-//
-//     half2 x_item = x_.item_half2(row, column);
-//     half2 y_item = y_.item_half2(row, column);
-//     half2 sum_item = __hadd2(x_item, y_item);
-//     x_.set_half2(row, column, x_item);
-// }
-
 void q4_mlp_cuda
 (
     half* x,                        // shape == (height, dim)
@@ -126,27 +105,11 @@ void q4_mlp_cuda
         up->width
     );
 
-     // x = temp1 @ down
+    // x += temp1 @ down (implicitly add the residual connection by not zeroing the output in the matmul)
 
-     q4_matmul_cuda(buffers->temp_mlp, height, down, x, true);
+    q4_matmul_cuda(buffers->temp_mlp, height, down, x, true);
 
-//     {
-//         dim3 threads(THREADS_X, THREADS_Y, 1);
-//
-//         dim3 blocks
-//         (
-//             (buffers->hidden_size + THREADS_X - 1) / THREADS_X / 2,
-//             (height + THREADS_Y - 1) / THREADS_Y,
-//             1
-//         );
-//
-//         half_add_cuda_kernel<<<blocks, threads>>>
-//         (
-//             x,
-//             buffers->state_temp,
-//             height,
-//             buffers->hidden_size
-//         );
-//     }
+    // Reset the temp buffer after use so it's always zeros.
+    //cudaMemsetAsync(buffers->temp_mlp, 0, 2 * height * up->width * sizeof(half));
 
 }
