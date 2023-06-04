@@ -76,15 +76,15 @@ Note that sessions are stored in `~/exllama_sessions/`.
 ## Results so far
 
 ### New implementation
-| Model    | Size | groupsize | act             | Seq. len.            | VRAM      | Prompt     | Best    | Worst   | Ppl  |
-|----------|------|-----------|-----------------|----------------------|-----------|------------|---------|---------|------|
-| Llama    | 7B   | 128       | no              | 2,048 t              | 5,194 MB  | 10,460 t/s | 160 t/s | 133 t/s | 6.45 |
-| Llama    | 13B  | 128       | no              | 2,048 t              | 9,127 MB  | 5,831 t/s  | 97 t/s  | 83 t/s  | 5.60 |
-| Llama    | 30B  | 128       | no              | 2,048 t              | 20,795 MB | 2,481 t/s  | 46 t/s  | 39 t/s  | 4.60 |
-| Llama    | 30B  | 128       | yes             | 2,048 t              | 20,795 MB | 2,343 t/s  | 44 t/s  | 37 t/s  | 4.55 |
-| Llama    | 30B  | 32        | yes             | 1,550 t <sup>1</sup> | 21,486 MB | 2,308 t/s  | 40 t/s  | 36 t/s  | 4.52 |
-| Koala    | 13B  | 128       | yes             | 2,048 t              | 9,127 MB  | 5,529 t/s  | 86 t/s  | 79 t/s  | 6.73 |
-| WizardLM | 30B  | -         | no <sup>2</sup> | 2,048 t              | 20,199 MB | 2,313 t/s  | 44 t/s  | 39 t/s  | 5.75 |
+| Model    | Size | grpsz | act             | Seq. len.            | VRAM      | Prompt     | Best    | Worst   | Ppl  |
+|----------|------|-------|-----------------|----------------------|-----------|------------|---------|---------|------|
+| Llama    | 7B   | 128   | no              | 2,048 t              | 5,194 MB  | 10,460 t/s | 160 t/s | 133 t/s | 6.45 |
+| Llama    | 13B  | 128   | no              | 2,048 t              | 9,127 MB  | 5,831 t/s  | 97 t/s  | 83 t/s  | 5.60 |
+| Llama    | 30B  | 128   | no              | 2,048 t              | 20,795 MB | 2,481 t/s  | 46 t/s  | 39 t/s  | 4.60 |
+| Llama    | 30B  | 128   | yes             | 2,048 t              | 20,795 MB | 2,343 t/s  | 44 t/s  | 37 t/s  | 4.55 |
+| Llama    | 30B  | 32    | yes             | 1,550 t <sup>1</sup> | 21,486 MB | 2,308 t/s  | 40 t/s  | 36 t/s  | 4.52 |
+| Koala    | 13B  | 128   | yes             | 2,048 t              | 9,127 MB  | 5,529 t/s  | 86 t/s  | 79 t/s  | 6.73 |
+| WizardLM | 30B  | -     | no <sup>2</sup> | 2,048 t              | 20,199 MB | 2,313 t/s  | 44 t/s  | 39 t/s  | 5.75 |
 
 <sup>1</sup> Can not achieve full sequence length without OoM (yet)  
 <sup>2</sup> Not quite sure if this is act-order or not. Weights have no group index, at least   
