@@ -6,6 +6,7 @@ import torch
 import sys
 import os
 import glob
+import model_init
 
 # Simple interactive chatbot script
 
@@ -16,18 +17,7 @@ torch.cuda._lazy_init()
 
 parser = argparse.ArgumentParser(description = "Simple chatbot example for ExLlama")
 
-parser.add_argument("-t", "--tokenizer", type = str, help = "Tokenizer model path")
-parser.add_argument("-c", "--config", type = str, help = "Model config path (config.json)")
-parser.add_argument("-m", "--model", type = str, help = "Model weights path (.pt or .safetensors file)")
-parser.add_argument("-d", "--directory", type = str, help = "Path to directory containing config.json, model.tokenizer and * .safetensors")
-
-parser.add_argument("-a", "--attention", type = ExLlamaConfig.AttentionMethod.argparse, choices = list(ExLlamaConfig.AttentionMethod), help="Attention method", default = ExLlamaConfig.AttentionMethod.SWITCHED)
-parser.add_argument("-mm", "--matmul", type = ExLlamaConfig.MatmulMethod.argparse, choices = list(ExLlamaConfig.MatmulMethod), help="Matmul method", default = ExLlamaConfig.MatmulMethod.SWITCHED)
-parser.add_argument("-mlp", "--mlp", type = ExLlamaConfig.MLPMethod.argparse, choices = list(ExLlamaConfig.MLPMethod), help="Matmul method", default = ExLlamaConfig.MLPMethod.SWITCHED)
-parser.add_argument("-gs", "--gpu_split", type = str, help = "Comma-separated list of VRAM (in GB) to use per GPU device for model layers, e.g. -gs 20,7,7")
-parser.add_argument("-dq", "--dequant", type = str, help = "Number of layers (per GPU) to de-quantize at load time")
-
-parser.add_argument("-l", "--length", type = int, help = "Maximum sequence length", default = 2048)
+model_init.add_args(parser)
 
 parser.add_argument("-p", "--prompt", type = str, help = "Prompt file")
 parser.add_argument("-un", "--username", type = str, help = "Display name of user", default = "User")
@@ -44,33 +34,12 @@ parser.add_argument("-repps", "--repetition_penalty_sustain", type = int, help =
 parser.add_argument("-beams", "--beams", type = int, help = "Number of beams for beam search", default = 1)
 parser.add_argument("-beamlen", "--beam_length", type = int, help = "Number of future tokens to consider", default = 1)
 
-parser.add_argument("-gpfix", "--gpu_peer_fix", action = "store_true", help = "Prevent direct copies of data between GPUs")
-
 args = parser.parse_args()
 
-if args.directory is not None:
-    args.tokenizer = os.path.join(args.directory, "tokenizer.model")
-    args.config = os.path.join(args.directory, "config.json")
-    st_pattern = os.path.join(args.directory, "*.safetensors")
-    st = glob.glob(st_pattern)
-    if len(st) == 0:
-        print(f" !! No files matching {st_pattern}")
-        sys.exit()
-    if len(st) > 1:
-        print(f" !! Multiple files matching {st_pattern}")
-        sys.exit()
-    args.model = st[0]
-else:
-    if args.tokenizer is None or args.config is None or args.model is None:
-        print(" !! Please specify either -d or all of -t, -c and -m")
-        sys.exit()
+model_init.get_model_files(args)
 
 # Some feedback
 
-print(f" -- Loading model")
-print(f" -- Tokenizer: {args.tokenizer}")
-print(f" -- Model config: {args.config}")
-print(f" -- Model: {args.model}")
 print(f" -- Sequence length: {args.length}")
 print(f" -- Temperature: {args.temperature:.2f}")
 print(f" -- Top-K: {args.top_k}")
@@ -80,16 +49,10 @@ print(f" -- Repetition penalty: {args.repetition_penalty:.2f}")
 print(f" -- Beams: {args.beams} x {args.beam_length}")
 
 print_opts = []
-print_opts.append("attention: " + str(args.attention))
-print_opts.append("matmul: " + str(args.matmul))
-print_opts.append("mlp: " + str(args.mlp))
 if args.no_newline: print_opts.append("no_newline")
 if args.botfirst: print_opts.append("botfirst")
-if args.gpu_split is not None: print_opts.append(f"gpu_split: {args.gpu_split}")
-if args.dequant is not None: print_opts.append(f"dequant: {args.dequant}")
-if args.gpu_peer_fix: print_opts.append("gpu_peer_fix")
 
-print(f" -- Options: {print_opts}")
+model_init.print_options(args, print_opts)
 
 username = args.username
 bot_name = args.botname
@@ -110,22 +73,13 @@ else:
 
 # Instantiate model and generator
 
-config = ExLlamaConfig(args.config)
-config.model_path = args.model
-config.attention_method = args.attention
-config.matmul_method = args.matmul
-config.mlp_method = args.mlp
-config.gpu_peer_fix = args.gpu_peer_fix
-if args.length is not None: config.max_seq_len = args.length
-config.set_auto_map(args.gpu_split)
-config.set_dequant(args.dequant)
+config = model_init.make_config(args)
 
 model = ExLlama(config)
 cache = ExLlamaCache(model)
 tokenizer = ExLlamaTokenizer(args.tokenizer)
 
-print(f" -- Groupsize (inferred): {model.config.groupsize if model.config.groupsize is not None else 'None'}")
-print(f" -- Act-order (inferred): {'yes' if model.config.act_order else 'no'}")
+model_init.print_stats(model)
 
 generator = ExLlamaGenerator(model, tokenizer, cache)
 generator.settings = ExLlamaGenerator.Settings()

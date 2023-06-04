@@ -6,8 +6,11 @@ from flask import Response, stream_with_context
 from threading import Timer, Lock
 import webbrowser
 import json
-from init import init_model
+import model_init
 from session import prepare_sessions, get_initial_session, Session, load_session, new_session
+import argparse
+from tokenizer import ExLlamaTokenizer
+from model import ExLlama, ExLlamaConfig
 
 app = Flask(__name__)
 app.static_folder = 'static'
@@ -114,9 +117,24 @@ def api_userinput():
         result = Response(stream_with_context(session.respond_multi(user_input)), mimetype = 'application/json')
         return result
 
+
 # Load the model
 
-model, tokenizer = init_model()
+parser = argparse.ArgumentParser(description="Simple web-based chatbot for ExLlama")
+
+model_init.add_args(parser)
+args = parser.parse_args()
+model_init.get_model_files(args)
+model_init.print_options(args)
+config = model_init.make_config(args)
+
+print(f" -- Loading model...")
+model = ExLlama(config)
+
+print(f" -- Loading tokenizer...")
+tokenizer = ExLlamaTokenizer(args.tokenizer)
+
+model_init.print_stats(model)
 
 # Get the session ready
 

@@ -37,12 +37,6 @@ class ExLlamaConfig:
         PYTORCH_SCALED_DP = 2  # Seems more memory-efficient than xformers
         SWITCHED = 3  # Switch between matmul and SDP (best)
 
-    class MatmulMethod(ParsedEnum):
-
-        QUANT_ONLY = 1  # Use the quantized matmul
-        SWITCHED = 2  # Switch between quantized matmul and FP16 reconstruction (best)
-        PYTORCH_ONLY = 3  # Always reconstruct and perform FP16 matmul
-
 
     class MLPMethod(ParsedEnum):
 
@@ -81,19 +75,20 @@ class ExLlamaConfig:
         # Required settings
 
         self.model_path = None
+        self.device_map = ExLlamaDeviceMap(self.num_hidden_layers)
 
         # Optional settings
 
         self.max_seq_len = 2048  # Reduce to save memory. Can also be increased, but the pretrained models produce degenerate output after 2048 tokens in any case. Should be possible to finetune for longer sequence lengths.
         self.attention_method = self.AttentionMethod.SWITCHED
-        self.matmul_method = self.MatmulMethod.SWITCHED
         self.mlp_method = self.MLPMethod.SWITCHED  # NORMAL uses regular MLP only
-        self.device_map = ExLlamaDeviceMap(self.num_hidden_layers)
+        self.gpu_peer_fix = False # Apparently Torch can have problems transferring tensors directly one GPU to another sometimes. Enable this to move tensors via system RAM instead, where needed
         self.auto_map = None  # List of ints with memory allocation in GB, per CUDA device, overrides device_map
-        self.dequant = None  # Number of layers (per GPU) to de-quantize at load time
-
-        self.gpu_peer_fix = False # Apparently enabling Torch can have problems transferring tensors directly one GPU to another sometimes. Enable this to move tensors via system instead, where needed
         self.debug = False
+
+        # Tuning
+
+        self.matmul_recons_thd = 8
 
     # Parse and set list of GPU VRAM allocations
 
@@ -101,14 +96,6 @@ class ExLlamaConfig:
 
         if map_string is None: self.auto_map = None
         else: self.auto_map = [float(alloc) for alloc in map_string.split(",")]
-
-
-    # Parse and set number of layers to de-quantize at load, per GPU
-
-    def set_dequant(self, dq_string):
-
-        if dq_string is None: self.dequant = None
-        else: self.dequant = [int(alloc) for alloc in dq_string.split(",")]
 
 
 def _dump_tensor(t, name):
@@ -130,11 +117,12 @@ def _dump_tensor(t, name):
 
 def _matmul_switch(config, x):
 
-    if config.matmul_method == ExLlamaConfig.MatmulMethod.QUANT_ONLY: return False
-    if config.matmul_method == ExLlamaConfig.MatmulMethod.PYTORCH_ONLY: return True
+    if config.matmul_recons_thd == 0: return False
+
     xdp = 1
     for y in x.shape[:-1]: xdp *= y
-    return xdp > optimal_switch_thd
+    return xdp >= config.matmul_recons_thd
+
 
 def _mlp_switch(config, x):
 
@@ -158,12 +146,11 @@ def _attn_switch(config, x):
 #class Ex4bitLinear:
 class Ex4bitLinear(nn.Module):
 
-    def __init__(self, config, in_features, out_features, has_bias, tensors, key, dequant = False):
+    def __init__(self, config, in_features, out_features, has_bias, tensors, key):
         super().__init__()
 
         self.config = config
         self.key = key
-        self.dequant = dequant
 
         self.in_features = in_features
         self.out_features = out_features
@@ -227,17 +214,6 @@ class Ex4bitLinear(nn.Module):
 
         if has_bias: self.bias = tensors[key + ".bias"]
 
-        # Optionally dequantize layer at init time
-
-        if self.dequant:
-
-            self.qweight_dequant = cuda_ext.dequantize_q4v2(self.quant_args())
-            self.qweight = None
-            self.scales = None
-            self.zeros = None
-            self.seq_g_idx = None
-            self.x_map = None
-
 
     def quant_args(self):
 
@@ -248,38 +224,23 @@ class Ex4bitLinear(nn.Module):
                 "x_map": self.x_map}
 
 
-    cpu_qweight: torch.Tensor
-    cpu_scales: torch.Tensor
-    cpu_qzeros: torch.Tensor
-    cpu_seq_g_idx: torch.Tensor
-    cpu_x_map: torch.Tensor
-
-
     def forward(self, x):
 
-        if self.dequant:
+        if torch.is_grad_enabled():
 
-            # out = torch.matmul(x, self.qweight_dequant)
-            out = cuda_ext.matmul_half(x, self.qweight_dequant, _matmul_switch(self.config, x))
-            # out = cuda_ext.matmul_half(x, self.qweight_dequant, True)
+            # Untested
+            out = cuda_ext.ExAutogradMatmul4bitCuda.apply(x, self.qweight, self.scales, self.qzeros, self.groupsize, self.bits, self.maxq)
 
         else:
 
-            if torch.is_grad_enabled():
+            out = cuda_ext.matmul_q4v2(x, self.quant_args(), _matmul_switch(self.config, x))
 
-                # Untested
-                out = cuda_ext.ExAutogradMatmul4bitCuda.apply(x, self.qweight, self.scales, self.qzeros, self.groupsize, self.bits, self.maxq)
+        if self.bias is not None: out += self.bias
 
-            else:
-
-                out = cuda_ext.matmul_q4v2(x, self.quant_args(), _matmul_switch(self.config, x))
-
-            if self.bias is not None: out += self.bias
-
-            # if self.key == "model.layers.0.mlp.gate_proj":
-            #
-            #     _dump_tensor(x, "cuda_test/model.layers.0.mlp.gate_proj.x")
-            #     sys.exit()
+        # if self.key == "model.layers.0.mlp.gate_proj":
+        #
+        #     _dump_tensor(x, "cuda_test/model.layers.0.mlp.gate_proj.x")
+        #     sys.exit()
 
         return out
 
@@ -297,22 +258,19 @@ class Ex4bitLinear(nn.Module):
     def debug(self, name):
 
         print(f" !!  - {name}: {self.qweight.device} ", end = "")
-        if self.dequant:
-            print(f"[DQ] {_describe_tensor(self.qweight_dequant, True)}")
-        else:
-            print(f"[Q", end = "")
-            if self.seq_g_idx is not None: print(f",seq_g_idx", end = "")
-            if self.x_map is not None: print(f",x_map", end = "")
-            if self.bias is not None: print(f",bias", end = "")
-            print(f"]", end = "")
-            unique_q = torch.unique(self.qweight[0, :]).numel()
-            width_q = self.qweight.shape[-1]
-            if unique_q < width_q / 2: print(f" ### qweight abnormal", end = "")
-            unique_z = torch.unique(self.qzeros[0, :]).numel()
-            width_z = self.qzeros.shape[-1]
-            if unique_z < width_z / 8: print(f" ### qzeros abnormal", end = "")
-            print(f" scales min/max/std: {self.scales.min().item():.6f}/{self.scales.max().item():.6f}/{self.scales.std().item():.6f}", end = "")
-            print("")
+        print(f"[Q", end = "")
+        if self.seq_g_idx is not None: print(f",seq_g_idx", end = "")
+        if self.x_map is not None: print(f",x_map", end = "")
+        if self.bias is not None: print(f",bias", end = "")
+        print(f"]", end = "")
+        unique_q = torch.unique(self.qweight[0, :]).numel()
+        width_q = self.qweight.shape[-1]
+        if unique_q < width_q / 2: print(f" ### qweight abnormal", end = "")
+        unique_z = torch.unique(self.qzeros[0, :]).numel()
+        width_z = self.qzeros.shape[-1]
+        if unique_z < width_z / 8: print(f" ### qzeros abnormal", end = "")
+        print(f" scales min/max/std: {self.scales.min().item():.6f}/{self.scales.max().item():.6f}/{self.scales.std().item():.6f}", end = "")
+        print("")
 
 
 # Llama MLP
@@ -320,15 +278,14 @@ class Ex4bitLinear(nn.Module):
 # class ExLlamaMLP:
 class ExLlamaMLP(nn.Module):
 
-    def __init__(self, config, tensors, key, dequant = False):
+    def __init__(self, config, tensors, key):
         super().__init__()
 
         self.config = config
-        self.dequant = dequant
 
-        self.gate_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".gate_proj", dequant = dequant)
-        self.up_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".up_proj", dequant = dequant)
-        self.down_proj = Ex4bitLinear(config, self.config.intermediate_size, self.config.hidden_size, False, tensors, key + ".down_proj", dequant = dequant)
+        self.gate_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".gate_proj")
+        self.up_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.intermediate_size, False, tensors, key + ".up_proj")
+        self.down_proj = Ex4bitLinear(config, self.config.intermediate_size, self.config.hidden_size, False, tensors, key + ".down_proj")
 
         self.act_fn = nn.SiLU()
 
@@ -380,7 +337,7 @@ class ExLlamaRMSNorm(nn.Module):
 # class ExLlamaAttention:
 class ExLlamaAttention(nn.Module):
 
-    def __init__(self, config, tensors, key, sin, cos, index, dequant = False):
+    def __init__(self, config, tensors, key, sin, cos, index):
         super().__init__()
 
         self.config = config
@@ -388,10 +345,10 @@ class ExLlamaAttention(nn.Module):
         self.cos = cos
         self.index = index
 
-        self.q_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".q_proj", dequant = dequant)
-        self.k_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".k_proj", dequant = dequant)
-        self.v_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".v_proj", dequant = dequant)
-        self.o_proj = Ex4bitLinear(config, self.config.num_attention_heads * self.config.head_dim, self.config.hidden_size, False, tensors, key + ".o_proj", dequant = dequant)
+        self.q_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".q_proj")
+        self.k_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".k_proj")
+        self.v_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".v_proj")
+        self.o_proj = Ex4bitLinear(config, self.config.num_attention_heads * self.config.head_dim, self.config.hidden_size, False, tensors, key + ".o_proj")
 
 
     def forward(self, hidden_states, cache, buffer):
@@ -472,8 +429,8 @@ class ExLlamaDecoderLayer(nn.Module):
         self.config = config
         self.index = index
 
-        self.self_attn = ExLlamaAttention(self.config, tensors, key + ".self_attn", sin, cos, self.index, dequant = dequant)
-        self.mlp = ExLlamaMLP(self.config, tensors, key + ".mlp", dequant = dequant)
+        self.self_attn = ExLlamaAttention(self.config, tensors, key + ".self_attn", sin, cos, self.index)
+        self.mlp = ExLlamaMLP(self.config, tensors, key + ".mlp")
 
         self.input_layernorm = ExLlamaRMSNorm(self.config, tensors, key + ".input_layernorm.weight")
         self.post_attention_layernorm = ExLlamaRMSNorm(self.config, tensors, key + ".post_attention_layernorm.weight")
@@ -506,7 +463,7 @@ class ExLlamaDecoderLayer(nn.Module):
             self.mlp.up_proj.debug("mlp.up_proj")
             self.mlp.down_proj.debug("mlp.down_proj")
 
-        if self.mlp.dequant or _mlp_switch(self.config, hidden_states):
+        if _mlp_switch(self.config, hidden_states):
 
             if self.config.debug: print(f" !!  - method: normal")
 
@@ -747,7 +704,6 @@ class ExLlama(nn.Module):
             # Begin auto mapping if enabled
 
             decoder_size = 0
-            decoder_dq_size = 0
             norm_size = 0
             head_size = 0
             half_element_size = torch.tensor([], dtype = torch.float16).element_size()
@@ -766,10 +722,6 @@ class ExLlama(nn.Module):
                     if key.startswith("model.layers.0."):
                         tensor = f.get_tensor(key)
                         decoder_size += tensor.numel() * tensor.element_size()
-                        if key.endswith(".weight"):
-                            decoder_dq_size += tensor.numel() * tensor.element_size()
-                        if key.endswith(".qweight"):
-                            decoder_dq_size += tensor.numel() * 8 * half_element_size
 
                     if key.startswith("model.norm."):
                         tensor = f.get_tensor(key)
@@ -781,7 +733,6 @@ class ExLlama(nn.Module):
 
                 if self.config.debug:
                     print(f" !! Decoder size: {decoder_size:,} bytes")
-                    print(f" !! Decoder size, DQ: {decoder_dq_size:,} bytes")
                     print(f" !! Norm size: {norm_size:,} bytes")
                     print(f" !! Head size: {head_size:,} bytes")
 
@@ -797,7 +748,6 @@ class ExLlama(nn.Module):
                     this_layer_size = decoder_size
                     if layer == self.config.num_hidden_layers + 0: this_layer_size = norm_size
                     elif layer == self.config.num_hidden_layers + 1: this_layer_size = head_size
-                    elif self.config.dequant is not None and layer_index_device < self.config.dequant[device_index]: this_layer_size = decoder_dq_size
 
                     while device_usage + this_layer_size > max_usage:
                         device_index += 1
@@ -890,14 +840,7 @@ class ExLlama(nn.Module):
             device = self.config.device_map.layers[i]
             sin, cos = self.sincos[device]
 
-            dequant = False
-            if self.config.dequant is not None:
-                device_idx = _device_to_int(device)
-                device_layer = device_layer_index[device_idx]
-                device_layer_index[device_idx] += 1
-                if device_layer < self.config.dequant[device_idx]: dequant = True
-
-            layer = ExLlamaDecoderLayer(self.config, tensors, f"model.layers.{i}", i, sin, cos, dequant = dequant)
+            layer = ExLlamaDecoderLayer(self.config, tensors, f"model.layers.{i}", i, sin, cos)
 
             modules.append(layer)
 
@@ -923,6 +866,9 @@ class ExLlama(nn.Module):
 
 
     def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False):
+
+        if torch.is_grad_enabled():
+            raise ValueError("Forward pass called with gradients enabled. Back propagation is not supported yet.")
 
         if self.config.debug: print(f" !! Begin forward pass")
 
