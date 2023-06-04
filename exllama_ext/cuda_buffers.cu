@@ -7,12 +7,14 @@ CudaBuffers::CudaBuffers
     int _device,
     half* _temp_state,
     half* _temp_mlp,
-    float* _temp_rms_norm
+    float* _temp_rms_norm,
+    half* _temp_dq
 ) :
     device(_device),
     temp_state(_temp_state),
     temp_mlp(_temp_mlp),
-    temp_rms_norm(_temp_rms_norm)
+    temp_rms_norm(_temp_rms_norm),
+    temp_dq(_temp_dq)
 {
 }
 
@@ -30,7 +32,8 @@ void prepare_buffers_cuda
     int _device,
     half* _temp_state,
     half* _temp_mlp,
-    float* _temp_rms_norm
+    float* _temp_rms_norm,
+    half* _temp_dq
 )
 {
     CudaBuffers* buffers = new CudaBuffers
@@ -38,7 +41,8 @@ void prepare_buffers_cuda
         _device,
         _temp_state,
         _temp_mlp,
-        _temp_rms_norm
+        _temp_rms_norm,
+        _temp_dq
     );
 
     g_buffers[_device] = buffers;

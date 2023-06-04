@@ -51,7 +51,7 @@ class ExLlamaGenerator:
 
     def make_rep_mask(self, penalty_max, sustain, decay):
 
-        return cuda_ext.rep_penalty_mask_cpu(self.model.config.vocab_size, self.sequence, penalty_max, sustain, decay)
+        return cuda_ext.ext_rep_penalty_mask_cpu(self.model.config.vocab_size, self.sequence, penalty_max, sustain, decay)
 
 
     def sample(self, logits, temperature, top_k, top_p, min_p, num = 1):

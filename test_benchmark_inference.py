@@ -230,15 +230,15 @@ with torch.no_grad():
 
             # Short perplexity tests in switched and quant mode, should produce roughly equal results
 
-            model.config.matmul_recons_thd = 8
-            _ppl_test(" (switched)", 8)
+            model.config.matmul_recons_thd = 1
+            _ppl_test(" (reconstruct)", 8)
             model.config.matmul_recons_thd = 0
-            _ppl_test(" (quant_only)", 8)
+            _ppl_test(" (quant)", 8)
 
             # Do a short, easy topk=1 completion to see if we're generating garbage. Should run in switched mode
             # for the prompt and quant for individual tokens
 
-            model.config.matmul_recons_thd = 8
+            model.config.matmul_recons_thd = 4
             generator = ExLlamaGenerator(model, tokenizer, cache)
             generator.settings.top_k = 1
             text = generator.generate_simple("To be or not to be, that is the", max_new_tokens = 20)

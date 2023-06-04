@@ -3,6 +3,8 @@
 #include "../util.cuh"
 #include "../matrix.cuh"
 #include "../cuda_compat.cuh"
+#include "../cuda_buffers.cuh"
+#include "half_matmul.cuh"
 
 // Block size
 
@@ -220,4 +222,75 @@ _cuda_fail:
     if (x_mapped) cudaFree(x_mapped);
 
     return _cuda_err;
+}
+
+void q4_matmul_cuda
+(
+    const half* x,
+    const int x_height,
+    const Q4Matrix* w,
+    half* out
+)
+{
+    int height = x_height;
+    int dim = w->height;
+    int width = w->width;
+
+    cudaSetDevice(w->device);
+
+    const half* x_mapped = x;
+    if (w->cuda_x_map)
+    {
+        CudaBuffers* buffers = get_buffers(w->device);
+        column_remap_cuda(x, buffers->temp_state, x_height, dim, w->cuda_x_map);
+        x_mapped = buffers->temp_state;
+    }
+
+    dim3 threads(THREADS_X, THREADS_Y, 1);
+
+    dim3 blocks
+    (
+        (width + threads.x - 1) / threads.x,
+        (height + threads.y - 1) / threads.y,
+        (dim + BLOCK_SIZE_Z - 1) / BLOCK_SIZE_Z
+    );
+
+    if (BLOCK_SIZE_Z % w->groupsize == 0)
+    {
+        q4v2_matmul_kernel <false, true>  <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, NULL);
+    }
+    else
+    {
+        q4v2_matmul_kernel <false, false> <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, NULL);
+    }
+}
+
+void q4_matmul_recons_cuda
+(
+    const half* x,
+    const int x_height,
+    Q4Matrix* w,
+    half* out,
+    const cublasHandle_t handle
+)
+{
+    int height = x_height;
+    int dim = w->height;
+    int width = w->width;
+
+    cudaSetDevice(w->device);
+    CudaBuffers* buffers = get_buffers(w->device);
+
+    const half* x_mapped = x;
+    if (w->cuda_x_map)
+    {
+        column_remap_cuda(x, buffers->temp_state, x_height, dim, w->cuda_x_map);
+        x_mapped = buffers->temp_state;
+    }
+
+    w->reconstruct(buffers->temp_dq);
+
+    const half alpha = __float2half(1.0f);
+    const half beta = __float2half(0.0f);
+    cublasHgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, width, height, dim, &alpha, buffers->temp_dq, width, x_mapped, dim, &beta, out, width);
 }

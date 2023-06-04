@@ -151,68 +151,42 @@ class Ex4bitLinear(nn.Module):
 
         self.config = config
         self.key = key
-
         self.in_features = in_features
         self.out_features = out_features
-        self.bits = 4  # Only support 4 bits for now
-
-        self.maxq = 2 ** self.bits - 1
-        self.bias = None
-        self.x_map = None
-        self.seq_g_idx = None
 
         self.qweight = tensors[key + ".qweight"]
-
         self.qzeros = tensors[key + ".qzeros"]
         self.scales = tensors[key + ".scales"]
+        self.g_idx = tensors[key + ".g_idx"].cpu() if key + ".g_idx" in tensors else None
+        self.bias = tensors[key + ".bias"] if has_bias else None
+
+        self.device = self.qweight.device
+        self.device_index = self.device.index
+
+        self.q4 = cuda_ext.ext_make_q4(self.qweight,
+                                       self.qzeros,
+                                       self.scales,
+                                       self.g_idx,
+                                       self.device_index)
+
+        self.height = tensors[key + ".qweight"].shape[0] * 8
+        self.width = tensors[key + ".qweight"].shape[1]
 
         # Infer groupsize from height of qzeros
 
         self.groupsize = None
         if self.qzeros.shape[0] > 1:
-
             self.groupsize = (self.qweight.shape[0] * 8) // self.qzeros.shape[0]
-
             if self.config.groupsize is None:
                 self.config.groupsize = self.groupsize
-            else:
-                if self.config.groupsize != self.groupsize:
-                    self.config.no_groupsize = True
+
 
         # Handle act-order matrix
 
-        if key + ".g_idx" in tensors:
+        if self.g_idx is not None:
 
             if self.groupsize is None: raise ValueError("Found group index but no groupsize. What do?")
-
             self.config.act_order = True
-
-            # Rearrange groups sequentially for act-order matrices
-
-            g_idx = tensors[key + ".g_idx"]
-            num_groups = self.qzeros.shape[0]
-            seq_g_idx, self.x_map = cuda_ext.sequential_q4v2(self.qweight, g_idx, num_groups)
-
-            # Discard group index if sequential groups all have the same groupsize. Treat as regular groupsize
-            # matrix but keep the x_map
-
-            i = 0
-            j = 0
-            discard = True
-            while i < seq_g_idx.shape[-1]:
-                if seq_g_idx[i].item() != j or seq_g_idx[i + 1].item() != self.groupsize:
-                    discard = False
-                    break
-                i += self.groupsize * 2
-                j += 1
-
-            if not discard:
-
-                self.seq_g_idx = seq_g_idx
-
-        # Bias
-
-        if has_bias: self.bias = tensors[key + ".bias"]
 
 
     def quant_args(self):
@@ -226,21 +200,10 @@ class Ex4bitLinear(nn.Module):
 
     def forward(self, x):
 
-        if torch.is_grad_enabled():
+        out = cuda_ext.ext_q4_matmul(x, self.q4, self.width, self.config.matmul_recons_thd)
+        # out = cuda_ext.ext_q4v2_matmul(x, self.quant_args(), _matmul_switch(self.config, x))
+        if self.bias is not None: out.add_(self.bias)
 
-            # Untested
-            out = cuda_ext.ExAutogradMatmul4bitCuda.apply(x, self.qweight, self.scales, self.qzeros, self.groupsize, self.bits, self.maxq)
-
-        else:
-
-            out = cuda_ext.matmul_q4v2(x, self.quant_args(), _matmul_switch(self.config, x))
-
-        if self.bias is not None: out += self.bias
-
-        # if self.key == "model.layers.0.mlp.gate_proj":
-        #
-        #     _dump_tensor(x, "cuda_test/model.layers.0.mlp.gate_proj.x")
-        #     sys.exit()
 
         return out
 
@@ -323,7 +286,7 @@ class ExLlamaRMSNorm(nn.Module):
 
     def forward(self, hidden_states, buffer):
 
-        hidden_states = cuda_ext.llama_rms_norm(hidden_states, self.weight, self.variance_epsilon)
+        hidden_states = cuda_ext.ext_rms_norm(hidden_states, self.weight, self.variance_epsilon)
         return hidden_states
 
 
@@ -361,8 +324,8 @@ class ExLlamaAttention(nn.Module):
         query_states = self.q_proj.forward(hidden_states)
         key_states = self.k_proj.forward(hidden_states)
 
-        cuda_ext.rope_(query_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
-        cuda_ext.rope_(key_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
+        cuda_ext.ext_rope_(query_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
+        cuda_ext.ext_rope_(key_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
 
         query_states = query_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
         key_states = key_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
@@ -476,13 +439,13 @@ class ExLlamaDecoderLayer(nn.Module):
 
             if self.config.debug: print(f" !!  - method: fused")
 
-            hidden_states += cuda_ext.mlp_q4v2(hidden_states,
-                                               self.post_attention_layernorm.weight,
-                                               self.config.rms_norm_eps,
-                                               self.mlp.gate_proj.quant_args(),
-                                               self.mlp.up_proj.quant_args(),
-                                               self.mlp.down_proj.quant_args(),
-                                               self.config.intermediate_size)
+            hidden_states += cuda_ext.ext_mlp_q4v2(hidden_states,
+                                                   self.post_attention_layernorm.weight,
+                                                   self.config.rms_norm_eps,
+                                                   self.mlp.gate_proj.quant_args(),
+                                                   self.mlp.up_proj.quant_args(),
+                                                   self.mlp.down_proj.quant_args(),
+                                                   self.config.intermediate_size)
 
         return hidden_states
 
@@ -768,6 +731,8 @@ class ExLlama(nn.Module):
 
             # Load tensors, move to device(s)
 
+            max_dq_buffer_size = 0
+
             if self.config.debug: print(f" !! Begin load tensors")
             for key in f.keys():
 
@@ -788,6 +753,8 @@ class ExLlama(nn.Module):
                 if key.endswith(".post_attention_layernorm.weight"): tensor = tensor.half()
 
                 tensor = tensor.to(device, non_blocking = True)
+
+                if key.endswith(".qweight"): max_dq_buffer_size = max(max_dq_buffer_size, tensor.numel() * 8)
 
                 if self.config.debug:
                     if key.startswith("model.layers.0.") or not key.startswith("model.layers."):
@@ -855,18 +822,21 @@ class ExLlama(nn.Module):
             device_buffers = {}
             self.buffers.append(device_buffers)
 
-            temp_state = torch.zeros((config.max_seq_len, config.hidden_size), dtype = torch.float16, device = dev)
-            temp_mlp = torch.zeros((config.hidden_size, config.intermediate_size), dtype = torch.float16, device = dev)
+            temp_state = torch.zeros((config.max_seq_len, config.intermediate_size), dtype = torch.float16, device = dev)
+            temp_mlp = torch.zeros((config.hidden_size, config.intermediate_size), dtype = torch.float16, device = dev)  # TODO: Might not be needed
             temp_rms_norm = torch.zeros((config.max_seq_len), dtype = torch.float32, device = dev)
+            temp_dq = torch.zeros((1, max_dq_buffer_size), dtype = torch.float16, device = dev)
 
             device_buffers["temp_state"] = temp_state
             device_buffers["temp_mlp"] = temp_mlp
             device_buffers["temp_rms_norm"] = temp_rms_norm
+            device_buffers["temp_dq"] = temp_dq
 
-            cuda_ext.prepare_cuda_buffers(torch.device(dev),
-                                          temp_state,
-                                          temp_mlp,
-                                          temp_rms_norm)
+            cuda_ext.ext_prepare_cuda_buffers(torch.device(dev),
+                                              temp_state,
+                                              temp_mlp,
+                                              temp_rms_norm,
+                                              temp_dq)
 
 
     def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False):

@@ -17,6 +17,7 @@
 #include "cuda_func/q4v2_sequential.cuh"
 #include "cuda_func/rms_norm.cuh"
 #include "cuda_func/rope.cuh"
+#include "cuda_func/q4_matrix.cuh"
 #include "util.cuh"
 
 // Check CUDA return code. We don't want to include Torch headers in the .cu files because parsing them adds almost a
@@ -77,14 +78,16 @@ int get_groupsize(torch::Tensor w, torch::Tensor w_zeros)
     return groupsize;
 }
 
-// Prepare buffers for device
+
+// Prepare buffers for forward pass
 
 void prepare_buffers
 (
     torch::Device device,
     torch::Tensor temp_state,
     torch::Tensor temp_mlp,
-    torch::Tensor temp_rms_norm
+    torch::Tensor temp_rms_norm,
+    torch::Tensor temp_dq
 )
 {
     int device_index = device.index();
@@ -96,10 +99,97 @@ void prepare_buffers
         device_index,
         (half*) temp_state.data_ptr(),
         (half*) temp_mlp.data_ptr(),
-        (float*) temp_rms_norm.data_ptr()
+        (float*) temp_rms_norm.data_ptr(),
+        (half*) temp_dq.data_ptr()
     );
 }
 
+
+// Create Q4Matrix, return handle
+
+uintptr_t make_q4
+(
+    torch::Tensor qweight,
+    torch::Tensor qzeros,
+    torch::Tensor scales,
+    torch::Tensor g_idx,
+    int device
+)
+{
+    TORCH_CHECK_DTYPE(qweight, kInt);
+    TORCH_CHECK_DTYPE(qzeros, kInt);
+    TORCH_CHECK_DTYPE(scales, kHalf);
+    TORCH_CHECK_DTYPE_OPT(g_idx, kInt);
+    TORCH_CHECK_SHAPES(qweight, 1, qzeros, 1, 8);
+    TORCH_CHECK_SHAPES(scales, 1, qweight, 1, 1);
+    TORCH_CHECK_SHAPES(qzeros, 0, scales, 0, 1);
+
+    int width = qweight.size(1);
+    int height = qweight.size(0) * 8;
+    int groups = qzeros.size(0);
+
+    Q4Matrix* m = new Q4Matrix
+    (
+        height,
+        width,
+        groups,
+
+        (uint32_t*) qweight.data_ptr(),
+        (uint32_t*) qzeros.data_ptr(),
+        (half*) scales.data_ptr(),
+        g_idx.device().is_meta() ? NULL : (uint32_t*) g_idx.data_ptr(),
+
+        device
+    );
+
+    g_q4_keep_matrix(m);
+    return reinterpret_cast<uintptr_t> (m);
+}
+
+
+// Matmul half @ quant -> half
+
+void q4_matmul
+(
+    torch::Tensor x,
+    uintptr_t w,
+    torch::Tensor out,
+    int recons_thd  // min rows to reconstruct, 0 = never reconstruct
+)
+{
+    Q4Matrix* wm = reinterpret_cast<Q4Matrix*> (w);
+
+    TORCH_CHECK_DTYPE(x, kHalf);
+    TORCH_CHECK_DTYPE(out, kHalf);
+    TORCH_CHECK_SHAPES(x, 0, out, 0, 1);
+    TORCH_CHECK(wm->height == x.size(-1), "x and w have incompatible shapes")
+
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
+
+    int x_height = x.size(0);
+
+    if (recons_thd == 0 || x_height < recons_thd)
+    {
+        q4_matmul_cuda
+        (
+            (half*) x.data_ptr(),
+            x_height,
+            wm,
+            (half*) out.data_ptr()
+        );
+    }
+    else
+    {
+        q4_matmul_recons_cuda
+        (
+            (half*) x.data_ptr(),
+            x_height,
+            wm,
+            (half*) out.data_ptr(),
+            at::cuda::getCurrentCUDABlasHandle()
+        );
+    }
+}
 
 // Matmul half @ quant -> half
 
@@ -453,7 +543,7 @@ void rms_norm
 
 // RoPE rotary positional embeddings
 
-void rope
+void rope_
 (
     torch::Tensor x,
     torch::Tensor sin,
@@ -518,15 +608,18 @@ void rep_penalty
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
-  m.def("prepare_buffers", &prepare_buffers, "prepare_buffers");
-  m.def("q4v2_matmul", &q4v2_matmul, "q4v2 matrix multiplication");
-  m.def("q4v2_mlp", &q4v2_mlp, "q4v2 llama mlp");
-  m.def("q4v2_recons", &q4v2_recons, "q4v2 matrix reconstruction");
-  m.def("q4v2_sequential", &q4v2_sequential, "q4v2 matrix serialization");
-  m.def("column_remap", &column_remap, "half matrix column remapping");
-  m.def("half_matmul", &half_matmul, "half matrix multiplication");
-  m.def("half_matmul_cublas", &half_matmul_cublas, "half matrix multiplication");
-  m.def("rms_norm", &rms_norm, "rms norm");
-  m.def("rope", &rope, "rotary position embeddings");
-  m.def("rep_penalty", &rep_penalty, "repetition penalty mask");
- }
+    m.def("make_q4", &make_q4, "make_q4");
+    m.def("q4_matmul", &q4_matmul, "q4 matrix multiplication");
+
+    m.def("q4v2_matmul", &q4v2_matmul, "q4v2 matrix multiplication");
+    m.def("q4v2_mlp", &q4v2_mlp, "q4v2 llama mlp");
+    m.def("q4v2_recons", &q4v2_recons, "q4v2 matrix reconstruction");
+    m.def("q4v2_sequential", &q4v2_sequential, "q4v2 matrix serialization");
+    m.def("column_remap", &column_remap, "half matrix column remapping");
+    m.def("half_matmul", &half_matmul, "half matrix multiplication");
+    m.def("half_matmul_cublas", &half_matmul_cublas, "half matrix multiplication");
+    m.def("rms_norm", &rms_norm, "rms norm");
+    m.def("rope_", &rope_, "rotary position embeddings");
+    m.def("rep_penalty", &rep_penalty, "repetition penalty mask");
+    m.def("prepare_buffers", &prepare_buffers, "prepare buffers");
+}
