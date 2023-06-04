@@ -74,8 +74,8 @@ class ExLlamaConfig:
         # Tuning
 
         self.matmul_recons_thd = 8
-        self.fused_mlp_thd = 8
-        self.stp_thd = 32
+        self.fused_mlp_thd = 2
+        self.stp_thd = 8
 
     # Parse and set list of GPU VRAM allocations
 
