@@ -5,14 +5,13 @@
 #include "../cuda_compat.cuh"
 #include "../cuda_buffers.cuh"
 
-// Block size
-
 const int THREADS_X = 32;       // Block size and thread count along columns in w and out
 const int THREADS_Y = 1;        // Block size and thread count along rows in x and out
-const int BLOCK_SIZE_Z = 512;   // Block size (1 thread per block) along columns in x, rows in w
 
-template<bool use_groupsize>
-__global__ void q4v2_matmul_kernel
+const bool USE_FUSED_REMAP = false;
+
+template<bool use_groupsize, bool use_x_map>
+__global__ void q4_matmul_kernel
 (
     const half* x,
     const uint32_t* w,
@@ -22,13 +21,16 @@ __global__ void q4v2_matmul_kernel
     const int height,
     const int dim,
     const int width,
-    const int groupsize
+    const int groupsize,
+    const int block_size_z,
+    const uint32_t* x_map,
+    bool no_zero
 )
 {
     // Start of block
 
-    int x_column = BLOCK_SIZE_Z * blockIdx.z;
-    int x_column_end = min(dim, BLOCK_SIZE_Z * (blockIdx.z + 1));
+    int x_column = block_size_z * blockIdx.z;
+    int x_column_end = min(dim, block_size_z * (blockIdx.z + 1));
 
     int w_column = THREADS_X * blockIdx.x + threadIdx.x;
     int x_row = THREADS_Y * blockIdx.y + threadIdx.y;
@@ -45,7 +47,7 @@ __global__ void q4v2_matmul_kernel
 
     // Zero output
 
-    if (blockIdx.z == 0)
+    if (!no_zero && blockIdx.z == 0)
     {
         out_.set(x_row, w_column, {});
         __syncthreads();
@@ -60,12 +62,17 @@ __global__ void q4v2_matmul_kernel
         // For quant matrices where groupsize divides BLOCK_SIZE_Z we always start on a group boundary, so this
         // coule be slightly faster
 
-        for (int k = x_column, group = x_column / groupsize; k < x_column + iterations * 8; group++)
+        for (int k = x_column, group = x_column / groupsize; k < x_column + iterations * 8; )
         {
             half2 w_scale = w_scales_.item_half2half2(group, w_column);
             uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
 
-            acc = dot_product_8(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8);
+            if constexpr (use_x_map)
+                acc = dot_product_8_x_map(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8, x_map);
+            else
+                acc = dot_product_8(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8);
+
+            group++;
             k += groupsize;
         }
     }
@@ -75,11 +82,15 @@ __global__ void q4v2_matmul_kernel
 
         for (int k = x_column; k < x_column + iterations * 8; )
         {
-            int group = x_column / groupsize;
+            int group = k / groupsize;
             half2 w_scale = w_scales_.item_half2half2(group, w_column);
             uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
 
-            acc = dot_product_8(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1);
+            if constexpr (use_x_map)
+                acc = dot_product_8_x_map(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1, x_map);
+            else
+                acc = dot_product_8(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1);
+
             k += 8;
         }
     }
@@ -97,7 +108,8 @@ void q4_matmul_cuda
     const half* x,
     const int x_height,
     const Q4Matrix* w,
-    half* out
+    half* out,
+    bool no_zero
 )
 {
     int height = x_height;
@@ -106,13 +118,26 @@ void q4_matmul_cuda
 
     cudaSetDevice(w->device);
 
+    uint32_t* x_map = w->cuda_x_map;
     const half* x_mapped = x;
-    if (w->cuda_x_map)
+    if (x_map && !USE_FUSED_REMAP)
     {
         CudaBuffers* buffers = get_buffers(w->device);
         column_remap_cuda(x, buffers->temp_state, x_height, dim, w->cuda_x_map);
         x_mapped = buffers->temp_state;
+        x_map = NULL;
     }
+
+    int block_size_z;
+    if (w->width == 4096) block_size_z = 384;           // 7B
+    else if (w->width == 11008) block_size_z = 384;
+    else if (w->width == 5120) block_size_z = 384;      // 13B
+    else if (w->width == 13824) block_size_z = 256;
+    else if (w->width == 6656) block_size_z = 256;      // 33B
+    else if (w->width == 17920) block_size_z = 256;
+    else block_size_z = 256;
+
+    //cudaMemsetAsync(out, 0, x_height * w->width * sizeof(half));
 
     dim3 threads(THREADS_X, THREADS_Y, 1);
 
@@ -120,17 +145,20 @@ void q4_matmul_cuda
     (
         (width + threads.x - 1) / threads.x,
         (height + threads.y - 1) / threads.y,
-        (dim + BLOCK_SIZE_Z - 1) / BLOCK_SIZE_Z
+        (dim + block_size_z - 1) / block_size_z
     );
 
-    if (BLOCK_SIZE_Z % w->groupsize == 0)
+    if (block_size_z % w->groupsize == 0)
     {
-        q4v2_matmul_kernel <true>  <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize);
+        if (x_map) q4_matmul_kernel <true, true>  <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
+        else       q4_matmul_kernel <true, false> <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, NULL, no_zero);
     }
     else
     {
-        q4v2_matmul_kernel <false> <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize);
+        if (x_map) q4_matmul_kernel <false, true>  <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
+        else       q4_matmul_kernel <false, false> <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, NULL, no_zero);
     }
+
 }
 
 void q4_matmul_recons_cuda

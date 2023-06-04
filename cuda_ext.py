@@ -24,7 +24,7 @@ exllama_ext = load(
         os.path.join(library_dir, "exllama_ext/cuda_func/rope.cu"),
         os.path.join(library_dir, "exllama_ext/cuda_func/half_matmul.cu"),
 
-        os.path.join(library_dir, "exllama_ext/cuda_func/q4v2_mlp.cu"),
+        os.path.join(library_dir, "exllama_ext/cuda_func/q4_mlp.cu"),
 
         os.path.join(library_dir, "exllama_ext/cpu_func/rep_penalty.cpp")
 
@@ -39,7 +39,7 @@ from exllama_ext import q4_matmul
 
 from exllama_ext import half_matmul
 from exllama_ext import half_matmul_cublas
-from exllama_ext import q4v2_mlp
+from exllama_ext import q4_mlp
 from exllama_ext import rms_norm
 from exllama_ext import rope_
 
@@ -111,41 +111,30 @@ def ext_rope_(x, sin, cos, past_len, num_heads, head_dim):
 
 # Llama MLP, compute: (SiLU(x @ gate_proj) * (x @ up_proj)) @ down_proj
 
-def ext_q4v2_mlp(x,
-                 rms_norm_weight,
-                 epsilon,
-                 gate_proj,
-                 up_proj,
-                 down_proj,
-                 intermediate_size):
+def ext_q4_mlp(x,
+               rms_norm_weight,
+               epsilon,
+               gate_proj,
+               up_proj,
+               down_proj):
 
     outshape = x.shape
     x = x.view(-1, x.shape[-1])
     out = torch.empty_like(x)
 
+    # out2 = torch.empty((x.shape[0], 11008), dtype = torch.float16, device = x.device)
+
     # TODO: A second buffer for the down projection shouldn't be needed since multiplying in-place without zeroing the
     # input buffer should have the same effect as adding the residual connection. Except the matmul goes crazy when the
     # output buffer isn't initialized to zeros. Could be an fp16 rounding issue. (?)
 
-    q4v2_mlp(x,
-             out,
-             rms_norm_weight,
-             epsilon,
-             gate_proj["qweight"],
-             gate_proj["scales"],
-             gate_proj["zeros"],
-             gate_proj["seq_g_idx"] if gate_proj["seq_g_idx"] is not None else none_tensor,
-             gate_proj["x_map"] if gate_proj["x_map"] is not None else none_tensor,
-             up_proj["qweight"],
-             up_proj["scales"],
-             up_proj["zeros"],
-             up_proj["seq_g_idx"] if up_proj["seq_g_idx"] is not None else none_tensor,
-             up_proj["x_map"] if up_proj["x_map"] is not None else none_tensor,
-             down_proj["qweight"],
-             down_proj["scales"],
-             down_proj["zeros"],
-             down_proj["seq_g_idx"] if down_proj["seq_g_idx"] is not None else none_tensor,
-             down_proj["x_map"] if down_proj["x_map"] is not None else none_tensor)
+    q4_mlp(x,
+           out,
+           rms_norm_weight,
+           epsilon,
+           gate_proj,
+           up_proj,
+           down_proj)
 
     return out.view(outshape)
 

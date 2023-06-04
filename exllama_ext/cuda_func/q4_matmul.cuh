@@ -1,5 +1,5 @@
-#ifndef _q4v2_matmul_cuh
-#define _q4v2_matmul_cuh
+#ifndef _q4_matmul_cuh
+#define _q4_matmul_cuh
 
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
@@ -14,7 +14,8 @@ void q4_matmul_cuda
     const half* x,
     const int x_height,
     const Q4Matrix* w,
-    half* out
+    half* out,
+    bool no_zero = false
 );
 
 void q4_matmul_recons_cuda

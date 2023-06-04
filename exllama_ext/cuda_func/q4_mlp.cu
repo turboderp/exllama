@@ -1,5 +1,5 @@
-#include "q4v2_mlp.cuh"
-#include "q4v2_matmul.cuh"
+#include "q4_mlp.cuh"
+#include "q4_matmul.cuh"
 #include "rms_norm.cuh"
 #include "../cuda_buffers.cuh"
 #include "../util.cuh"
@@ -80,82 +80,55 @@ __global__ void silu_mul_cuda_kernel
 //     x_.set_half2(row, column, x_item);
 // }
 
-cudaError_t q4v2_mlp_cuda
+void q4_mlp_cuda
 (
     half* x,                        // shape == (height, dim)
-    half* out,                      // shape == x.shape
-
+    half* out,                      // shape == (height, dim)
     const half* rms_norm_weight,    // shape == (x.shape[1],) == (dim,)
     float epsilon,
-
-    const uint32_t* gate,           // shape == (dim, width)
-    const half* gate_scales,
-    const uint32_t* gate_zeros,
-    const uint16_t* gate_seq_g_idx,
-    const uint32_t* gate_x_map,
-    const int gate_groupsize,
-
-    const uint32_t* up,
-    const half* up_scales,
-    const uint32_t* up_zeros,
-    const uint16_t* up_seq_g_idx,
-    const uint32_t* up_x_map,
-    const int up_groupsize,
-
-    const uint32_t* down,
-    const half* down_scales,
-    const uint32_t* down_zeros,
-    const uint16_t* down_seq_g_idx,
-    const uint32_t* down_x_map,
-    const int down_groupsize,
-
+    Q4Matrix* gate,
+    Q4Matrix* up,
+    Q4Matrix* down,
     const int height,
     const int dim,
-    const int width,
-
     const int device_index
 )
 {
-
-    cudaError_t _cuda_err = cudaSuccess;
-/*
     CudaBuffers* buffers = get_buffers(device_index);
-    buffers->zero_mlp_temp(height);
 
-    // x_temp(out) = rms_layernorm(x)
+    // temp_x = rms_layernorm(x)
 
-    rms_norm_cuda(x, rms_norm_weight, out, epsilon, height, dim, device_index);
+    half* temp_x = buffers->temp_state + height * dim;
+    rms_norm_cuda(x, rms_norm_weight, temp_x, epsilon, height, dim, device_index);
 
-    // temp1 = x_temp(out) @ gate
-    // temp2 = x_temp(out) @ up
+    // temp_mlp[0] = temp_x @ gate
+    // temp_mlp[1] = temp_x @ up
 
-    q4v2_matmul_cuda(out, gate, buffers->mlp_temp, gate_scales, gate_zeros, height, dim, width, gate_groupsize, gate_seq_g_idx, gate_x_map);
-    q4v2_matmul_cuda(out, up, buffers->mlp_temp + buffers->intermediate_size * height, up_scales, up_zeros, height, dim, width, up_groupsize, up_seq_g_idx, up_x_map);
+    q4_matmul_cuda(temp_x, height, gate, buffers->temp_mlp);
+    q4_matmul_cuda(temp_x, height, up, buffers->temp_mlp + height * up->width);
 
-    // temp1 = silu(temp1) * temp2
+    // temp_mlp[0] = silu(temp_mlp[0]) * temp_mlp[1]
 
-    {
-        dim3 threads(THREADS_X, THREADS_Y, 1);
+    dim3 threads(THREADS_X, THREADS_Y, 1);
 
-        dim3 blocks
-        (
-            (width + THREADS_X - 1) / THREADS_X / 2,
-            (height + THREADS_Y - 1) / THREADS_Y,
-            1
-        );
+    dim3 blocks
+    (
+        (up->width + THREADS_X - 1) / THREADS_X / 2,
+        (height + THREADS_Y - 1) / THREADS_Y,
+        1
+    );
 
-        silu_mul_cuda_kernel<<<blocks, threads>>>
-        (
-            buffers->mlp_temp,
-            buffers->mlp_temp + buffers->intermediate_size * height,
-            height,
-            width
-        );
-    }
+    silu_mul_cuda_kernel<<<blocks, threads>>>
+    (
+        buffers->temp_mlp,
+        buffers->temp_mlp + height * up->width,
+        height,
+        up->width
+    );
 
-    // x = temp1 @ down
+     // x = temp1 @ down
 
-    q4v2_matmul_cuda(buffers->mlp_temp, down, out, down_scales, down_zeros, height, width, dim, down_groupsize, down_seq_g_idx, down_x_map);
+     q4_matmul_cuda(buffers->temp_mlp, height, down, x, true);
 
 //     {
 //         dim3 threads(THREADS_X, THREADS_Y, 1);
@@ -176,7 +149,4 @@ cudaError_t q4v2_mlp_cuda
 //         );
 //     }
 
-//_cuda_fail:
-*/
-    return _cuda_err;
 }

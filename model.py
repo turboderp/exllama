@@ -116,22 +116,13 @@ def _dump_tensor(t, name):
 
 # Switching
 
-def _matmul_switch(config, x):
-
-    if config.matmul_recons_thd == 0: return False
-
-    xdp = 1
-    for y in x.shape[:-1]: xdp *= y
-    return xdp >= config.matmul_recons_thd
-
-
 def _mlp_switch(config, x):
 
-    if config.mlp_method == ExLlamaConfig.MLPMethod.NORMAL: return True
-    if config.act_order: return True  # TODO: act-order causes a VRAM allocation in the quant matmul which becomes a bottleneck here. For now, normal MLP is still faster in that case
+    if config.fused_mlp_thd == 0: return False
+
     xdp = 1
     for y in x.shape[:-1]: xdp *= y
-    return xdp > 1
+    return xdp < config.fused_mlp_thd
 
 def _attn_switch(config, x):
 
@@ -203,8 +194,6 @@ class Ex4bitLinear(nn.Module):
 
         out = cuda_ext.ext_q4_matmul(x, self.q4, self.width, self.config.matmul_recons_thd)
         if self.bias is not None: out.add_(self.bias)
-
-
         return out
 
 
@@ -426,7 +415,18 @@ class ExLlamaDecoderLayer(nn.Module):
             self.mlp.up_proj.debug("mlp.up_proj")
             self.mlp.down_proj.debug("mlp.down_proj")
 
-        if True or _mlp_switch(self.config, hidden_states):
+        if _mlp_switch(self.config, hidden_states):
+
+            if self.config.debug: print(f" !!  - method: fused")
+
+            cuda_ext.ext_q4_mlp(hidden_states,
+                                self.post_attention_layernorm.weight,
+                                self.config.rms_norm_eps,
+                                self.mlp.gate_proj.q4,
+                                self.mlp.up_proj.q4,
+                                self.mlp.down_proj.q4)
+
+        else:
 
             if self.config.debug: print(f" !!  - method: normal")
 
@@ -434,18 +434,6 @@ class ExLlamaDecoderLayer(nn.Module):
             hidden_states = self.post_attention_layernorm.forward(hidden_states, buffer)
             hidden_states = self.mlp.forward(hidden_states, buffer)
             hidden_states = residual + hidden_states
-
-        else:
-
-            if self.config.debug: print(f" !!  - method: fused")
-
-            hidden_states += cuda_ext.ext_mlp_q4v2(hidden_states,
-                                                   self.post_attention_layernorm.weight,
-                                                   self.config.rms_norm_eps,
-                                                   self.mlp.gate_proj.quant_args(),
-                                                   self.mlp.up_proj.quant_args(),
-                                                   self.mlp.down_proj.quant_args(),
-                                                   self.config.intermediate_size)
 
         return hidden_states
 

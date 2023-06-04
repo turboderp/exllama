@@ -17,7 +17,7 @@
 #include "cuda_func/rope.cuh"
 #include "cuda_func/half_matmul.cuh"
 
-#include "cuda_func/q4v2_mlp.cuh"
+#include "cuda_func/q4_mlp.cuh"
 
 // Check CUDA return code. We don't want to include Torch headers in the .cu files because parsing them adds almost a
 // minute to the compile time on a 12900K. Also passing exceptions back to Python is super tricky, so in place of
@@ -285,94 +285,42 @@ void half_matmul_cublas
 
 // Llama MLP. Unfinished. Works on all models but is still 5% slower than regular MLP with quantized layers
 
-void q4v2_mlp
+void q4_mlp
 (
     torch::Tensor x,                // shape == (height, dim)
-    torch::Tensor out,              // shape == x.shape
+    torch::Tensor out,              // shape == (height, dim)
 
     torch::Tensor rms_norm_weight,  // shape == (x.shape[1],) == (dim,)
     float epsilon,
 
-    torch::Tensor gate,
-    torch::Tensor gate_scales,
-    torch::Tensor gate_zeros,
-    torch::Tensor gate_seq_g_idx,
-    torch::Tensor gate_x_map,
-
-    torch::Tensor up,
-    torch::Tensor up_scales,
-    torch::Tensor up_zeros,
-    torch::Tensor up_seq_g_idx,
-    torch::Tensor up_x_map,
-
-    torch::Tensor down,
-    torch::Tensor down_scales,
-    torch::Tensor down_zeros,
-    torch::Tensor down_seq_g_idx,
-    torch::Tensor down_x_map
+    uintptr_t gate,
+    uintptr_t up,
+    uintptr_t down
 )
 {
-    TORCH_CHECK_QUANT(gate, gate_scales, gate_zeros, gate_seq_g_idx, gate_x_map);
-    TORCH_CHECK_QUANT(up, up_scales, up_zeros, up_seq_g_idx, up_x_map);
-    TORCH_CHECK_QUANT(down, down_scales, down_zeros, down_seq_g_idx, down_x_map);
     TORCH_CHECK_DTYPE(x, kHalf);
     TORCH_CHECK_DTYPE(rms_norm_weight, kHalf);
-    TORCH_CHECK_SHAPES(x, 0, out, 0, 1);
-    TORCH_CHECK_SHAPES(x, 1, out, 1, 1);
-    TORCH_CHECK_SHAPES(x, 1, gate, 0, 8);
-    TORCH_CHECK_SHAPES(x, 1, up, 0, 8);
-    TORCH_CHECK_SHAPES(x, 1, down, 1, 1);
-    TORCH_CHECK_SHAPES(gate, 1, down, 0, 8);
-    TORCH_CHECK_SHAPE_MOD(x, 1, 256);
 
-    int gate_groupsize = get_groupsize(gate, gate_zeros);
-    int up_groupsize = get_groupsize(up, up_zeros);
-    int down_groupsize = get_groupsize(down, down_zeros);
     int height = x.size(0);
     int dim = x.size(1);
-    int width = gate.size(1);
 
     torch::Device device = x.device();
     int device_index = device.index();
     TORCH_CHECK_DEVICE_INDEX(device_index);
     const at::cuda::OptionalCUDAGuard device_guard(device);
 
-    check_cuda(
-        q4v2_mlp_cuda
-        (
-            (half*) x.data_ptr(),
-            (half*) out.data_ptr(),
-
-            (half*) rms_norm_weight.data_ptr(),
-            epsilon,
-
-            (uint32_t*) gate.data_ptr(),
-            (half*) gate_scales.data_ptr(),
-            (uint32_t*) gate_zeros.data_ptr(),
-            gate_seq_g_idx.device().is_meta() ? NULL : (uint16_t*) gate_seq_g_idx.data_ptr(),
-            gate_x_map.device().is_meta() ? NULL : (uint32_t*) gate_x_map.data_ptr(),
-            gate_groupsize,
-
-            (uint32_t*) up.data_ptr(),
-            (half*) up_scales.data_ptr(),
-            (uint32_t*) up_zeros.data_ptr(),
-            up_seq_g_idx.device().is_meta() ? NULL : (uint16_t*) up_seq_g_idx.data_ptr(),
-            up_x_map.device().is_meta() ? NULL : (uint32_t*) up_x_map.data_ptr(),
-            up_groupsize,
-
-            (uint32_t*) down.data_ptr(),
-            (half*) down_scales.data_ptr(),
-            (uint32_t*) down_zeros.data_ptr(),
-            down_seq_g_idx.device().is_meta() ? NULL : (uint16_t*) down_seq_g_idx.data_ptr(),
-            down_x_map.device().is_meta() ? NULL : (uint32_t*) down_x_map.data_ptr(),
-            down_groupsize,
-
-            height,
-            dim,
-            width,
-
-            device_index
-        )
+    q4_mlp_cuda
+    (
+        (half*) x.data_ptr(),
+        (half*) out.data_ptr(),
+        (half*) rms_norm_weight.data_ptr(),
+        epsilon,
+        reinterpret_cast<Q4Matrix*>(gate),
+        reinterpret_cast<Q4Matrix*>(up),
+        reinterpret_cast<Q4Matrix*>(down),
+        height,
+        dim,
+        device_index
     );
 }
 
@@ -481,14 +429,13 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
     m.def("prepare_buffers", &prepare_buffers, "prepare buffers");
     m.def("make_q4", &make_q4, "make_q4");
-    m.def("q4_matmul", &q4_matmul, "q4 matrix multiplication");
-    m.def("column_remap", &column_remap, "half matrix column remapping");
-    m.def("rms_norm", &rms_norm, "rms norm");
-    m.def("rope_", &rope_, "rotary position embeddings");
-    m.def("half_matmul", &half_matmul, "half matrix multiplication");
-    m.def("half_matmul_cublas", &half_matmul_cublas, "half matrix multiplication");
-
-    m.def("q4v2_mlp", &q4v2_mlp, "q4v2 llama mlp");
+    m.def("q4_matmul", &q4_matmul, "q4_matmul");
+    m.def("q4_mlp", &q4_mlp, "q4_mlp");
+    m.def("column_remap", &column_remap, "column_remap");
+    m.def("rms_norm", &rms_norm, "rms_norm");
+    m.def("rope_", &rope_, "rope_");
+    m.def("half_matmul", &half_matmul, "half_matmul");
+    m.def("half_matmul_cublas", &half_matmul_cublas, "half_matmul_cublas");
 
     m.def("rep_penalty", &rep_penalty, "repetition penalty mask");
 }
