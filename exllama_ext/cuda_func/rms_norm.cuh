@@ -5,7 +5,7 @@
 #include <cuda_fp16.h>
 #include <cstdint>
 
-cudaError_t rms_norm_cuda
+void rms_norm_cuda
 (
     half* x,
     const half* w,

@@ -5,7 +5,7 @@
 #include <cuda_fp16.h>
 #include <cstdint>
 
-cudaError_t column_remap_cuda
+void column_remap_cuda
 (
     const half* x,
     half* x_new,

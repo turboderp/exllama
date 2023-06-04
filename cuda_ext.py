@@ -18,15 +18,14 @@ exllama_ext = load(
 
         os.path.join(library_dir, "exllama_ext/cuda_buffers.cu"),
         os.path.join(library_dir, "exllama_ext/cuda_func/q4_matrix.cu"),
-
+        os.path.join(library_dir, "exllama_ext/cuda_func/q4_matmul.cu"),
         os.path.join(library_dir, "exllama_ext/cuda_func/column_remap.cu"),
-        os.path.join(library_dir, "exllama_ext/cuda_func/half_matmul.cu"),
-        os.path.join(library_dir, "exllama_ext/cuda_func/q4v2_matmul.cu"),
-        os.path.join(library_dir, "exllama_ext/cuda_func/q4v2_mlp.cu"),
-        os.path.join(library_dir, "exllama_ext/cuda_func/q4v2_recons.cu"),
-        os.path.join(library_dir, "exllama_ext/cuda_func/q4v2_sequential.cu"),
         os.path.join(library_dir, "exllama_ext/cuda_func/rms_norm.cu"),
         os.path.join(library_dir, "exllama_ext/cuda_func/rope.cu"),
+        os.path.join(library_dir, "exllama_ext/cuda_func/half_matmul.cu"),
+
+        os.path.join(library_dir, "exllama_ext/cuda_func/q4v2_mlp.cu"),
+
         os.path.join(library_dir, "exllama_ext/cpu_func/rep_penalty.cpp")
 
     ],
@@ -41,8 +40,6 @@ from exllama_ext import q4_matmul
 from exllama_ext import half_matmul
 from exllama_ext import half_matmul_cublas
 from exllama_ext import q4v2_mlp
-from exllama_ext import q4v2_recons
-from exllama_ext import q4v2_sequential
 from exllama_ext import rms_norm
 from exllama_ext import rope_
 
@@ -86,29 +83,6 @@ def ext_q4_matmul(x, q4, q4_width, recons_thd):
     return output.view(outshape)
 
 
-# Reconstruct fp16 matrix from 4-bit matrix
-
-def ext_dequantize_q4v2(quant_args):
-
-    w = quant_args["qweight"]
-    scales = quant_args["scales"]
-    zeros = quant_args["zeros"]
-    seq_g_idx = quant_args["seq_g_idx"]
-    x_map = quant_args["x_map"]
-
-    qweight_recons = torch.empty((w.shape[0] * 8, w.shape[1]), dtype = torch.float16, device = w.device)
-    q4v2_recons(w, qweight_recons, scales, zeros, seq_g_idx if seq_g_idx is not None else none_tensor, none_tensor)
-
-    if x_map is not None:
-
-        # Rows will have already been rearranged to sequentialize the groups, so undo that
-
-        inverse_x_map = torch.argsort(x_map)
-        qweight_recons = qweight_recons[inverse_x_map]
-
-    return qweight_recons
-
-
 # Matrix multiplication, returns x @ w, both half-precision tensors
 
 def ext_half_matmul(x, w, cublas = False):
@@ -133,17 +107,6 @@ def ext_rope_(x, sin, cos, past_len, num_heads, head_dim):
     assert past_len + x.shape[-2] <= sin.shape[-2]
     rope_(x, sin, cos, past_len, num_heads, head_dim)
 
-
-# Sequentialize groups
-
-def ext_q4v2_sequential(w, g_idx, num_groups):
-
-    seq_g_idx = torch.zeros((w.shape[0] * 8 * 2,), dtype = torch.short, device = w.device)
-    x_map = torch.zeros_like(g_idx)
-
-    q4v2_sequential(w, g_idx, seq_g_idx, x_map, num_groups)
-
-    return seq_g_idx, x_map
 
 
 # Llama MLP, compute: (SiLU(x @ gate_proj) * (x @ up_proj)) @ down_proj
@@ -209,33 +172,3 @@ def ext_rep_penalty_mask_cpu(vocab_size, sequence, penalty_max, sustain, decay):
     rep_mask = torch.empty(vocab_size, dtype = torch.float32)
     rep_penalty(sequence, rep_mask, penalty_max, sustain, decay)
     return rep_mask
-
-
-# Backpropagation still untested. Must be very broken at this point
-
-class ExAutogradMatmul4bitCuda(torch.autograd.Function):
-
-    # TODO: Test backpropagattion
-
-    @staticmethod
-    @custom_fwd(cast_inputs = torch.float16)  # cast_inputs is not recommended in the docs?
-    def forward(ctx, x, qweight, scales, zeros, g_idx, bits, maxq):
-        raise ValueError("Not implemented yet")
-        ctx.save_for_backward(qweight, scales, zeros, g_idx)
-        # if g_idx is None: output = _matmul4bit_v1_recons(x, qweight, scales, zeros)
-        # else:
-        output = _matmul4bit_v2_recons(x, qweight, scales, zeros, g_idx)
-        output = output.clone()
-        return output
-
-    @staticmethod
-    @custom_bwd
-    def backward(ctx, grad_output):
-        raise ValueError("Not implemented yet")
-        qweight, scales, zeros, g_idx = ctx.saved_tensors
-        grad = None
-        if ctx.needs_input_grad[0]:
-        # if g_idx is None: grad = _matmul4bit_v1_recons(grad_output, qweight, scales, zeros, transpose = True)
-        # else:
-            grad = _matmul4bit_v2_recons(grad_output, qweight, scales, zeros, g_idx, transpose = True)
-        return grad, None, None, None, None, None, None

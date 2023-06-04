@@ -1,10 +1,9 @@
-#include "q4v2_matmul.cuh"
+#include "q4_matmul.cuh"
 #include "column_remap.cuh"
 #include "../util.cuh"
 #include "../matrix.cuh"
 #include "../cuda_compat.cuh"
 #include "../cuda_buffers.cuh"
-#include "half_matmul.cuh"
 
 // Block size
 
@@ -33,7 +32,6 @@ __global__ void q4v2_matmul_kernel
 
     int w_column = THREADS_X * blockIdx.x + threadIdx.x;
     int x_row = THREADS_Y * blockIdx.y + threadIdx.y;
-    int w_row = x_column;
 
     int iterations = (x_column_end - x_column) / 8;
 
@@ -52,10 +50,6 @@ __global__ void q4v2_matmul_kernel
         out_.set(x_row, w_column, {});
         __syncthreads();
     }
-
-    // Group for zeros and scales
-
-    int g_idx_idx = x_column * 2;
 
     // Loop over part of x row (and w column)
 
@@ -97,13 +91,6 @@ __global__ void q4v2_matmul_kernel
 }
 
 // Compute y = x @ w
-//
-// Shape of x is [height, dim], dtype = half
-// Shape of w is [dim, width], dtype = q4 (packed columns)
-// Output shape is [height, width], dtyle = half
-//
-// Shape of w_scales is [height / groupsize, width], dtype = q4 (packed rows)
-// Shape of w_zeros is [height / groupsize, width], dtype = half
 
 void q4_matmul_cuda
 (

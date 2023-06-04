@@ -53,7 +53,7 @@ __global__ void rope_cuda_kernel
     }
 }
 
-cudaError_t rope_cuda
+void rope_cuda
 (
     half* x,
     const half* sin,
@@ -64,8 +64,6 @@ cudaError_t rope_cuda
     const int past_len
 )
 {
-    cudaError_t _cuda_err = cudaSuccess;
-
     dim3 threads(THREADS_X, THREADS_Y, 1);
 
     dim3 blocks
@@ -76,6 +74,4 @@ cudaError_t rope_cuda
     );
 
     rope_cuda_kernel<<<blocks, threads>>>(x, sin, cos, rows, head_dim, num_heads, past_len);
-
-return _cuda_err;
 }

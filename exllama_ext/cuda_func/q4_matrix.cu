@@ -2,7 +2,6 @@
 #include <vector>
 #include "../util.cuh"
 #include "../matrix.cuh"
-#include "q4v2_recons.cuh"
 
 using namespace std;
 

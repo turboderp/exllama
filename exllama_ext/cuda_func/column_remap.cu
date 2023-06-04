@@ -38,7 +38,7 @@ __global__ void column_remap_kernel
 //
 // perform x -> seq_x such that seq_x @ seq_w == x @ w
 
-cudaError_t column_remap_cuda
+void column_remap_cuda
 (
     const half* x,
     half* x_new,
@@ -47,8 +47,6 @@ cudaError_t column_remap_cuda
     const uint32_t* x_map
 )
 {
-    cudaError_t _cuda_err = cudaSuccess;
-
     dim3 threads(SHUF_BLOCKSIZE_X, 1, 1);
 
     dim3 blocks
@@ -59,11 +57,4 @@ cudaError_t column_remap_cuda
     );
 
     column_remap_kernel<<<blocks, threads>>>(x, x_new, x_width, x_height, x_map);
-
-//     cudaDeviceSynchronize();
-//     _cuda_check(cudaGetLastError());
-//
-// _cuda_fail:
-
-    return _cuda_err;
 }

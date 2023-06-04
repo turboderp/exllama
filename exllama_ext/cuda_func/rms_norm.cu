@@ -79,7 +79,7 @@ __global__ void rms_norm_kernel
 //
 // works in-place if x == out
 
-cudaError_t rms_norm_cuda
+void rms_norm_cuda
 (
     half* x,
     const half* w,
@@ -90,8 +90,6 @@ cudaError_t rms_norm_cuda
     const int device_index
 )
 {
-    cudaError_t _cuda_err = cudaSuccess;
-
     CudaBuffers* buffers = get_buffers(device_index);
     float* temp = buffers->temp_rms_norm;
     cudaMemsetAsync(temp, 0, rows * sizeof(float));
@@ -109,10 +107,4 @@ cudaError_t rms_norm_cuda
 
     rms_norm_row_product_kernel<<<blocks, threads>>>(x, temp, rows, dim);
     rms_norm_kernel<<<blocks, threads>>>(x, w, out, temp, epsilon, r_dim, rows, dim);
-
-//_cuda_fail:
-
-    //if (scratch) cudaFree(scratch);
-
-    return _cuda_err;
 }

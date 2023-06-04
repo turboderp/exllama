@@ -89,6 +89,7 @@ class ExLlamaConfig:
         # Tuning
 
         self.matmul_recons_thd = 8
+        self.fused_mlp_thd = 8
 
     # Parse and set list of GPU VRAM allocations
 
@@ -818,8 +819,8 @@ class ExLlama(nn.Module):
             self.buffers.append(device_buffers)
 
             temp_state = torch.zeros((config.max_seq_len, config.intermediate_size), dtype = torch.float16, device = dev)
-            temp_mlp = torch.zeros((config.hidden_size, config.intermediate_size), dtype = torch.float16, device = dev)  # TODO: Might not be needed
-            temp_rms_norm = torch.zeros((config.max_seq_len), dtype = torch.float32, device = dev)
+            temp_mlp = torch.zeros((config.fused_mlp_thd * 2, config.intermediate_size), dtype = torch.float16, device = dev)
+            temp_rms_norm = torch.zeros((1, config.max_seq_len), dtype = torch.float32, device = dev)
             temp_dq = torch.zeros((1, max_dq_buffer_size), dtype = torch.float16, device = dev)
 
             device_buffers["temp_state"] = temp_state

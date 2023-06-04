@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <ATen/cuda/CUDAContext.h>
 
-cudaError_t half_matmul_cuda
+void half_matmul_cuda
 (
     const half* x,
     const half* w,
@@ -16,7 +16,7 @@ cudaError_t half_matmul_cuda
     const int width
 );
 
-cudaError_t half_matmul_cublas_cuda
+void half_matmul_cublas_cuda
 (
     const half* x,
     const half* w,

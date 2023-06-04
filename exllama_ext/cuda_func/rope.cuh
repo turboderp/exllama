@@ -5,7 +5,7 @@
 #include <cuda_fp16.h>
 #include <cstdint>
 
-cudaError_t rope_cuda
+void rope_cuda
 (
     half* x,
     const half* sin,
