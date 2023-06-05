@@ -14,7 +14,7 @@ def add_args(parser):
     parser.add_argument("-gpfix", "--gpu_peer_fix", action = "store_true", help = "Prevent direct copies of data between GPUs")
 
     parser.add_argument("-mmrt", "--matmul_recons_thd", type = int, help = "No. rows at which to use reconstruction and cuBLAS for quant matmul. 0 = never, 1 = always", default = 8)
-    parser.add_argument("-fmt", "--fused_mlp_thd", type = int, help = "Maximum no. for which to use fused MLP. 0 = never", default = 2)
+    parser.add_argument("-fmt", "--fused_mlp_thd", type = int, help = "Maximum no. of rows for which to use fused MLP. 0 = never", default = 2)
     parser.add_argument("-sdpt", "--sdp_thd", type = int, help = "No. rows at which to switch to scaled_dot_product_attention. 0 = never, 1 = always", default = 8)
 
 
@@ -75,7 +75,7 @@ def make_config(args):
     config.gpu_peer_fix = args.gpu_peer_fix
 
     config.matmul_recons_thd = args.matmul_recons_thd
-    config.matmul_recons_thd = args.fused_mlp_thd
+    config.fused_mlp_thd = args.fused_mlp_thd
     config.sdp_thd = args.sdp_thd
 
     return config
