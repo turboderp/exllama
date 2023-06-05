@@ -118,25 +118,15 @@ def ext_q4_mlp(x,
                up_proj,
                down_proj):
 
-    outshape = x.shape
     x = x.view(-1, x.shape[-1])
-    out = torch.empty_like(x)
-
-    # out2 = torch.empty((x.shape[0], 11008), dtype = torch.float16, device = x.device)
-
-    # TODO: A second buffer for the down projection shouldn't be needed since multiplying in-place without zeroing the
-    # input buffer should have the same effect as adding the residual connection. Except the matmul goes crazy when the
-    # output buffer isn't initialized to zeros. Could be an fp16 rounding issue. (?)
 
     q4_mlp(x,
-           out,
+           x,
            rms_norm_weight,
            epsilon,
            gate_proj,
            up_proj,
            down_proj)
-
-    return out.view(outshape)
 
 
 # RMS norm: x = x * w / sqrt(row_mean(x * x) + epsilon)
