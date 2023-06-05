@@ -8,9 +8,7 @@
 const int THREADS_X = 32;       // Block size and thread count along columns in w and out
 const int THREADS_Y = 1;        // Block size and thread count along rows in x and out
 
-const bool USE_FUSED_REMAP = false;
-
-template<bool use_groupsize, bool use_x_map>
+template<bool use_half2, bool use_groupsize, bool use_x_map>
 __global__ void q4_matmul_kernel
 (
     const half* x,
@@ -47,7 +45,7 @@ __global__ void q4_matmul_kernel
 
     // Zero output
 
-//     if (!no_zero && blockIdx.z == 0 == 0)
+//     if (!no_zero && blockIdx.z == 0)
 //     {
 //         out_.set(x_row, w_column, {});
 //         __syncthreads();
@@ -55,7 +53,6 @@ __global__ void q4_matmul_kernel
 
     if (!no_zero && blockIdx.z == 0 && (threadIdx.x & 1) == 0)
     {
-        //out_.set(x_row, w_column, {});
         *((uint32_t*) out_.item_ptr(x_row, w_column)) = 0;
         __syncthreads();
     }
@@ -63,6 +60,7 @@ __global__ void q4_matmul_kernel
     // Loop over part of x row (and w column)
 
     half2 acc = {};
+    half acc_h = {};
 
     if constexpr (use_groupsize)
     {
@@ -71,47 +69,90 @@ __global__ void q4_matmul_kernel
 
         for (int k = x_column, group = x_column / groupsize; k < x_column + iterations * 8; )
         {
-            half2 w_scale = w_scales_.item_half2half2(group, w_column);
-            uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
+            if constexpr (use_half2)
+            {
+                half2 w_scale = w_scales_.item_half2half2(group, w_column);
+                uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
 
-            if constexpr (use_x_map)
-                acc = dot_product_8_x_map(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8, x_map);
+                if constexpr (use_x_map)
+                    acc = dot_product_8_x_map(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8, x_map);
+                else
+                    acc = dot_product_8(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8);
+
+                group++;
+                k += groupsize;
+            }
             else
-                acc = dot_product_8(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8);
+            {
+                half w_scale = w_scales_.item(group, w_column);
+                uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
 
-            group++;
-            k += groupsize;
+                if constexpr (use_x_map)
+                    acc_h = dot_product_8_x_map_h(acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8, x_map);
+                else
+                    acc_h = dot_product_8_h(acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8);
+
+                group++;
+                k += groupsize;
+            }
         }
     }
     else
     {
         // Otherwise assume groupsize is a multiple of 8, do 8 columns per iteration and trust the cache
 
-        for (int k = x_column; k < x_column + iterations * 8; )
+        if constexpr (use_half2)
         {
-            int group = k / groupsize;
-            half2 w_scale = w_scales_.item_half2half2(group, w_column);
-            uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
+            for (int k = x_column; k < x_column + iterations * 8; )
+            {
+                int group = k / groupsize;
+                half2 w_scale = w_scales_.item_half2half2(group, w_column);
+                uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
 
-            if constexpr (use_x_map)
-                acc = dot_product_8_x_map(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1, x_map);
-            else
-                acc = dot_product_8(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1);
+                if constexpr (use_x_map)
+                    acc = dot_product_8_x_map(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1, x_map);
+                else
+                    acc = dot_product_8(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1);
 
-            k += 8;
+                k += 8;
+            }
+        }
+        else
+        {
+            for (int k = x_column; k < x_column + iterations * 8; )
+            {
+                int group = k / groupsize;
+                half w_scale = w_scales_.item(group, w_column);
+                uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
+
+                if constexpr (use_x_map)
+                    acc_h = dot_product_8_x_map_h(acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1, x_map);
+                else
+                    acc_h = dot_product_8_h(acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1);
+
+                k += 8;
+            }
         }
     }
 
     // Add to block result
 
-    half result = __hadd(acc.x, acc.y);
-    atomicAdd(out_.item_ptr(x_row, w_column), result);
+    if constexpr (use_half2)
+    {
+        half result = __hadd(acc.x, acc.y);
+        atomicAdd(out_.item_ptr(x_row, w_column), result);
+    }
+    else
+    {
+        atomicAdd(out_.item_ptr(x_row, w_column), acc_h);
+    }
 }
 
 // Compute y = x @ w
 
 void q4_matmul_cuda
 (
+    ExLlamaTuning* tuningParams,
     const half* x,
     const int x_height,
     const Q4Matrix* w,
@@ -127,7 +168,7 @@ void q4_matmul_cuda
 
     uint32_t* x_map = w->cuda_x_map;
     const half* x_mapped = x;
-    if (x_map && !USE_FUSED_REMAP)
+    if (x_map && !tuningParams->matmul_fused_remap)
     {
         CudaBuffers* buffers = get_buffers(w->device);
         column_remap_cuda(x, buffers->temp_state, x_height, dim, w->cuda_x_map);
@@ -155,21 +196,37 @@ void q4_matmul_cuda
         (dim + block_size_z - 1) / block_size_z
     );
 
-    if (block_size_z % w->groupsize == 0)
+    if (tuningParams->matmul_no_half2)
     {
-        if (x_map) q4_matmul_kernel <true, true>  <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
-        else       q4_matmul_kernel <true, false> <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, NULL, no_zero);
+        if (block_size_z % w->groupsize == 0)
+        {
+            if (x_map) q4_matmul_kernel <false, true, true>  <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
+            else       q4_matmul_kernel <false, true, false> <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, NULL, no_zero);
+        }
+        else
+        {
+            if (x_map) q4_matmul_kernel <false, false, true>  <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
+            else       q4_matmul_kernel <false, false, false> <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, NULL, no_zero);
+        }
     }
     else
     {
-        if (x_map) q4_matmul_kernel <false, true>  <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
-        else       q4_matmul_kernel <false, false> <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, NULL, no_zero);
+        if (block_size_z % w->groupsize == 0)
+        {
+            if (x_map) q4_matmul_kernel <true,  true, true>  <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
+            else       q4_matmul_kernel <true,  true, false> <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, NULL, no_zero);
+        }
+        else
+        {
+            if (x_map) q4_matmul_kernel <true,  false, true>  <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
+            else       q4_matmul_kernel <true,  false, false> <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, NULL, no_zero);
+        }
     }
-
 }
 
 void q4_matmul_recons_cuda
 (
+    ExLlamaTuning* tuningParams,
     const half* x,
     const int x_height,
     Q4Matrix* w,
@@ -195,5 +252,6 @@ void q4_matmul_recons_cuda
 
     const half alpha = __float2half(1.0f);
     const half beta = __float2half(0.0f);
+
     cublasHgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, width, height, dim, &alpha, buffers->temp_dq, width, x_mapped, dim, &beta, out, width);
 }

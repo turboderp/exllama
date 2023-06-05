@@ -89,15 +89,22 @@ void set_tuning_params
     int matmul_recons_thd,
     int fused_mlp_thd,
     int sdp_thd,
+    bool matmul_fused_remap,
     bool rmsnorm_no_half2,
-    bool rope_no_half2
+    bool rope_no_half2,
+    bool matmul_no_half2,
+    bool silu_no_half2
 )
 {
     tuningParams.matmul_recons_thd = matmul_recons_thd;
     tuningParams.fused_mlp_thd = fused_mlp_thd;
     tuningParams.sdp_thd = sdp_thd;
+    tuningParams.matmul_fused_remap = matmul_fused_remap;
+
     tuningParams.rmsnorm_no_half2 = rmsnorm_no_half2;
     tuningParams.rope_no_half2 = rope_no_half2;
+    tuningParams.matmul_no_half2 = matmul_no_half2;
+    tuningParams.silu_no_half2 = silu_no_half2;
 }
 
 // Prepare buffers for forward pass
@@ -192,6 +199,7 @@ void q4_matmul
     {
         q4_matmul_cuda
         (
+            &tuningParams,
             (half*) x.data_ptr(),
             x_height,
             wm,
@@ -202,6 +210,7 @@ void q4_matmul
     {
         q4_matmul_recons_cuda
         (
+            &tuningParams,
             (half*) x.data_ptr(),
             x_height,
             wm,

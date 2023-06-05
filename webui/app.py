@@ -124,7 +124,9 @@ parser = argparse.ArgumentParser(description="Simple web-based chatbot for ExLla
 
 model_init.add_args(parser)
 args = parser.parse_args()
+model_init.post_parse(args)
 model_init.get_model_files(args)
+
 model_init.print_options(args)
 config = model_init.make_config(args)
 

@@ -76,8 +76,11 @@ class ExLlamaConfig:
         self.matmul_recons_thd = 8
         self.fused_mlp_thd = 2
         self.sdp_thd = 8
+        self.matmul_fused_remap = False
         self.rmsnorm_no_half2 = False
         self.rope_no_half2 = False
+        self.matmul_no_half2 = False
+        self.silu_no_half2 = False
 
     # Copy tuning params to C++ extension
 
@@ -86,8 +89,11 @@ class ExLlamaConfig:
         cuda_ext.exllama_ext.set_tuning_params(self.matmul_recons_thd,
                                                self.fused_mlp_thd,
                                                self.sdp_thd,
+                                               self.matmul_fused_remap,
                                                self.rmsnorm_no_half2,
-                                               self.rope_no_half2)
+                                               self.rope_no_half2,
+                                               self.matmul_no_half2,
+                                               self.silu_no_half2)
 
     # Parse and set list of GPU VRAM allocations
 

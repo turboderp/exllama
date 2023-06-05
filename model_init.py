@@ -16,8 +16,23 @@ def add_args(parser):
     parser.add_argument("-mmrt", "--matmul_recons_thd", type = int, help = "No. rows at which to use reconstruction and cuBLAS for quant matmul. 0 = never, 1 = always", default = 8)
     parser.add_argument("-fmt", "--fused_mlp_thd", type = int, help = "Maximum no. of rows for which to use fused MLP. 0 = never", default = 2)
     parser.add_argument("-sdpt", "--sdp_thd", type = int, help = "No. rows at which to switch to scaled_dot_product_attention. 0 = never, 1 = always", default = 8)
+    parser.add_argument("-mmfr", "--matmul_fused_remap", action = "store_true", help = "Fuse column remapping in Q4 matmul kernel")
+
     parser.add_argument("-rnnh2", "--rmsnorm_no_half2", action = "store_true", help = "Don't use half2 in RMS norm kernel")
     parser.add_argument("-rpnh2", "--rope_no_half2", action = "store_true", help = "Don't use half2 in RoPE kernel")
+    parser.add_argument("-mmnh2", "--matmul_no_half2", action = "store_true", help = "Don't use half2 in Q4 matmul kernel")
+    parser.add_argument("-snh2", "--silu_no_half2", action = "store_true", help = "Don't use half2 in SiLU kernel")
+    parser.add_argument("-nh2", "--no_half2", action = "store_true", help = "(All of the above) disable half2 in all kernela")
+
+
+def post_parse(args):
+
+    if args.no_half2:
+        args.rmsnorm_no_half2 = True
+        args.rope_no_half2 = True
+        args.matmul_no_half2 = True
+        args.silu_no_half2 = True
+
 
 # Get model files from --directory
 
@@ -60,8 +75,11 @@ def print_options(args, extra_options = None):
     print(f" -- --matmul_recons_thd: {args.matmul_recons_thd}" + (" (disabled)" if args.matmul_recons_thd == 0 else ""))
     print(f" -- --fused_mlp_thd: {args.fused_mlp_thd}" + (" (disabled)" if args.fused_mlp_thd == 0 else ""))
     print(f" -- --sdp_thd: {args.sdp_thd}" + (" (disabled)" if args.sdp_thd == 0 else ""))
+    if args.matmul_fused_remap: print(f" -- --matmul_fused_remap")
     if args.rmsnorm_no_half2: print(f" -- --rmsnorm_no_half2")
     if args.rope_no_half2: print(f" -- --rope_no_half2")
+    if args.matmul_no_half2: print(f" -- --matmul_no_half2")
+    if args.silu_no_half2: print(f" -- --silu_no_half2")
 
     print(f" -- Options: {print_opts}")
 
@@ -80,8 +98,12 @@ def make_config(args):
     config.matmul_recons_thd = args.matmul_recons_thd
     config.fused_mlp_thd = args.fused_mlp_thd
     config.sdp_thd = args.sdp_thd
+    config.matmul_fused_remap = args.matmul_fused_remap
+
     config.rmsnorm_no_half2 = args.rmsnorm_no_half2
     config.rope_no_half2 = args.rope_no_half2
+    config.matmul_no_half2 = args.matmul_no_half2
+    config.silu_no_half2 = args.silu_no_half2
 
     return config
 

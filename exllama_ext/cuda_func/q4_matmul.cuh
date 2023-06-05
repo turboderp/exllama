@@ -8,9 +8,11 @@
 #include <ATen/cuda/CUDAContext.h>
 
 #include "q4_matrix.cuh"
+#include "../tuning.h"
 
 void q4_matmul_cuda
 (
+    ExLlamaTuning* tuningParams,
     const half* x,
     const int x_height,
     const Q4Matrix* w,
@@ -20,6 +22,7 @@ void q4_matmul_cuda
 
 void q4_matmul_recons_cuda
 (
+    ExLlamaTuning* tuningParams,
     const half* x,
     const int x_height,
     Q4Matrix* w,

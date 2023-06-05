@@ -31,6 +31,7 @@ __device__ __forceinline__ half2 silu(half2 x)
     return result;
 }
 
+template <bool use_half2>
 __global__ void silu_mul_cuda_kernel
 (
     half* x,
@@ -42,21 +43,36 @@ __global__ void silu_mul_cuda_kernel
     MatrixView_half_rw x_(x, height, width);
     MatrixView_half y_(y, height, width);
 
-    int column = (THREADS_X * blockIdx.x + threadIdx.x) * 2;
+    int column = (THREADS_X * blockIdx.x + threadIdx.x); if constexpr (use_half2) column *= 2;
     int row = THREADS_Y * blockIdx.y + threadIdx.y;
     if (row >= height) return;
 
     // silu(x) * y
 
-    half2 one = __half2half2(__float2half(1.0f));
+    if constexpr (use_half2)
+    {
+        half2 one = __half2half2(__float2half(1.0f));
 
-    half2 x_item = x_.item_half2(row, column);
-    half2 y_item = y_.item_half2(row, column);
+        half2 x_item = x_.item_half2(row, column);
+        half2 y_item = y_.item_half2(row, column);
 
-    x_item = silu(x_item);
-    x_item = __hmul2(x_item, y_item);
+        x_item = silu(x_item);
+        x_item = __hmul2(x_item, y_item);
 
-    x_.set_half2(row, column, x_item);
+        x_.set_half2(row, column, x_item);
+    }
+    else
+    {
+        half one = __float2half(1.0f);
+
+        half x_item = x_.item(row, column);
+        half y_item = y_.item(row, column);
+
+        x_item = silu(x_item);
+        x_item = __hmul(x_item, y_item);
+
+        x_.set(row, column, x_item);
+    }
 }
 
 void q4_mlp_cuda
@@ -83,8 +99,8 @@ void q4_mlp_cuda
     // temp_mlp[0] = temp_x @ gate
     // temp_mlp[1] = temp_x @ up
 
-    q4_matmul_cuda(temp_x, height, gate, buffers->temp_mlp);
-    q4_matmul_cuda(temp_x, height, up, buffers->temp_mlp + height * up->width);
+    q4_matmul_cuda(tuningParams, temp_x, height, gate, buffers->temp_mlp);
+    q4_matmul_cuda(tuningParams, temp_x, height, up, buffers->temp_mlp + height * up->width);
 
     // temp_mlp[0] = silu(temp_mlp[0]) * temp_mlp[1]
 
@@ -92,22 +108,35 @@ void q4_mlp_cuda
 
     dim3 blocks
     (
-        (up->width + THREADS_X - 1) / THREADS_X / 2,
+        (up->width + THREADS_X - 1) / THREADS_X / (tuningParams->silu_no_half2 ? 1 : 2),
         (height + THREADS_Y - 1) / THREADS_Y,
         1
     );
 
-    silu_mul_cuda_kernel<<<blocks, threads>>>
-    (
-        buffers->temp_mlp,
-        buffers->temp_mlp + height * up->width,
-        height,
-        up->width
-    );
+    if (tuningParams->silu_no_half2)
+    {
+        silu_mul_cuda_kernel<false><<<blocks, threads>>>
+        (
+            buffers->temp_mlp,
+            buffers->temp_mlp + height * up->width,
+            height,
+            up->width
+        );
+    }
+    else
+    {
+        silu_mul_cuda_kernel<true><<<blocks, threads>>>
+        (
+            buffers->temp_mlp,
+            buffers->temp_mlp + height * up->width,
+            height,
+            up->width
+        );
+    }
 
     // x += temp1 @ down (implicitly add the residual connection by not zeroing the output in the matmul)
 
-    q4_matmul_cuda(buffers->temp_mlp, height, down, x, true);
+    q4_matmul_cuda(tuningParams, buffers->temp_mlp, height, down, x, true);
 
     // Reset the temp buffer after use so it's always zeros.
     //cudaMemsetAsync(buffers->temp_mlp, 0, 2 * height * up->width * sizeof(half));

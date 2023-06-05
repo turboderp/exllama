@@ -87,7 +87,7 @@ parser.add_argument("-v", "--validate", action = "store_true", help = "Quick per
 parser.add_argument("-dbg", "--debug", action = "store_true", help = "Run debug pass")
 
 args = parser.parse_args()
-
+model_init.post_parse(args)
 model_init.get_model_files(args)
 
 # Feedback
