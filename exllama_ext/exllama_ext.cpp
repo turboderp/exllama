@@ -89,13 +89,15 @@ void set_tuning_params
     int matmul_recons_thd,
     int fused_mlp_thd,
     int sdp_thd,
-    bool rmsnorm_no_half2
+    bool rmsnorm_no_half2,
+    bool rope_no_half2
 )
 {
     tuningParams.matmul_recons_thd = matmul_recons_thd;
     tuningParams.fused_mlp_thd = fused_mlp_thd;
     tuningParams.sdp_thd = sdp_thd;
     tuningParams.rmsnorm_no_half2 = rmsnorm_no_half2;
+    tuningParams.rope_no_half2 = rope_no_half2;
 }
 
 // Prepare buffers for forward pass
@@ -405,6 +407,7 @@ void rope_
 
     rope_cuda
     (
+        &tuningParams,
         (half*) x.data_ptr(),
         (half*) sin.data_ptr(),
         (half*) cos.data_ptr(),

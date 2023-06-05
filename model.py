@@ -77,6 +77,7 @@ class ExLlamaConfig:
         self.fused_mlp_thd = 2
         self.sdp_thd = 8
         self.rmsnorm_no_half2 = False
+        self.rope_no_half2 = False
 
     # Copy tuning params to C++ extension
 
@@ -85,7 +86,8 @@ class ExLlamaConfig:
         cuda_ext.exllama_ext.set_tuning_params(self.matmul_recons_thd,
                                                self.fused_mlp_thd,
                                                self.sdp_thd,
-                                               self.rmsnorm_no_half2)
+                                               self.rmsnorm_no_half2,
+                                               self.rope_no_half2)
 
     # Parse and set list of GPU VRAM allocations
 
@@ -262,8 +264,8 @@ class ExLlamaAttention(nn.Module):
         query_states = self.q_proj.forward(hidden_states)
         key_states = self.k_proj.forward(hidden_states)
 
-        cuda_ext.ext_rope_(query_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
-        cuda_ext.ext_rope_(key_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
+        cuda_ext.exllama_ext.rope_(query_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
+        cuda_ext.exllama_ext.rope_(key_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
 
         query_states = query_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
         key_states = key_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
@@ -774,11 +776,11 @@ class ExLlama(nn.Module):
             device_buffers["temp_rms_norm"] = temp_rms_norm
             device_buffers["temp_dq"] = temp_dq
 
-            cuda_ext.ext_prepare_cuda_buffers(torch.device(dev),
-                                              temp_state,
-                                              temp_mlp,
-                                              temp_rms_norm,
-                                              temp_dq)
+            cuda_ext.exllama_ext.prepare_buffers(torch.device(dev),
+                                                 temp_state,
+                                                 temp_mlp,
+                                                 temp_rms_norm,
+                                                 temp_dq)
 
 
     def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False):

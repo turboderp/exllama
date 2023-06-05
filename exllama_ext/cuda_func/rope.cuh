@@ -5,8 +5,11 @@
 #include <cuda_fp16.h>
 #include <cstdint>
 
+#include "../tuning.h"
+
 void rope_cuda
 (
+    ExLlamaTuning* tuningParams,
     half* x,
     const half* sin,
     const half* cos,

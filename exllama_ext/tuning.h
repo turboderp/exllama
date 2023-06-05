@@ -8,6 +8,7 @@ struct ExLlamaTuning
     int sdp_thd;
 
     bool rmsnorm_no_half2;
+    bool rope_no_half2;
 };
 
 #endif
