@@ -76,6 +76,16 @@ class ExLlamaConfig:
         self.matmul_recons_thd = 8
         self.fused_mlp_thd = 2
         self.sdp_thd = 8
+        self.rmsnorm_no_half2 = False
+
+    # Copy tuning params to C++ extension
+
+    def set_tuning_params(self):
+
+        cuda_ext.exllama_ext.set_tuning_params(self.matmul_recons_thd,
+                                               self.fused_mlp_thd,
+                                               self.sdp_thd,
+                                               self.rmsnorm_no_half2)
 
     # Parse and set list of GPU VRAM allocations
 
@@ -148,37 +158,17 @@ class Ex4bitLinear(nn.Module):
             self.config.act_order = True
 
 
-    def quant_args(self):
-
-        return {"qweight": self.qweight,
-                "scales": self.scales,
-                "zeros": self.qzeros,
-                "seq_g_idx": self.seq_g_idx,
-                "x_map": self.x_map}
-
-
     def forward(self, x):
 
-        out = cuda_ext.ext_q4_matmul(x, self.q4, self.width, self.config.matmul_recons_thd)
+        out = cuda_ext.ext_q4_matmul(x, self.q4, self.width)
         if self.bias is not None: out.add_(self.bias)
         return out
-
-
-    def dump(self, filename):
-
-        _dump_tensor(self.qweight, filename + ".qweight")
-        _dump_tensor(self.scales, filename + ".scales")
-        _dump_tensor(self.qzeros, filename + ".qzeros")
-        _dump_tensor(self.seq_g_idx, filename + ".seq_g_idx")
-        _dump_tensor(self.x_map, filename + ".x_map")
-        _dump_tensor(self.bias, filename + ".bias")
 
 
     def debug(self, name):
 
         print(f" !!  - {name}: {self.qweight.device} ", end = "")
         print(f"[Q", end = "")
-        if self.seq_g_idx is not None: print(f",seq_g_idx", end = "")
         if self.x_map is not None: print(f",x_map", end = "")
         if self.bias is not None: print(f",bias", end = "")
         print(f"]", end = "")
@@ -217,14 +207,6 @@ class ExLlamaMLP(nn.Module):
         y = self.down_proj.forward(y)
 
         return y
-
-        # self.gate_proj.dump("cuda_test/mlp/gate_proj")
-        # self.up_proj.dump("cuda_test/mlp/up_proj")
-        # self.down_proj.dump("cuda_test/mlp/down_proj")
-        # _dump_tensor(x, "cuda_test/mlp/test_mlp_x")
-        # _dump_tensor(y, "cuda_test/mlp/test_mlp_x_gated")
-        # _dump_tensor(x, "cuda_test/mlp/test_mlp_x_done")
-        # sys.exit()
 
 
 # RMS Layer norm.
@@ -612,6 +594,10 @@ class ExLlama(nn.Module):
             print(f" !! Available CUDA devices:")
             for i in range(device_count):
                 print(f'" !!  - cuda:{i}: {torch.cuda.get_device_name(i)}')
+
+        # Copy tuning parameters to C++ extension
+
+        self.config.set_tuning_params()
 
         # Load model weights
 

@@ -47,9 +47,16 @@ __global__ void q4_matmul_kernel
 
     // Zero output
 
-    if (!no_zero && blockIdx.z == 0)
+//     if (!no_zero && blockIdx.z == 0 == 0)
+//     {
+//         out_.set(x_row, w_column, {});
+//         __syncthreads();
+//     }
+
+    if (!no_zero && blockIdx.z == 0 && (threadIdx.x & 1) == 0)
     {
-        out_.set(x_row, w_column, {});
+        //out_.set(x_row, w_column, {});
+        *((uint32_t*) out_.item_ptr(x_row, w_column)) = 0;
         __syncthreads();
     }
 

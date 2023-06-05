@@ -5,12 +5,13 @@
 #include <cuda_fp16.h>
 #include <cstdint>
 
+#include "../tuning.h"
 #include "q4_matrix.cuh"
 
 void q4_mlp_cuda
 (
+    ExLlamaTuning* tuningParams,
     half* x,                        // shape == (height, dim)
-    half* out,                      // shape == (height, dim)
     const half* rms_norm_weight,    // shape == (x.shape[1],) == (dim,)
     float epsilon,
     Q4Matrix* gate,
