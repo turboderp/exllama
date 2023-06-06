@@ -16,33 +16,42 @@ is subject to change.
 I am developing on an RTX 4090 and an RTX 3090-Ti. Both cards support the CUDA kernel, but there might be
 incompatibilities with older cards. I have no way of testing that right now.
 
-I have no idea if this works on Windows/WSL, but feel free to try and contribute/give feedback.
-
 ## Dependencies
 
 This list might be incomplete:
 
-* `torch` tested on 2.1.0 (nightly) with cu118, might work with older CUDA versions also
+* `torch` tested on 2.1.0 (nightly) with cu118
 * `safetensors` 0.3.1
 * `sentencepiece`
 * `ninja`
 * `flask` (only for the web UI)
 
-## How to
-
-There is no installer or package at the moment, but try this:
+## Linux/WSL prerequisites
 
     pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu118
-    
+
+## Windows prerequisites
+
+To run on Windows (without WSL):
+
+1. Install [MSVC 2022](https://visualstudio.microsoft.com/downloads/). You can choose to install the whole `Visual 
+Studio 2022` IDE, or alternatively just the `Build Tools for Visual Studio 2022` package (make sure `Desktop
+development with C++` is ticked in the installer), it doesn't really matter which.
+2. Install the appropriate version of [PyTorch](https://pytorch.org/get-started/locally/), choosing one of the CUDA
+versions. I am developing on the nightly build, but the stable version should also work.
+3. Install CUDA Toolkit, ([11.7](https://developer.nvidia.com/cuda-11-7-0-download-archive) and 
+[11.8](https://developer.nvidia.com/cuda-11-8-0-download-archive) both seem to work, just make sure to match PyTorch's
+Compute Platform version).
+4. For best performance, enable Hardware Accelerated GPU Scheduling.
+
+## How to
+
+Install dependencies, clone repo and run benchmark:
+
     pip install safetensors sentencepiece ninja
 
     git clone https://github.com/turboderp/exllama
     cd exllama
-
-    python test_benchmark_inference.py -t <path_to_tokenizer.model> -c <path_to_config.json> \ 
-      -m <path_to_model.safetensors> -p -ppl
-
-Alternatively, just specify a directory containing `tokenizer.model`, `config.json` and a single `.safetensors` file: 
 
     python test_benchmark_inference.py -d <path_to_model_files> -p -ppl
 
@@ -50,12 +59,9 @@ The CUDA extension is loaded at runtime so there's no need to install it separat
 run and cached to `~/.cache/torch_extensions/` which could take a little while. If nothing happens at first, give it
 a minute to compile.
 
-Chatbot examples:
+Chatbot example:
 
     python test_chatbot.py -d <path_to_model_files> -un "Jeff" -p prompt_chatbort.txt
-
-    python test_chatbot.py -d <path_to_model_files> -un "Maxine" -p prompt_assistant.txt -nnl \
-      -temp 1.00 -topp 0.95 -beams 5 -beamlen 20
 
 ## Web UI
 
@@ -168,3 +174,6 @@ features, sessions, and more. I'm going to build it out with support for instruc
 
 **2024-06-04**: Refactored a whole bunch to move more of the work into the extension, setting up for more tuning
 options to come soon and eventually auto tuning. Also optimized a little, for about a 5% speedup.
+
+**2024-06-06**: Some minor optimizations. Also it should now compile the extension more easily and run more seamlessly
+on Windows.
