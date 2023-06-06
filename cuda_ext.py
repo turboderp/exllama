@@ -54,9 +54,8 @@ exllama_ext = load(
         os.path.join(library_dir, "exllama_ext/cpu_func/rep_penalty.cpp")
     ],
     verbose = verbose,
-    extra_ldflags = ['cublas.lib'] if os.name == "nt" else [],
+    extra_ldflags = ["cublas.lib"] if windows else []
     # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
-    extra_ldflags=["cublas.lib"] if windows else [],
 )
 
 # from exllama_ext import set_tuning_params
