@@ -121,6 +121,7 @@ def api_userinput():
 # Load the model
 
 parser = argparse.ArgumentParser(description="Simple web-based chatbot for ExLlama")
+parser.add_argument("-host", "--host", type = str, help = "IP:PORT eg, 0.0.0.0:7862", default = "localhost:5000")
 
 model_init.add_args(parser)
 args = parser.parse_args()
@@ -145,5 +146,10 @@ session = get_initial_session()
 
 # Start the web server
 
-Timer(1, lambda: webbrowser.open('http://127.0.0.1:5000/')).start()
-app.run()
+machine = args.host
+host, port = machine.split(":")
+
+if host == "localhost":
+    Timer(1, lambda: webbrowser.open(f'http://{machine}/')).start()
+
+app.run(host = host, port = port)
