@@ -6,6 +6,12 @@
 #include <cstdint>
 #include <ATen/cuda/CUDAContext.h>
 
+// Workaround for hipify_python using rocblas instead of hipblas.
+#if defined(USE_ROCM)
+#include <hipblas/hipblas.h>
+#define rocblas_handle hipblasHandle_t
+#endif
+
 void half_matmul_cuda
 (
     const half* x,
