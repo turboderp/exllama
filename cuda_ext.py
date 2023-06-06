@@ -10,6 +10,35 @@ library_dir = os.path.dirname(os.path.abspath(__file__))
 extension_name = "exllama_ext"
 verbose = False
 
+# another kludge to get things compiling in Windows
+windows = os.name == "nt"
+if windows:
+    def find_msvc():
+        for msvc_dir in [a + "\\Microsoft Visual Studio\\" + b + "\\" + c + "\\VC\Tools\\MSVC\\"
+            for b in ["2022", "2019", "2017"]
+            for a in [os.environ["ProgramW6432"], os.environ["ProgramFiles(x86)"]]
+            for c in ["BuildTools", "Community", "Professional", "Enterprise", "Preview"]
+        ]:
+            if not os.path.exists(msvc_dir):
+                continue
+            versions = sorted(os.listdir(msvc_dir), reverse=True)
+            for version in versions:
+                compiler_dir = msvc_dir + version + "\\bin\\Hostx64\\x64"
+                if os.path.exists(compiler_dir) and os.path.exists(compiler_dir + "\\cl.exe"):
+                    return compiler_dir
+        return None
+    
+    import subprocess
+    try:
+        subprocess.check_output(["where", "cl"])
+    except subprocess.CalledProcessError as e:
+        cl_path = find_msvc()
+        if cl_path:
+            print("Injected compiler path:", cl_path)
+            os.environ["path"] += ";" + cl_path
+        else:
+            print("Unable to find cl.exe; compilation will probably fail.")
+
 exllama_ext = load(
     name = extension_name,
     sources = [
@@ -27,6 +56,7 @@ exllama_ext = load(
     verbose = verbose,
     extra_ldflags = ['cublas.lib'] if os.name == "nt" else [],
     # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
+    extra_ldflags=["cublas.lib"] if windows else [],
 )
 
 # from exllama_ext import set_tuning_params
