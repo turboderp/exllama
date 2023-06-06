@@ -4,6 +4,9 @@
 #include "../matrix.cuh"
 #include "../cuda_compat.cuh"
 #include "../cuda_buffers.cuh"
+#if defined(USE_ROCM)
+#include "../hip_compat.cuh"
+#endif
 
 const int THREADS_X = 32;       // Block size and thread count along columns in w and out
 const int THREADS_Y = 1;        // Block size and thread count along rows in x and out

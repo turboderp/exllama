@@ -4,6 +4,9 @@
 #include "../cuda_buffers.cuh"
 #include "../util.cuh"
 #include "../matrix.cuh"
+#if defined(USE_ROCM)
+#include "../hip_compat.cuh"
+#endif
 
 const int THREADS_X = 32;
 const int THREADS_Y = 4;

@@ -53,8 +53,10 @@ exllama_ext = load(
         os.path.join(library_dir, "exllama_ext/cuda_func/q4_mlp.cu"),
         os.path.join(library_dir, "exllama_ext/cpu_func/rep_penalty.cpp")
     ],
+    extra_include_paths = [os.path.join(library_dir, "exllama_ext")],
     verbose = verbose,
-    extra_ldflags = ["cublas.lib"] if windows else []
+    extra_ldflags = ["cublas.lib"] if windows else [],
+    extra_cuda_cflags = ["-U__HIP_NO_HALF_CONVERSIONS__"] if torch.version.hip else []
     # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
 )
 
