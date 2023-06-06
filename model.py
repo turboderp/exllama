@@ -299,7 +299,7 @@ class ExLlamaAttention(nn.Module):
 
             attn_weights = torch.matmul(query_states, key_states.transpose(2, 3))
             attn_weights /= math.sqrt(self.config.head_dim)
-            if buffer.attn_mask.shape[2] > 1: attn_weights = attn_weights + buffer.attn_mask
+            if buffer.attn_mask is not None and buffer.attn_mask.shape[2] > 1: attn_weights = attn_weights + buffer.attn_mask
             # attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min))
             attn_weights = nn.functional.softmax(attn_weights, dim = -1, dtype = torch.float16).to(query_states.dtype)
             attn_output = torch.matmul(attn_weights, value_states)
@@ -311,10 +311,9 @@ class ExLlamaAttention(nn.Module):
 
             # Torch's SDP attention has a built-in causal mask feature which we can use only when there is no past, i.e.
             # it can only apply a square attention mask. It saves quite a bit of VRAM but in practice Torch seems to use
-            # the same amount of memory at peak anyway. It's also a little slower, and it gives misleading benchmarks
-            # since it doesn't actually apply in the case we're interested in (autoregression.) Disabled for now.
+            # the same amount of memory at peak anyway.
 
-            if True or past_len > 0:
+            if past_len > 0:
                 attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask = buffer.attn_mask, is_causal = False)
             else:
                 attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask = None, is_causal = True)
@@ -543,7 +542,7 @@ class ExLlamaBuffer:
     def to(self, device):
 
         new = ExLlamaBuffer(self.config)
-        new.attn_mask = _move_tensor(self.attn_mask, device, "attn_mask", self.config)
+        new.attn_mask = None if self.attn_mask is None else _move_tensor(self.attn_mask, device, "attn_mask", self.config)
         return new
 
 
@@ -810,14 +809,11 @@ class ExLlama(nn.Module):
             attn_mask = torch.zeros(batch_size, 1, seq_len, past_len + seq_len, dtype = torch.float16, device = devs[0])
             attn_mask_triu = torch.triu(torch.full((seq_len - 1, seq_len - 1), torch.finfo(torch.float16).min))
             attn_mask[:, :, : seq_len - 1, past_len + 1: past_len + seq_len] = attn_mask_triu
-            # attn_mask = torch.ones(batch_size, 1, seq_len, past_len + seq_len, dtype = torch.bool, device = devs[0])
-            # attn_mask_triu = ~torch.triu(torch.ones((seq_len - 1, seq_len - 1), dtype = torch.bool), diagonal = 0)
-            # attn_mask[:, :, : seq_len - 1, past_len + 1: past_len + seq_len] = attn_mask_triu
 
         else:
 
-            attn_mask = torch.zeros(batch_size, 1, seq_len, seq_len + past_len, dtype = torch.float16, device = devs[0])
-            # attn_mask = torch.ones(batch_size, 1, seq_len, seq_len + past_len, dtype = torch.bool, device = devs[0])
+            attn_mask = None
+            # attn_mask = torch.zeros(batch_size, 1, seq_len, seq_len + past_len, dtype = torch.float16, device = devs[0])
 
         buffer.attn_mask = attn_mask
 
