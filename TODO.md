@@ -11,9 +11,13 @@
 
 - [ ] Support for ROCm/AMD GPUs
 - [ ] Test that CUDA code works on GTX 10-series and RTX 20-series at some point
-- [ ] Test performance on P40 (would be a good GPU to support)
-- [ ] Tunable kernel parameters
-- [ ] Test on Windows
+- [x] Test performance on P40 (would be a good GPU to support)
+- [ ] Improve performance on P40
+- [x] Tunable kernel parameters
+- [ ] More tunable kernel parameters
+- [x] Test on Windows
+- [ ] Easier extension loading on Windows
+- [ ] Setup instructions for Windows
 
 ## Testing
 
@@ -24,22 +28,23 @@
 
 - [x] ~~Fix layer streaming so it isn't unusably slow~~ (removed)
 - [x] ~~Allow layer streaming to integrate with other features like device splitting~~ Nope
-- [ ] Provide alternative backend to allow layers on CPU
+- [x] ~~Provide alternative backend to allow layers on CPU~~ Nah
 
 ## Speed optimization
 
 - [x] Support for de-quantizing select matrices at load time
-- [ ] Better vector-matrix multiplication for de-quantized matrices (or show that it's bandwidth-limited now)
+- [x] ~~Better vector-matrix multiplication for de-quantized matrices~~ (dequant was a dead end)
 - [ ] Fused QKV projection
 - [x] Fused MLP
 - [x] Fused RoPE
-- [ ] Build attention mask in CUDA rather than PyTorch
+- [x] ~~Build attention mask in CUDA rather than PyTorch~~
 - [x] ~~Disable attention mask when it isn't needed~~ (not possible with SDP)
-- [ ] Figure out why inference appears to be CPU-bound
+- [x] Figure out why inference appears to be CPU-bound (kernel launch overhead)
+- [ ] Reduce no. kernel launches to minimum (tail launch, fusion etc.)
 - [x] Measure PyTorch module overhead (negligible in eval mode)
 - [x] Examine if scaled_dot_product_attention is actually the best attention method for single tokens (it's not)
 - [ ] Implement attention in CUDA
-- [ ] Rewrite at least the quantized matmul kernel. Should be a bunch of special cases to consider
+- [x] Rewrite at least the quantized matmul kernel. Should be a bunch of special cases to consider
 
 ## Generation
 
