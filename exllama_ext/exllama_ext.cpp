@@ -114,7 +114,7 @@ void prepare_buffers
     torch::Device device,
     torch::Tensor temp_state,
     torch::Tensor temp_mlp,
-    torch::Tensor temp_rms_norm,
+    torch::Tensor temp_zeros_float,
     torch::Tensor temp_dq
 )
 {
@@ -122,13 +122,16 @@ void prepare_buffers
     TORCH_CHECK_DEVICE_INDEX(device_index);
     const at::cuda::OptionalCUDAGuard device_guard(device);
 
+    int max_zeros_float = temp_zeros_float.size(-1);
+
     prepare_buffers_cuda
     (
         device_index,
         (half*) temp_state.data_ptr(),
         (half*) temp_mlp.data_ptr(),
-        (float*) temp_rms_norm.data_ptr(),
-        (half*) temp_dq.data_ptr()
+        (float*) temp_zeros_float.data_ptr(),
+        (half*) temp_dq.data_ptr(),
+        max_zeros_float
     );
 }
 

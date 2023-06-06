@@ -148,7 +148,7 @@ void rms_norm_cuda
 )
 {
     CudaBuffers* buffers = get_buffers(device_index);
-    float* temp = buffers->temp_rms_norm;
+    float* temp = buffers->get_zeros_float(rows);
 
     float r_dim = 1.0f / (float) dim;
 
@@ -174,5 +174,5 @@ void rms_norm_cuda
         rms_norm_kernel<true><<<blocks, threads>>>(x, w, out, temp, epsilon, r_dim, rows, dim);
     }
 
-    cudaMemsetAsync(temp, 0, rows * sizeof(float));
+    //cudaMemsetAsync(temp, 0, rows * sizeof(float));
 }

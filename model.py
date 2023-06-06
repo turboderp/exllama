@@ -120,11 +120,11 @@ def _dump_tensor(t, name):
 
 # 4-bit linear layer implementation
 
-#class Ex4bitLinear:
-class Ex4bitLinear(nn.Module):
+class Ex4bitLinear:
+# class Ex4bitLinear(nn.Module):
 
     def __init__(self, config, in_features, out_features, has_bias, tensors, key):
-        super().__init__()
+        # super().__init__()
 
         self.config = config
         self.key = key
@@ -192,11 +192,11 @@ class Ex4bitLinear(nn.Module):
 
 # Llama MLP
 
-# class ExLlamaMLP:
-class ExLlamaMLP(nn.Module):
+class ExLlamaMLP:
+# class ExLlamaMLP(nn.Module):
 
     def __init__(self, config, tensors, key):
-        super().__init__()
+        # super().__init__()
 
         self.config = config
 
@@ -219,11 +219,11 @@ class ExLlamaMLP(nn.Module):
 
 # RMS Layer norm.
 
-# class ExLlamaRMSNorm:
-class ExLlamaRMSNorm(nn.Module):
+class ExLlamaRMSNorm:
+# class ExLlamaRMSNorm(nn.Module):
 
     def __init__(self, config, tensors, key):
-        super().__init__()
+        # super().__init__()
 
         self.config = config
         self.variance_epsilon = self.config.rms_norm_eps
@@ -243,11 +243,11 @@ class ExLlamaRMSNorm(nn.Module):
 
 # Llama attention
 
-# class ExLlamaAttention:
-class ExLlamaAttention(nn.Module):
+class ExLlamaAttention:
+# class ExLlamaAttention(nn.Module):
 
     def __init__(self, config, tensors, key, sin, cos, index):
-        super().__init__()
+        # super().__init__()
 
         self.config = config
         self.sin = sin
@@ -333,11 +333,11 @@ def _rows(x):
     for y in x.shape[:-1]: xdp *= y
     return xdp
 
-# class ExLlamaDecoderLayer:
-class ExLlamaDecoderLayer(nn.Module):
+class ExLlamaDecoderLayer:
+# class ExLlamaDecoderLayer(nn.Module):
 
     def __init__(self, config, tensors, key, index, sin, cos):
-        super().__init__()
+        # super().__init__()
 
         self.config = config
         self.index = index
@@ -587,12 +587,12 @@ def _move_tensor(tensor, new_device, name, config):
     return tensor.to(new_device)
 
 
-# class ExLlama:
-class ExLlama(nn.Module):
+class ExLlama:
+# class ExLlama(nn.Module):
 
     def __init__(self, config):
-        super().__init__()
-        self.eval()
+        # super().__init__()
+        # self.eval()
 
         self.config = config
 
@@ -760,8 +760,8 @@ class ExLlama(nn.Module):
 
             modules.append(layer)
 
-        # self.layers = modules
-        self.layers = nn.ModuleList(modules)
+        self.layers = modules
+        # self.layers = nn.ModuleList(modules)
 
         # Prepare CUDA buffers
 
@@ -773,18 +773,18 @@ class ExLlama(nn.Module):
 
             temp_state = torch.zeros((config.max_seq_len, config.intermediate_size), dtype = torch.float16, device = dev)
             temp_mlp = torch.zeros((config.fused_mlp_thd * 2, config.intermediate_size), dtype = torch.float16, device = dev)
-            temp_rms_norm = torch.zeros((1, config.max_seq_len), dtype = torch.float32, device = dev)
+            temp_zeros_float = torch.zeros((1, 65536), dtype = torch.float32, device = dev)
             temp_dq = torch.zeros((1, max_dq_buffer_size), dtype = torch.float16, device = dev)
 
             device_buffers["temp_state"] = temp_state
             device_buffers["temp_mlp"] = temp_mlp
-            device_buffers["temp_rms_norm"] = temp_rms_norm
+            device_buffers["temp_zeros_float"] = temp_zeros_float
             device_buffers["temp_dq"] = temp_dq
 
             cuda_ext.exllama_ext.prepare_buffers(torch.device(dev),
                                                  temp_state,
                                                  temp_mlp,
-                                                 temp_rms_norm,
+                                                 temp_zeros_float,
                                                  temp_dq)
 
 
