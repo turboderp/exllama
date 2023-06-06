@@ -15,9 +15,9 @@ extension_name = "exllama_ext"
 windows = os.name == "nt"
 if windows:
     def find_msvc():
-        for msvc_dir in ["C:\\Program Files" + a + "\\Microsoft Visual Studio\\" + b + "\\" + c + "\\VC\Tools\\MSVC\\"
+        for msvc_dir in [a + "\\Microsoft Visual Studio\\" + b + "\\" + c + "\\VC\Tools\\MSVC\\"
             for b in ["2022", "2019", "2017"]
-            for a in ["", " (x86)"]
+            for a in [os.environ["ProgramW6432"], os.environ["ProgramFiles(x86)"]]
             for c in ["BuildTools", "Community", "Professional", "Enterprise", "Preview"]
         ]:
             if not os.path.exists(msvc_dir):
