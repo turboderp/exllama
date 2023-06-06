@@ -4,18 +4,16 @@ from torch.cuda.amp import custom_bwd, custom_fwd
 from torch.utils.cpp_extension import load
 import os
 import sys
-
-# TODO: This is a kludge to make the C++ extension load when the library is imported elsewhere. May not be needed
-# with the package installed, if so maybe find better solution.
+import platform
 
 library_dir = os.path.dirname(os.path.abspath(__file__))
 extension_name = "exllama_ext"
+verbose = False
 
 exllama_ext = load(
     name = extension_name,
     sources = [
         os.path.join(library_dir, "exllama_ext/exllama_ext.cpp"),
-
         os.path.join(library_dir, "exllama_ext/cuda_buffers.cu"),
         os.path.join(library_dir, "exllama_ext/cuda_func/q4_matrix.cu"),
         os.path.join(library_dir, "exllama_ext/cuda_func/q4_matmul.cu"),
@@ -23,13 +21,11 @@ exllama_ext = load(
         os.path.join(library_dir, "exllama_ext/cuda_func/rms_norm.cu"),
         os.path.join(library_dir, "exllama_ext/cuda_func/rope.cu"),
         os.path.join(library_dir, "exllama_ext/cuda_func/half_matmul.cu"),
-
         os.path.join(library_dir, "exllama_ext/cuda_func/q4_mlp.cu"),
-
         os.path.join(library_dir, "exllama_ext/cpu_func/rep_penalty.cpp")
-
     ],
-    # verbose = True,
+    verbose = verbose,
+    extra_ldflags = ['cublas.lib'] if os.name == "nt" else [],
     # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
 )
 
