@@ -107,6 +107,14 @@ void set_tuning_params
     tuningParams.silu_no_half2 = silu_no_half2;
 }
 
+// Clean up
+
+void cleanup(int device_index)
+{
+    rms_norm_cuda_destroy_graph(device_index);
+}
+
+
 // Prepare buffers for forward pass
 
 void prepare_buffers
@@ -122,16 +130,13 @@ void prepare_buffers
     TORCH_CHECK_DEVICE_INDEX(device_index);
     const at::cuda::OptionalCUDAGuard device_guard(device);
 
-    int max_zeros_float = temp_zeros_float.size(-1);
-
     prepare_buffers_cuda
     (
         device_index,
         (half*) temp_state.data_ptr(),
         (half*) temp_mlp.data_ptr(),
         (float*) temp_zeros_float.data_ptr(),
-        (half*) temp_dq.data_ptr(),
-        max_zeros_float
+        (half*) temp_dq.data_ptr()
     );
 }
 
@@ -341,9 +346,13 @@ void q4_mlp
     TORCH_CHECK_DEVICE_INDEX(device_index);
     const at::cuda::OptionalCUDAGuard device_guard(device);
 
+    cudaStream_t current_stream = at::cuda::getCurrentCUDAStream().stream();
+
     q4_mlp_cuda
     (
         &tuningParams,
+        current_stream,
+
         (half*) x.data_ptr(),
         (half*) rms_norm_weight.data_ptr(),
         epsilon,
@@ -382,9 +391,12 @@ void rms_norm
     TORCH_CHECK_DEVICE_INDEX(device_index);
     const at::cuda::OptionalCUDAGuard device_guard(device);
 
+    cudaStream_t current_stream = at::cuda::getCurrentCUDAStream().stream();
+
     rms_norm_cuda
     (
         &tuningParams,
+        current_stream,
         (half*) x.data_ptr(),
         (half*) w.data_ptr(),
         (half*) out.data_ptr(),
@@ -461,6 +473,7 @@ void rep_penalty
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
+    m.def("cleanup", &cleanup, "cleanup");
     m.def("set_tuning_params", &set_tuning_params, "set_tuning_params");
     m.def("prepare_buffers", &prepare_buffers, "prepare_buffers");
     m.def("make_q4", &make_q4, "make_q4");
@@ -471,6 +484,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("rope_", &rope_, "rope_");
     m.def("half_matmul", &half_matmul, "half_matmul");
     m.def("half_matmul_cublas", &half_matmul_cublas, "half_matmul_cublas");
-
     m.def("rep_penalty", &rep_penalty, "repetition penalty mask");
 }

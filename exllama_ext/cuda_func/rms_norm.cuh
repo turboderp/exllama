@@ -10,13 +10,16 @@
 void rms_norm_cuda
 (
     ExLlamaTuning* tuningParams,
+    cudaStream_t stream,
     half* x,
-    const half* w,
+    half* w,
     half* out,
-    const float epsilon,
-    const int rows,
-    const int dim,
+    float epsilon,
+    int rows,
+    int dim,
     const int device_index
 );
+
+void rms_norm_cuda_destroy_graph(const int device_index);
 
 #endif

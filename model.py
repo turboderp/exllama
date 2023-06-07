@@ -773,18 +773,18 @@ class ExLlama:
 
             temp_state = torch.zeros((config.max_seq_len, config.intermediate_size), dtype = torch.float16, device = dev)
             temp_mlp = torch.zeros((config.fused_mlp_thd * 2, config.intermediate_size), dtype = torch.float16, device = dev)
-            temp_zeros_float = torch.zeros((1, 65536), dtype = torch.float32, device = dev)
+            temp_rms_norm = torch.zeros((1, config.max_seq_len), dtype = torch.float32, device = dev)
             temp_dq = torch.zeros((1, max_dq_buffer_size), dtype = torch.float16, device = dev)
 
             device_buffers["temp_state"] = temp_state
             device_buffers["temp_mlp"] = temp_mlp
-            device_buffers["temp_zeros_float"] = temp_zeros_float
+            device_buffers["temp_zeros_float"] = temp_rms_norm
             device_buffers["temp_dq"] = temp_dq
 
             cuda_ext.exllama_ext.prepare_buffers(torch.device(dev),
                                                  temp_state,
                                                  temp_mlp,
-                                                 temp_zeros_float,
+                                                 temp_rms_norm,
                                                  temp_dq)
 
 
@@ -876,3 +876,12 @@ class ExLlama:
         logits = logits.float()
         logits = _move_tensor(logits, self.config.device_map.embed_tokens, "logits", self.config)
         return logits
+
+
+    def __del__(self):
+
+        pass
+        # devs = self.config.device_map.get_layers_devs()
+        # for dev in devs:
+        #     cuda_ext.exllama_ext.cleanup(_device_to_int(dev))
+

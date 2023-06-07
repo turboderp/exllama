@@ -81,8 +81,9 @@ __global__ void silu_mul_cuda_kernel
 void q4_mlp_cuda
 (
     ExLlamaTuning* tuningParams,
+    cudaStream_t stream,
     half* x,                        // shape == (height, dim)
-    const half* rms_norm_weight,    // shape == (x.shape[1],) == (dim,)
+    half* rms_norm_weight,          // shape == (x.shape[1],) == (dim,)
     float epsilon,
     Q4Matrix* gate,
     Q4Matrix* up,
@@ -97,7 +98,7 @@ void q4_mlp_cuda
     // temp_x = rms_layernorm(x)
 
     half* temp_x = buffers->temp_state + height * dim;
-    rms_norm_cuda(tuningParams, x, rms_norm_weight, temp_x, epsilon, height, dim, device_index);
+    rms_norm_cuda(tuningParams, stream, x, rms_norm_weight, temp_x, epsilon, height, dim, device_index);
 
     // temp_mlp[0] = temp_x @ gate
     // temp_mlp[1] = temp_x @ up

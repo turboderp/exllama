@@ -11,8 +11,9 @@
 void q4_mlp_cuda
 (
     ExLlamaTuning* tuningParams,
+    cudaStream_t stream,
     half* x,                        // shape == (height, dim)
-    const half* rms_norm_weight,    // shape == (x.shape[1],) == (dim,)
+    half* rms_norm_weight,    // shape == (x.shape[1],) == (dim,)
     float epsilon,
     Q4Matrix* gate,
     Q4Matrix* up,

@@ -126,31 +126,41 @@ __global__ void rms_norm_kernel
             *out_ptr++ = m;
         }
     }
-
-//     __syncthreads();
-//     if (column >= dim - BLOCKSIZE_X) scratch[row] = 0.0f;
 }
 
 // x = x * w / sqrt(row_mean(x * x) + epsilon)
 //
 // works in-place if x == out
 
+struct RMSNormDeviceContext
+{
+    bool rms_norm_graph_init = false;
+    cudaGraph_t rms_norm_graph;
+    cudaGraphNode_t rms_norm_node0;
+    cudaGraphNode_t rms_norm_node1;
+    cudaGraphNode_t rms_norm_node2;
+    cudaGraphExec_t rms_norm_graphExec;
+};
+
+RMSNormDeviceContext contexts[CUDA_MAX_DEVICES] = {0};
+
+void (*rms_norm_kernel_func1)(half*, float*, const int, const int);
+void (*rms_norm_kernel_func2)(half*, const half*, half*, float*, const float, const float, const int, const int);
+
 void rms_norm_cuda
 (
     ExLlamaTuning* tuningParams,
+    cudaStream_t stream,
     half* x,
-    const half* w,
+    half* w,
     half* out,
-    const float epsilon,
-    const int rows,
-    const int dim,
+    float epsilon,
+    int rows,
+    int dim,
     const int device_index
 )
 {
-    CudaBuffers* buffers = get_buffers(device_index);
-    float* temp = buffers->get_zeros_float(rows);
-
-    float r_dim = 1.0f / (float) dim;
+    cudaSetDevice(device_index);
 
     dim3 threads(THREADS_X, THREADS_Y, 1);
 
@@ -161,18 +171,77 @@ void rms_norm_cuda
         1
     );
 
-    //cudaMemsetAsync(temp, 0, rows * sizeof(float));
+    CudaBuffers* buffers = get_buffers(device_index);
+    float* temp = buffers->temp_rms_norm;
+
+    // cudaMemsetAsync(temp, 0, rows * sizeof(float));
+
+    cudaMemsetParams memsetParams = {0};
+    bool updateMemset = false;
+
+    if (rows != buffers->last_rms_norm_rows[device_index] || !contexts[device_index].rms_norm_graph_init)
+    {
+        memsetParams.dst = (void*)temp;
+        memsetParams.value = 0;
+        memsetParams.pitch = 0;
+        memsetParams.elementSize = sizeof(float);
+        memsetParams.width = rows;
+        memsetParams.height = 1;
+
+        updateMemset = true;
+        buffers->last_rms_norm_rows[device_index] = rows;
+    }
 
     if (tuningParams->rmsnorm_no_half2)
     {
-        rms_norm_row_product_kernel<false><<<blocks, threads>>>(x, temp, rows, dim);
-        rms_norm_kernel<false><<<blocks, threads>>>(x, w, out, temp, epsilon, r_dim, rows, dim);
+         rms_norm_kernel_func1 = &rms_norm_row_product_kernel<false>;
+         rms_norm_kernel_func2 = &rms_norm_kernel<false>;
     }
     else
     {
-        rms_norm_row_product_kernel<true><<<blocks, threads>>>(x, temp, rows, dim);
-        rms_norm_kernel<true><<<blocks, threads>>>(x, w, out, temp, epsilon, r_dim, rows, dim);
+         rms_norm_kernel_func1 = &rms_norm_row_product_kernel<true>;
+         rms_norm_kernel_func2 = &rms_norm_kernel<true>;
     }
 
-    //cudaMemsetAsync(temp, 0, rows * sizeof(float));
+    float r_dim = 1.0f / (float) dim;
+
+    void* args1[] = { &x, &temp, &rows, &dim };
+    void* args2[] = { &x, &w, &out, &temp, &epsilon, &r_dim, &rows, &dim };
+    cudaKernelNodeParams params1 = { (void*) rms_norm_kernel_func1, blocks, threads, 0, args1, nullptr };
+    cudaKernelNodeParams params2 = { (void*) rms_norm_kernel_func2, blocks, threads, 0, args2, nullptr };
+
+    if (!contexts[device_index].rms_norm_graph_init)
+    {
+        cudaGraphCreate(&contexts[device_index].rms_norm_graph, 0);
+
+        cudaGraphAddMemsetNode(&contexts[device_index].rms_norm_node0, contexts[device_index].rms_norm_graph, nullptr, 0, &memsetParams);
+        cudaGraphAddKernelNode(&contexts[device_index].rms_norm_node1, contexts[device_index].rms_norm_graph, &contexts[device_index].rms_norm_node0, 1, &params1);
+        cudaGraphAddKernelNode(&contexts[device_index].rms_norm_node2, contexts[device_index].rms_norm_graph, &contexts[device_index].rms_norm_node1, 1, &params2);
+
+        cudaGraphInstantiate(&contexts[device_index].rms_norm_graphExec, contexts[device_index].rms_norm_graph, nullptr, nullptr, 0);
+
+        contexts[device_index].rms_norm_graph_init = true;
+    }
+    else
+    {
+        if (updateMemset)
+            cudaGraphExecMemsetNodeSetParams(contexts[device_index].rms_norm_graphExec, contexts[device_index].rms_norm_node0, &memsetParams);
+
+        cudaGraphExecKernelNodeSetParams(contexts[device_index].rms_norm_graphExec, contexts[device_index].rms_norm_node1, &params1);
+        cudaGraphExecKernelNodeSetParams(contexts[device_index].rms_norm_graphExec, contexts[device_index].rms_norm_node2, &params2);
+    }
+
+    cudaGraphLaunch(contexts[device_index].rms_norm_graphExec, stream);
+}
+
+void rms_norm_cuda_destroy_graph(const int device_index)
+{
+    // TODO: Find a way to actually call this. The EXLlama destructor isn't called until after the extension is
+    // unloaded. Or just let the CUDA runtime clean up.
+
+    cudaSetDevice(device_index);
+    cudaDeviceSynchronize();
+
+    cudaGraphExecDestroy(contexts[device_index].rms_norm_graphExec);
+    cudaGraphDestroy(contexts[device_index].rms_norm_graph);
 }
