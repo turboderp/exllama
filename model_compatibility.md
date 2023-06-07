@@ -6,6 +6,8 @@ As of **2023-05-24**, the following GPTQ models on HuggingFace all appear to be 
 - Neko-Institute-of-Science/LLaMA-13B-4bit-128g
 - Neko-Institute-of-Science/LLaMA-30B-4bit-32g
 - Neko-Institute-of-Science/LLaMA-30B-4bit-128g
+- Neko-Institute-of-Science/LLaMA-65B-4bit-32g
+- Neko-Institute-of-Science/LLaMA-65B-4bit-128g
 - reeducator/bluemoonrp-13b
 - TehVenom/Metharme-13b-4bit-GPTQ
 - TheBloke/airoboros-13B-GPTQ
