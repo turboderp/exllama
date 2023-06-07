@@ -2,6 +2,9 @@
 #include "../cuda_buffers.cuh"
 #include "../util.cuh"
 #include "../matrix.cuh"
+#if defined(USE_ROCM)
+#include "../hip_compat.cuh"
+#endif
 
 const int THREADS_X = 32;
 const int THREADS_Y = 8;
@@ -207,8 +210,19 @@ void rms_norm_cuda
 
     void* args1[] = { &x, &temp, &rows, &dim };
     void* args2[] = { &x, &w, &out, &temp, &epsilon, &r_dim, &rows, &dim };
-    cudaKernelNodeParams params1 = { (void*) rms_norm_kernel_func1, blocks, threads, 0, args1, nullptr };
-    cudaKernelNodeParams params2 = { (void*) rms_norm_kernel_func2, blocks, threads, 0, args2, nullptr };
+
+    cudaKernelNodeParams params1 = { .func           = (void *)rms_norm_kernel_func1,
+                                     .gridDim        = blocks,
+                                     .blockDim       = threads,
+                                     .sharedMemBytes = 0,
+                                     .kernelParams   = args1,
+                                     .extra          = nullptr };
+    cudaKernelNodeParams params2 = { .func           = (void *)rms_norm_kernel_func2,
+                                     .gridDim        = blocks,
+                                     .blockDim       = threads,
+                                     .sharedMemBytes = 0,
+                                     .kernelParams   = args2,
+                                     .extra          = nullptr };
 
     if (!contexts[device_index].rms_norm_graph_init)
     {
