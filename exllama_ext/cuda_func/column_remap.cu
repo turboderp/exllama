@@ -1,14 +1,7 @@
 #include "column_remap.cuh"
 #include "../util.cuh"
 
-// Using 1024 make me crash with "Memory access fault by GPU node-1 (Agent
-// handle: 0x012345678912) on address 0x012345678912. Reason: Page not present
-// or supervisor privilege."
-#if defined(USE_ROCM)
 const int SHUF_BLOCKSIZE_X = 256;
-#else
-const int SHUF_BLOCKSIZE_X = 1024;
-#endif
 const int SHUF_BLOCKSIZE_Y = 16;
 
 __global__ void column_remap_kernel
