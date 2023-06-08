@@ -2,8 +2,16 @@
 #include "../cuda_buffers.cuh"
 #include "../util.cuh"
 #include "../matrix.cuh"
+
 #if defined(USE_ROCM)
-#include "../hip_compat.cuh"
+#define cudaGraphAddKernelNode hipGraphAddKernelNode
+#define cudaGraphAddMemsetNode hipGraphAddMemsetNode
+#define cudaGraphCreate hipGraphCreate
+#define cudaGraphExecKernelNodeSetParams hipGraphExecKernelNodeSetParams
+#define cudaGraphExecMemsetNodeSetParams hipGraphExecMemsetNodeSetParams
+#define cudaGraphNode_t hipGraphNode_t
+#define cudaKernelNodeParams hipKernelNodeParams
+#define cudaMemsetParams hipMemsetParams
 #endif
 
 const int THREADS_X = 32;

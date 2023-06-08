@@ -42,13 +42,4 @@ __host__ __forceinline__ hipblasStatus_t __compat_hipblasHgemm(hipblasHandle_t  
 #define rocblas_operation_none HIPBLAS_OP_N
 #define rocblas_hgemm __compat_hipblasHgemm
 
-#define cudaGraphAddKernelNode hipGraphAddKernelNode
-#define cudaGraphAddMemsetNode hipGraphAddMemsetNode
-#define cudaGraphCreate hipGraphCreate
-#define cudaGraphExecKernelNodeSetParams hipGraphExecKernelNodeSetParams
-#define cudaGraphExecMemsetNodeSetParams hipGraphExecMemsetNodeSetParams
-#define cudaGraphNode_t hipGraphNode_t
-#define cudaKernelNodeParams hipKernelNodeParams
-#define cudaMemsetParams hipMemsetParams
-
 #endif
