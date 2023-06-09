@@ -9,15 +9,16 @@
 
 ## GPU compatibility (etc.)
 
-- [ ] Support for ROCm/AMD GPUs
+- [x] Support for ROCm/AMD GPUs
+- [ ] Optimize more for ROCm
 - [ ] Test that CUDA code works on GTX 10-series and RTX 20-series at some point
 - [x] Test performance on P40 (would be a good GPU to support)
 - [ ] Improve performance on P40
 - [x] Tunable kernel parameters
 - [ ] More tunable kernel parameters
 - [x] Test on Windows
-- [ ] Easier extension loading on Windows
-- [ ] Setup instructions for Windows
+- [x] Easier extension loading on Windows
+- [x] Setup instructions for Windows
 
 ## Testing
 
@@ -34,7 +35,7 @@
 
 - [x] Support for de-quantizing select matrices at load time
 - [x] ~~Better vector-matrix multiplication for de-quantized matrices~~ (dequant was a dead end)
-- [ ] Fused QKV projection
+- [x] Fused QKV projection
 - [x] Fused MLP
 - [x] Fused RoPE
 - [x] ~~Build attention mask in CUDA rather than PyTorch~~
