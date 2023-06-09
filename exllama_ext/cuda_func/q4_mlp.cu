@@ -37,8 +37,8 @@ __device__ __forceinline__ half2 silu(half2 x)
 template <bool use_half2>
 __global__ void silu_mul_cuda_kernel
 (
-    half* x,
-    const half* y,
+    half* __restrict__ x,
+    const half* __restrict__ y,
     const int height,
     const int width
 )
@@ -96,7 +96,7 @@ void q4_mlp_cuda
 
     // temp_x = rms_layernorm(x)
 
-    half* temp_x = buffers->temp_state + height * dim;
+    half* temp_x = buffers->temp_state + height * dim;  // TOOD: ..
     rms_norm_cuda(tuningParams, x, rms_norm_weight, temp_x, epsilon, height, dim, device_index);
 
     // temp_mlp[0] = temp_x @ gate

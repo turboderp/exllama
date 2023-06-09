@@ -14,9 +14,9 @@ const int BLOCKSIZE = 256;
 
 __global__ void half_matmul_kernel
 (
-    const half* x,
-    const half* w,
-    half* out,
+    const half* __restrict__ x,
+    const half* __restrict__ w,
+    half* __restrict__ out,
     const int height,
     const int dim,
     const int width

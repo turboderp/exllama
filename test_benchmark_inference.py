@@ -234,6 +234,8 @@ with torch.no_grad():
             _ppl_test(" (reconstruct)", 8)
             model.config.matmul_recons_thd = 0
             _ppl_test(" (quant)", 8)
+            # model.config.fused_attn_thd = 1
+            # _ppl_test(" (fused_attn)", 8)
 
             # Do a short, easy topk=1 completion to see if we're generating garbage. Should run in switched mode
             # for the prompt and quant for individual tokens
@@ -242,6 +244,7 @@ with torch.no_grad():
             generator = ExLlamaGenerator(model, tokenizer, cache)
             generator.settings.top_k = 1
             text = generator.generate_simple("To be or not to be, that is the", max_new_tokens = 20)
+            # text = generator.generate_simple("To be or", max_new_tokens = 20)
             text = text.replace("\n", "\\n")
             print(f" ** Generation: {text}")
 

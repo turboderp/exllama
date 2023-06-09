@@ -19,6 +19,7 @@
 #include "cuda_func/rope.cuh"
 #include "cuda_func/half_matmul.cuh"
 
+#include "cuda_func/q4_attn.cuh"
 #include "cuda_func/q4_mlp.cuh"
 
 // Check CUDA return code. We don't want to include Torch headers in the .cu files because parsing them adds almost a
@@ -316,15 +317,99 @@ void half_matmul_cublas
     );
 }
 
-// Llama MLP. Works on all models but is still 5% slower than regular MLP with quantized layers
+// Llama self attention (WIP)
+
+void q4_attn
+(
+    torch::Tensor x,                // shape == (q_len, dim)
+    torch::Tensor rms_norm_weight,  // shape == (x.shape[1],) == (dim,)
+    float epsilon,
+    torch::Tensor query_states,     // shape == (q_len, dim)
+    torch::Tensor key_states,       // shape == (q_len, dim)
+    torch::Tensor value_states,     // shape == (q_len, dim)
+    uintptr_t q_proj,
+    uintptr_t k_proj,
+    uintptr_t v_proj,
+    torch::Tensor sin,
+    torch::Tensor cos,
+    int q_len,
+    int past_len,
+    int num_heads,
+    int head_dim,
+    torch::Tensor key_cache,
+    torch::Tensor value_cache,
+    int max_seq_len
+)
+{
+    TORCH_CHECK_DTYPE(query_states, kHalf);
+    TORCH_CHECK_DTYPE(key_states, kHalf);
+
+    int dim = query_states.size(1);
+
+    torch::Device device = x.device();
+    int device_index = device.index();
+    TORCH_CHECK_DEVICE_INDEX(device_index);
+    const at::cuda::OptionalCUDAGuard device_guard(device);
+
+    cudaStream_t current_stream = at::cuda::getCurrentCUDAStream().stream();
+
+    q4_attn_cuda
+    (
+        &tuningParams,
+        current_stream,
+        at::cuda::getCurrentCUDABlasHandle(),
+        (half*) x.data_ptr(),
+        (half*) rms_norm_weight.data_ptr(),
+        epsilon,
+        (half*) query_states.data_ptr(),
+        (half*) key_states.data_ptr(),
+        (half*) value_states.data_ptr(),
+        reinterpret_cast<Q4Matrix*>(q_proj),
+        reinterpret_cast<Q4Matrix*>(k_proj),
+        reinterpret_cast<Q4Matrix*>(v_proj),
+        (half*) sin.data_ptr(),
+        (half*) cos.data_ptr(),
+        q_len,
+        dim,
+        head_dim,
+        num_heads,
+        past_len,
+        (half*) key_cache.data_ptr(),
+        (half*) value_cache.data_ptr(),
+        max_seq_len,
+        device_index
+    );
+}
+
+void q4_attn_2
+(
+    torch::Tensor x,
+    torch::Tensor attn_output,
+    uintptr_t o_proj
+)
+{
+    TORCH_CHECK_DTYPE(x, kHalf);
+    TORCH_CHECK_DTYPE(attn_output, kHalf);
+
+    int height = x.size(0);
+
+    q4_attn_2_cuda
+    (
+        &tuningParams,
+        (half*) x.data_ptr(),
+        (half*) attn_output.data_ptr(),
+        reinterpret_cast<Q4Matrix*>(o_proj),
+        height
+    );
+}
+
+// Llama MLP
 
 void q4_mlp
 (
     torch::Tensor x,                // shape == (height, dim)
-
     torch::Tensor rms_norm_weight,  // shape == (x.shape[1],) == (dim,)
     float epsilon,
-
     uintptr_t gate,
     uintptr_t up,
     uintptr_t down
@@ -465,6 +550,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("prepare_buffers", &prepare_buffers, "prepare_buffers");
     m.def("make_q4", &make_q4, "make_q4");
     m.def("q4_matmul", &q4_matmul, "q4_matmul");
+    m.def("q4_attn", &q4_attn, "q4_attn");
+    m.def("q4_attn_2", &q4_attn_2, "q4_attn_2");
     m.def("q4_mlp", &q4_mlp, "q4_mlp");
     m.def("column_remap", &column_remap, "column_remap");
     m.def("rms_norm", &rms_norm, "rms_norm");

@@ -84,13 +84,13 @@ Note that sessions are stored in `~/exllama_sessions/`.
 ### New implementation
 | Model    | Size | grpsz | act             | Seq. len.            | VRAM      | Prompt     | Best    | Worst   | Ppl  |
 |----------|------|-------|-----------------|----------------------|-----------|------------|---------|---------|------|
-| Llama    | 7B   | 128   | no              | 2,048 t              | 5,194 MB  | 10,460 t/s | 160 t/s | 133 t/s | 6.45 |
-| Llama    | 13B  | 128   | no              | 2,048 t              | 9,127 MB  | 5,831 t/s  | 97 t/s  | 83 t/s  | 5.60 |
-| Llama    | 30B  | 128   | no              | 2,048 t              | 20,795 MB | 2,481 t/s  | 46 t/s  | 39 t/s  | 4.60 |
-| Llama    | 30B  | 128   | yes             | 2,048 t              | 20,795 MB | 2,343 t/s  | 44 t/s  | 37 t/s  | 4.55 |
-| Llama    | 30B  | 32    | yes             | 1,550 t <sup>1</sup> | 21,486 MB | 2,308 t/s  | 40 t/s  | 36 t/s  | 4.52 |
-| Koala    | 13B  | 128   | yes             | 2,048 t              | 9,127 MB  | 5,529 t/s  | 86 t/s  | 79 t/s  | 6.73 |
-| WizardLM | 30B  | -     | no <sup>2</sup> | 2,048 t              | 20,199 MB | 2,313 t/s  | 44 t/s  | 39 t/s  | 5.75 |
+| Llama    | 7B   | 128   | no              | 2,048 t              | 5,194 MB  | 13,918 t/s | 168 t/s | 139 t/s | 6.45 |
+| Llama    | 13B  | 128   | no              | 2,048 t              | 9,127 MB  | 7,507 t/s  | 99 t/s  | 84 t/s  | 5.60 |
+| Llama    | 30B  | 128   | no              | 2,048 t              | 20,795 MB | 2,959 t/s  | 47 t/s  | 40 t/s  | 4.60 |
+| Llama    | 30B  | 128   | yes             | 2,048 t              | 20,795 MB | 2,784 t/s  | 45 t/s  | 37 t/s  | 4.55 |
+| Llama    | 30B  | 32    | yes             | 1,550 t <sup>1</sup> | 21,486 MB | 2,636 t/s  | 41 t/s  | 37 t/s  | 4.52 |
+| Koala    | 13B  | 128   | yes             | 2,048 t              | 9,127 MB  | 5,529 t/s  | 93 t/s  | 79 t/s  | 6.73 |
+| WizardLM | 30B  | -     | no <sup>2</sup> | 2,048 t              | 20,199 MB | 2,313 t/s  | 47 t/s  | 40 t/s  | 5.75 |
 
 <sup>1</sup> Can not achieve full sequence length without OoM (yet)  
 <sup>2</sup> Not quite sure if this is act-order or not. Weights have no group index, at least   
@@ -114,10 +114,10 @@ WikiText, so scores are not necessarily comparable to other Llama benchmarks.
 Since many seem to be interested in running 65B models, I can confirm that this works with two 24 GB GPUs. The
 following benchmarks are from a 4090 + 3090-Ti with `-gs 17.2,24`:
 
-| Model    | Size | groupsize | act | Seq. len.            | VRAM      | Prompt  | Best   | Worst  | Ppl  |
-|----------|------|-----------|-----|----------------------|-----------|---------|--------|--------|------|
-| Llama    | 65B  | 128       | yes | 2,048 t              | 39,804 MB | 990 t/s | 20 t/s | 18 t/s | 4.20 |
-| Llama    | 65B  | 32        | yes | 2,048 t              | 43,424 MB | 976 t/s | 17 t/s | 16 t/s | 4.11 |
+| Model    | Size | groupsize | act | Seq. len.            | VRAM      | Prompt    | Best   | Worst  | Ppl  |
+|----------|------|-----------|-----|----------------------|-----------|-----------|--------|--------|------|
+| Llama    | 65B  | 128       | yes | 2,048 t              | 39,804 MB | 1,109 t/s | 20 t/s | 18 t/s | 4.20 |
+| Llama    | 65B  | 32        | yes | 2,048 t              | 43,424 MB | 1,037 t/s | 17 t/s | 16 t/s | 4.11 |
 
 
 ### Testing long sequences
@@ -145,15 +145,6 @@ confirmed to be working right now.
 
 ## Recent updates
 
-**2023-05-22**: Added option to auto-split layers across multiple GPUs based on VRAM allocation. 
-
-**2023-05-22**: Added option to dequantize layers at load-time which _should_ speed up inference, but it turns out
-Torch's fp16 matmul is actually slower than the quantized matmul. Maybe bandwidth is the only bottleneck right now?
-Need to experiment some more.
-
-**2023-05-24**: Downloaded a bunch of models from HF and set up a test script. Should be a good sampling of the most
-popular finetunes right now. I'll add more to the list as I come across them. They all seem to be working.
-
 **2023-05-24**: Added fused rotary embeddings and some minor optimizations. 13% faster on 7B, 9% on 13B. Small
 improvement on larger models. Added best-case scores to benchmark results and some clarification. For easier
 comparisons to other implementations, or whatever.
@@ -177,3 +168,7 @@ options to come soon and eventually auto tuning. Also optimized a little, for ab
 
 **2024-06-06**: Some minor optimizations. Also it should now compile the extension more easily and run more seamlessly
 on Windows.
+
+**2024-06-09**: Fused most of the self-attention step. More to come. Slight speedup already, but more importantly went
+from 69% actual CPU utilization to 37%. This should do a lot to address the bottleneck on CPUs with lower 
+single-threaded performance.

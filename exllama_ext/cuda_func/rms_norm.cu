@@ -12,8 +12,8 @@ const int BLOCKSIZE_X = 16;
 template<bool use_half2>
 __global__ void rms_norm_row_product_kernel
 (
-    half* x,
-    float* scratch,
+    half* __restrict__ x,
+    float* __restrict__ scratch,
     const int rows,
     const int dim
 )
@@ -75,10 +75,10 @@ __global__ void rms_norm_row_product_kernel
 template<bool use_half2>
 __global__ void rms_norm_kernel
 (
-    half* x,
-    const half* w,
-    half* out,
-    float* scratch,
+    half* __restrict__ x,
+    const half* __restrict__ w,
+    half* __restrict__ out,
+    float* __restrict__ scratch,
     const float epsilon,
     const float r_dim,
     const int rows,

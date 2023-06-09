@@ -50,13 +50,15 @@ exllama_ext = load(
         os.path.join(library_dir, "exllama_ext/cuda_func/rms_norm.cu"),
         os.path.join(library_dir, "exllama_ext/cuda_func/rope.cu"),
         os.path.join(library_dir, "exllama_ext/cuda_func/half_matmul.cu"),
+        os.path.join(library_dir, "exllama_ext/cuda_func/q4_attn.cu"),
         os.path.join(library_dir, "exllama_ext/cuda_func/q4_mlp.cu"),
         os.path.join(library_dir, "exllama_ext/cpu_func/rep_penalty.cpp")
     ],
     extra_include_paths = [os.path.join(library_dir, "exllama_ext")],
     verbose = verbose,
     extra_ldflags = ["cublas.lib"] if windows else [],
-    extra_cuda_cflags = ["-U__HIP_NO_HALF_CONVERSIONS__"] if torch.version.hip else []
+    extra_cuda_cflags = ["-U__HIP_NO_HALF_CONVERSIONS__", "-O3"] if torch.version.hip else [],
+    extra_cflags = ["-O3"]
     # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
 )
 
@@ -122,26 +124,6 @@ def ext_half_matmul(x, w, cublas = False):
 def ext_rope_(x, sin, cos, past_len, num_heads, head_dim):
 
     rope_(x, sin, cos, past_len, num_heads, head_dim)
-
-
-
-# Llama MLP, compute: (SiLU(x @ gate_proj) * (x @ up_proj)) @ down_proj
-
-def ext_q4_mlp(x,
-               rms_norm_weight,
-               epsilon,
-               gate_proj,
-               up_proj,
-               down_proj):
-
-    x = x.view(-1, x.shape[-1])
-
-    q4_mlp(x,
-           rms_norm_weight,
-           epsilon,
-           gate_proj,
-           up_proj,
-           down_proj)
 
 
 # RMS norm: x = x * w / sqrt(row_mean(x * x) + epsilon)

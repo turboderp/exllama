@@ -76,6 +76,7 @@ class ExLlamaConfig:
         self.matmul_recons_thd = 8
         self.fused_mlp_thd = 2
         self.sdp_thd = 8
+        self.fused_attn = True
         self.matmul_fused_remap = False
         self.rmsnorm_no_half2 = False
         self.rope_no_half2 = False
@@ -260,6 +261,62 @@ class ExLlamaAttention:
         self.o_proj = Ex4bitLinear(config, self.config.num_attention_heads * self.config.head_dim, self.config.hidden_size, False, tensors, key + ".o_proj")
 
 
+    def fused(self, hidden_states, cache, buffer, input_layernorm):
+
+        bsz, q_len, _ = hidden_states.size()
+        past_len = cache.current_seq_len
+
+        # Project q, k, v, apply position embeddings to k and v, update cache
+
+        query_states = torch.empty((q_len, self.config.hidden_size), dtype = torch.float16, device = hidden_states.device)
+        key_states = torch.empty((q_len, self.config.hidden_size), dtype = torch.float16, device = hidden_states.device)
+        value_states = torch.empty((q_len, self.config.hidden_size), dtype = torch.float16, device = hidden_states.device)
+
+        cuda_ext.exllama_ext.q4_attn(hidden_states,
+                                     input_layernorm.weight,
+                                     self.config.rms_norm_eps,
+                                     query_states,
+                                     key_states,
+                                     value_states,
+                                     self.q_proj.q4,
+                                     self.k_proj.q4,
+                                     self.v_proj.q4,
+                                     self.sin,
+                                     self.cos,
+                                     q_len,
+                                     past_len,
+                                     self.config.num_attention_heads,
+                                     self.config.head_dim,
+                                     cache.key_states[self.index],
+                                     cache.value_states[self.index],
+                                     self.config.max_seq_len)
+
+        query_states = query_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim)
+
+        # Get k, v with past
+
+        key_states = cache.key_states[self.index].narrow(2, 0, past_len + q_len)
+        value_states = cache.value_states[self.index].narrow(2, 0, past_len + q_len)
+
+        # Attention
+        # TODO: Figure out if we can use cublasHgemmStridedBatched() to do this matmul without reshaping. Torch uses
+        # gemmStridedBatchedEx() internally, so it should be possible.
+
+        query_states.transpose_(1, 2)
+        key_states.transpose_(2, 3)
+        attn_weights = torch.matmul(query_states, key_states)
+        attn_weights /= math.sqrt(self.config.head_dim)
+        attn_weights = nn.functional.softmax(attn_weights, dim = -1, dtype = torch.float16)
+        attn_output = torch.matmul(attn_weights, value_states)
+        attn_output = attn_output.transpose(1, 2)
+        attn_output = attn_output.reshape(bsz, q_len, self.config.hidden_size)
+
+        # Output projection
+
+        cuda_ext.exllama_ext.q4_attn_2(hidden_states, attn_output, self.o_proj.q4)
+        # return hidden_states
+
+
     def forward(self, hidden_states, cache, buffer):
 
         bsz, q_len, _ = hidden_states.size()
@@ -351,6 +408,8 @@ class ExLlamaDecoderLayer:
 
     def forward(self, hidden_states, cache, buffer):
 
+        # Self-attention
+
         if self.config.debug:
             print(f" !! Begin decoder {self.index}")
             print(f" !! Begin self-attention")
@@ -362,10 +421,18 @@ class ExLlamaDecoderLayer:
             self.self_attn.v_proj.debug("self_attn.v_proj")
             self.self_attn.o_proj.debug("self_attn.o_proj")
 
-        residual = hidden_states
-        hidden_states = self.input_layernorm.forward(hidden_states, buffer)
-        hidden_states = self.self_attn.forward(hidden_states, cache, buffer)
-        hidden_states = residual + hidden_states
+        if self.config.fused_attn and _rows(hidden_states) == 1:
+
+            self.self_attn.fused(hidden_states, cache, buffer, self.input_layernorm)
+
+        else:
+
+            residual = hidden_states
+            hidden_states = self.input_layernorm.forward(hidden_states, buffer)
+            hidden_states = self.self_attn.forward(hidden_states, cache, buffer)
+            hidden_states = residual + hidden_states
+
+        # MLP
 
         if self.config.debug:
 
@@ -380,12 +447,12 @@ class ExLlamaDecoderLayer:
 
             if self.config.debug: print(f" !!  - method: fused")
 
-            cuda_ext.ext_q4_mlp(hidden_states,
-                                self.post_attention_layernorm.weight,
-                                self.config.rms_norm_eps,
-                                self.mlp.gate_proj.q4,
-                                self.mlp.up_proj.q4,
-                                self.mlp.down_proj.q4)
+            cuda_ext.exllama_ext.q4_mlp(hidden_states.view(-1, hidden_states.shape[-1]),
+                                        self.post_attention_layernorm.weight,
+                                        self.config.rms_norm_eps,
+                                        self.mlp.gate_proj.q4,
+                                        self.mlp.up_proj.q4,
+                                        self.mlp.down_proj.q4)
 
         else:
 

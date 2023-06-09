@@ -59,9 +59,9 @@ Q4Matrix::~Q4Matrix()
 
 __global__ void make_sequential_kernel
 (
-    const uint32_t* w,
-    uint32_t* w_new,
-    const uint32_t* x_map,
+    const uint32_t* __restrict__ w,
+    uint32_t* __restrict__ w_new,
+    const uint32_t* __restrict__ x_map,
     const int w_height,
     const int w_width
 )
@@ -160,10 +160,10 @@ void Q4Matrix::make_sequential(const uint32_t* cpu_g_idx)
 
 __global__ void reconstruct_kernel
 (
-    const uint32_t* w,
-    half* out,  // (y)
-    const half* w_scales,
-    const uint32_t* w_zeros,
+    const uint32_t* __restrict__ w,
+    half* __restrict__ out,  // (y)
+    const half* __restrict__ w_scales,
+    const uint32_t* __restrict__ w_zeros,
     const int height,
     const int width,
     const int groupsize

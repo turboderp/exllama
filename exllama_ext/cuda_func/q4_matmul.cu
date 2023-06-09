@@ -14,17 +14,17 @@ const int THREADS_Y = 1;        // Block size and thread count along rows in x a
 template<bool use_half2, bool use_groupsize, bool use_x_map>
 __global__ void q4_matmul_kernel
 (
-    const half* x,
-    const uint32_t* w,
-    half* out,  // (y)
-    const half* w_scales,
-    const uint32_t* w_zeros,
+    const half* __restrict__ x,
+    const uint32_t* __restrict__ w,
+    half* __restrict__ out,  // (y)
+    const half* __restrict__ w_scales,
+    const uint32_t* __restrict__ w_zeros,
     const int height,
     const int dim,
     const int width,
     const int groupsize,
     const int block_size_z,
-    const uint32_t* x_map,
+    const uint32_t* __restrict__ x_map,
     bool no_zero
 )
 {
@@ -188,7 +188,7 @@ void q4_matmul_cuda
     else if (w->width == 17920) block_size_z = 128;
     else block_size_z = 256;
 
-    //cudaMemsetAsync(out, 0, x_height * w->width * sizeof(half));
+    //if (!no_zero) cudaMemsetAsync(out, 0, x_height * w->width * sizeof(half));
 
     dim3 threads(THREADS_X, THREADS_Y, 1);
 

@@ -18,6 +18,7 @@ def add_args(parser):
     parser.add_argument("-fmt", "--fused_mlp_thd", type = int, help = "Maximum no. of rows for which to use fused MLP. 0 = never", default = 2)
     parser.add_argument("-sdpt", "--sdp_thd", type = int, help = "No. rows at which to switch to scaled_dot_product_attention. 0 = never, 1 = always", default = 8)
     parser.add_argument("-mmfr", "--matmul_fused_remap", action = "store_true", help = "Fuse column remapping in Q4 matmul kernel")
+    parser.add_argument("-nfa", "--no_fused_attn", action = "store_true", help = "Disable fused attention")
 
     parser.add_argument("-rnnh2", "--rmsnorm_no_half2", action = "store_true", help = "Don't use half2 in RMS norm kernel")
     parser.add_argument("-rpnh2", "--rope_no_half2", action = "store_true", help = "Don't use half2 in RoPE kernel")
@@ -78,6 +79,7 @@ def print_options(args, extra_options = None):
     print(f" -- --fused_mlp_thd: {args.fused_mlp_thd}" + (" (disabled)" if args.fused_mlp_thd == 0 else ""))
     print(f" -- --sdp_thd: {args.sdp_thd}" + (" (disabled)" if args.sdp_thd == 0 else ""))
     if args.matmul_fused_remap: print(f" -- --matmul_fused_remap")
+    if args.no_fused_attn: print(f" -- --no_fused_attn")
     if args.rmsnorm_no_half2: print(f" -- --rmsnorm_no_half2")
     if args.rope_no_half2: print(f" -- --rope_no_half2")
     if args.matmul_no_half2: print(f" -- --matmul_no_half2")
@@ -101,6 +103,7 @@ def make_config(args):
     config.fused_mlp_thd = args.fused_mlp_thd
     config.sdp_thd = args.sdp_thd
     config.matmul_fused_remap = args.matmul_fused_remap
+    config.fused_attn = not args.no_fused_attn
 
     config.rmsnorm_no_half2 = args.rmsnorm_no_half2
     config.rope_no_half2 = args.rope_no_half2

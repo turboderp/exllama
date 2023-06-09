@@ -9,9 +9,9 @@ const int MAX_POS_EMBEDDINGS = 32768;  // Actual number doesn't matter
 template<bool use_half2>
 __global__ void rope_cuda_kernel
 (
-    half* x,
-    const half* sin,
-    const half* cos,
+    half* __restrict__ x,
+    const half* __restrict__ sin,
+    const half* __restrict__ cos,
     int rows,
     int head_dim,
     int num_heads,
