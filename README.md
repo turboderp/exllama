@@ -79,6 +79,48 @@ To run it:
 
 Note that sessions are stored in `~/exllama_sessions/`. 
 
+## Docker
+For security benefits and easier deployment, it is also possible to run the web UI in an isolated docker container. Note: the docker image currently only supports NVIDIA GPUs.
+
+### Requirements
+- [Docker](https://docs.docker.com/engine/install/)
+- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+
+It is recommended to run docker in [rootless mode](https://docs.docker.com/engine/security/rootless/).
+
+### Build
+
+The easiest way to build the docker image is using docker compose. First, set the `MODEL_PATH` and `SESSIONS_PATH` variables in the `.env` file to the actual directories on the host. Then run:
+
+```
+docker compose build
+```
+
+It is also possible to manually build the image:
+
+```
+docker build -t exllama-web
+```
+
+### Run
+
+Using docker compose:
+
+```
+docker compose up
+```
+
+The web UI can now be accessed on the host at http://localhost:5000.
+
+The configuration can be viewed in `docker-compose.yml` and changed by creating a `docker-compose.override.yml` file.
+
+Run manually: 
+
+```
+docker run --gpus all -p 5000:5000 -v <path_to_model_files>:/app/model/ --rm -it exllama-web --host 0.0.0.0:5000
+```
+
+
 ## Results so far
 
 ### New implementation
