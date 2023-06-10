@@ -8,6 +8,10 @@
 
 const int CUDA_MAX_DEVICES = 16;
 
+// #ifndef _cuda_buffers_cu
+// extern __constant__ half2 q4_table[16][256];
+// #endif
+
 class CudaBuffers
 {
 public:
