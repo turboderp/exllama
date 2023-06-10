@@ -3,6 +3,8 @@
 A standalone Python/C++/CUDA implementation of Llama for use with 4-bit GPTQ weights, designed to be fast and
 memory-efficient on modern GPUs.
 
+Disclaimer: The project is coming along, but it's still a work in progress!
+
 ## Hardware requirements
 
 I am developing on an RTX 4090 and an RTX 3090-Ti. Both cards support the CUDA kernel, but there might be
