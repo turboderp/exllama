@@ -1,3 +1,4 @@
-safetensors>=0.3.1
-sentencepiece
-ninja
+torch==2.0.1
+safetensors==0.3.1
+sentencepiece==0.1.99
+ninja==1.11.1

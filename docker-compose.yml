@@ -1,0 +1,28 @@
+version: "3.9"
+name: exllama
+services:
+  web:
+    build:
+      context: .
+    command: |
+      --host 0.0.0.0:$PORT
+    env_file:
+      - .env
+    environment:
+      - CONTAINER_MODEL_PATH=$CONTAINER_MODEL_PATH
+    volumes:
+      - $MODEL_PATH:$CONTAINER_MODEL_PATH
+      - $SESSIONS_PATH:/home/user/exllama_sessions
+    ports:
+      - "$PORT:$PORT"
+    tmpfs:
+      - /tmp
+    stdin_open: true
+    tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
