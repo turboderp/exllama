@@ -1,24 +1,14 @@
 # ExLlama
 
-A rewrite of the HF transformers implementation of Llama with the following goals, among others:
+A standalone Python/C++/CUDA implementation of Llama for use with 4-bit GPTQ weights, designed to be fast and
+memory-efficient on modern GPUs.
 
-* Designed for use with quantized weights
-* Fast and memory-efficient inference (not just attention)
-* Mapping across multiple devices
-* Built-in (multi) LoRA support
-* Companion library of funky sampling functions
-
-Disclaimer: This is currently a preview of a work in progress. Or maybe a proof of concept. Either way any part of it
-is subject to change.
-
-## Hardware/software requirements
+## Hardware requirements
 
 I am developing on an RTX 4090 and an RTX 3090-Ti. Both cards support the CUDA kernel, but there might be
-incompatibilities with older cards. I have no way of testing that right now.
+incompatibilities with older cards.
 
 ## Dependencies
-
-This list might be incomplete:
 
 * `torch` tested on 2.0.1 and 2.1.0 (nightly) with cu118
 * `safetensors` 0.3.1
@@ -69,7 +59,7 @@ I made a simple web UI for it. Like the rest of the project, it's a work in prog
 it was mostly written by ChatGPT and it will haunt your dreams. But it sort of works, and it's kinda fun, especially
 multibot mode:
 
-![_screenshot.jpg](_screenshot.jpg)
+![_screenshot.jpg](doc/_screenshot.jpg)
 
 To run it:
 
@@ -178,11 +168,11 @@ speeds are no longer current.
 
 ## Todo
 
-Moved the todo list [here](TODO.md).  
+Moved the todo list [here](doc/TODO.md).  
 
 ## Compatibility
 
-I downloaded a whole bunch of GPTQ models to test compatibility. [Here](model_compatibility.md) is the list of models
+I downloaded a whole bunch of GPTQ models to test compatibility. [Here](doc/model_compatibility.md) is the list of models
 confirmed to be working right now.
 
 ## Recent updates
@@ -214,3 +204,5 @@ on Windows.
 **2024-06-09**: Fused most of the self-attention step. More to come. Slight speedup already, but more importantly went
 from 69% actual CPU utilization to 37%. This should do a lot to address the bottleneck on CPUs with lower 
 single-threaded performance.
+
+**2024-06-10**: Docker support now! And some minor optimizations. Cleaned up the project a bit.
