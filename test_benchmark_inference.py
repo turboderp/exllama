@@ -14,9 +14,8 @@ import model_init
 
 testdata_path = "testdata.jsonl"
 
-torch.set_grad_enabled(False)
 torch.cuda._lazy_init()
-torch.backends.cuda.matmul.allow_tf32 = True
+# torch.backends.cuda.matmul.allow_tf32 = True
 # torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True
 torch.set_printoptions(precision = 10)
 torch_devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
@@ -84,7 +83,6 @@ model_init.add_args(parser)
 parser.add_argument("-p", "--perf", action = "store_true", help = "Benchmark speed and VRAM usage")
 parser.add_argument("-ppl", "--perplexity", action = "store_true", help = "Perplexity benchmark (slow)")
 parser.add_argument("-v", "--validate", action = "store_true", help = "Quick perplexity benchmark just to test if model is working at all, and short text completion")
-parser.add_argument("-dbg", "--debug", action = "store_true", help = "Run debug pass")
 
 args = parser.parse_args()
 model_init.post_parse(args)
@@ -96,14 +94,12 @@ print_opts = []
 if args.perf: print_opts.append("perf")
 if args.perplexity: print_opts.append("perplexity")
 if args.validate: print_opts.append("validate")
-if args.debug: print_opts.append("debug")
 
 model_init.print_options(args, print_opts)
 
 # Instantiate model
 
 config = model_init.make_config(args)
-config.debug = args.debug
 
 model = timer("Load model", lambda: ExLlama(config))
 tokenizer = timer("Load tokenizer", lambda: ExLlamaTokenizer(args.tokenizer))
@@ -119,133 +115,120 @@ gen_tokens = 128
 max_seq_len = args.length
 ids = torch.randint(0, 31999, (1, max_seq_len - gen_tokens)).cuda()
 
-with torch.no_grad():
+# Benchmark memory and performance
 
-    if args.debug:
+if args.perf:
 
-        print(" !! Inference, debug pass")
+    # Warming up apparently makes a huge difference
 
+    for i in range(1, 4):
+        print(f" -- Warmup pass {i}...")
         begin()
-        logits = timer("Inference", lambda: next_logits(ids))
+        logits = timer("Warmup", lambda: next_logits(ids))
 
-        model.config.debug = False
+    # Do the actual benchmark
 
-    # Benchmark memory and performance
+    begin()
 
-    if args.perf:
+    t = time.time()
 
-        # Warming up apparently makes a huge difference
+    print(" -- Inference, first pass.")
+    logits = timer("Inference", lambda: next_logits(ids))
 
-        for i in range(1, 4):
-            print(f" -- Warmup pass {i}...")
-            begin()
-            logits = timer("Warmup", lambda: next_logits(ids))
+    t = time.time() - t
+    print(f" ** Speed: {ids.shape[-1] / t:.2f} tokens/second")
 
-        # Do the actual benchmark
-
-        begin()
+    for j in range(2):
 
         t = time.time()
+        print(f" -- Generating {gen_tokens} tokens, {ids.shape[-1]} token prompt...")
+        for i in range(gen_tokens):
 
-        print(" -- Inference, first pass.")
-        logits = timer("Inference", lambda: next_logits(ids))
+            logits = logits[0, -1, :]
+            token = torch.argmax(logits)
+            next_id = token.unsqueeze(0).unsqueeze(0)
+            logits = next_logits(next_id)
 
         t = time.time() - t
-        print(f" ** Speed: {ids.shape[-1] / t:.2f} tokens/second")
+        print(f" ** Speed: {gen_tokens / t:.2f} tokens/second")
 
-        for j in range(2):
+        ids = ids[:, :4]
+        cache.current_seq_len = 4
 
-            t = time.time()
-            print(f" -- Generating {gen_tokens} tokens, {ids.shape[-1]} token prompt...")
-            for i in range(gen_tokens):
+    mem("Inference")
+    mem("Total", total = True)
 
-                logits = logits[0, -1, :]
-                token = torch.argmax(logits)
-                next_id = token.unsqueeze(0).unsqueeze(0)
-                logits = next_logits(next_id)
+# Benchmark perplexity
 
-            t = time.time() - t
-            print(f" ** Speed: {gen_tokens / t:.2f} tokens/second")
+if args.perplexity or args.validate:
 
-            ids = ids[:, :4]
-            cache.current_seq_len = 4
+    print(" -- Loading dataset...")
 
-        mem("Inference")
-        mem("Total", total = True)
+    ds = []
+    with open(testdata_path) as f:
+        for line in f:
+            example = json.loads(line)["text"]
+            if len(example) > 50: ds.append(example)
 
-    # Benchmark perplexity
+    def _ppl_test(text, ex_count):
 
-    if args.perplexity or args.validate:
+        print(" -- Testing", end="")
+        sys.stdout.flush()
 
-        print(" -- Loading dataset...")
+        logprob_sum = 0.0
+        logprob_count = 0
 
-        ds = []
-        with open(testdata_path) as f:
-            for line in f:
-                example = json.loads(line)["text"]
-                if len(example) > 50: ds.append(example)
+        for ex in ds:
 
-        def _ppl_test(text, ex_count):
+            begin()
 
-            print(" -- Testing", end="")
+            ids = tokenize(ex)
+            ids = ids[:, :max_seq_len + 1]
+            input_ids = ids[:, :-1]
+            target_ids = ids[:, 1:]
+
+            logits = next_logits(input_ids, last_id_only=False)
+
+            log_probs = F.log_softmax(logits, dim=-1)
+            token_log_probs = log_probs.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)
+
+            logprob_sum += token_log_probs.sum().item()
+            logprob_count += target_ids.numel()
+
+            ex_count -= 1
+            if ex_count % 10 == 0:
+                print(".", end = "")
             sys.stdout.flush()
+            if ex_count == 0: break
 
-            logprob_sum = 0.0
-            logprob_count = 0
+        mean_log_prob = logprob_sum / logprob_count
+        perplexity = math.exp(-mean_log_prob)
 
-            for ex in ds:
+        print("")
+        print(f" ** Perplexity{text}: {perplexity:.4f}")
 
-                begin()
+    if args.perplexity:
 
-                ids = tokenize(ex)
-                ids = ids[:, :max_seq_len + 1]
-                input_ids = ids[:, :-1]
-                target_ids = ids[:, 1:]
+        _ppl_test("", 100)
 
-                logits = next_logits(input_ids, last_id_only=False)
+    if args.validate:
 
-                log_probs = F.log_softmax(logits, dim=-1)
-                token_log_probs = log_probs.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)
+        # Short perplexity tests in switched and quant mode, should produce roughly equal results
 
-                logprob_sum += token_log_probs.sum().item()
-                logprob_count += target_ids.numel()
+        model.config.matmul_recons_thd = 1
+        _ppl_test(" (reconstruct)", 8)
+        model.config.matmul_recons_thd = 0
+        _ppl_test(" (quant)", 8)
+        # model.config.fused_attn_thd = 1
+        # _ppl_test(" (fused_attn)", 8)
 
-                ex_count -= 1
-                if ex_count % 10 == 0:
-                    print(".", end = "")
-                sys.stdout.flush()
-                if ex_count == 0: break
+        # Do a short, easy topk=1 completion to see if we're generating garbage. Should run in switched mode
+        # for the prompt and quant for individual tokens
 
-            mean_log_prob = logprob_sum / logprob_count
-            perplexity = math.exp(-mean_log_prob)
-
-            print("")
-            print(f" ** Perplexity{text}: {perplexity:.4f}")
-
-        if args.perplexity:
-
-            _ppl_test("", 100)
-
-        if args.validate:
-
-            # Short perplexity tests in switched and quant mode, should produce roughly equal results
-
-            model.config.matmul_recons_thd = 1
-            _ppl_test(" (reconstruct)", 8)
-            model.config.matmul_recons_thd = 0
-            _ppl_test(" (quant)", 8)
-            # model.config.fused_attn_thd = 1
-            # _ppl_test(" (fused_attn)", 8)
-
-            # Do a short, easy topk=1 completion to see if we're generating garbage. Should run in switched mode
-            # for the prompt and quant for individual tokens
-
-            model.config.matmul_recons_thd = 4
-            generator = ExLlamaGenerator(model, tokenizer, cache)
-            generator.settings.top_k = 1
-            text = generator.generate_simple("To be or not to be, that is the", max_new_tokens = 20)
-            # text = generator.generate_simple("To be or", max_new_tokens = 20)
-            text = text.replace("\n", "\\n")
-            print(f" ** Generation: {text}")
-
-
+        model.config.matmul_recons_thd = 4
+        generator = ExLlamaGenerator(model, tokenizer, cache)
+        generator.settings.top_k = 1
+        text = generator.generate_simple("To be or not to be, that is the", max_new_tokens = 20)
+        # text = generator.generate_simple("To be or", max_new_tokens = 20)
+        text = text.replace("\n", "\\n")
+        print(f" ** Generation: {text}")

@@ -534,146 +534,144 @@ class Session:
     def respond_multi(self, user_input):
         global model, tokenizer, cache, generator
 
-        with torch.no_grad():
+        packet = {"cmd": "begin_stream"}
+        yield json.dumps(packet) + "\n"
 
-            packet = {"cmd": "begin_stream"}
+        # Prepare stop conditions
+
+        # stop_conditions = [ (torch.Tensor([[tokenizer.eos_token_id]]).long(), None) ]
+        stop_conditions = []
+        newline_token = torch.Tensor([[tokenizer.newline_token_id]]).long()
+
+        if self.break_on_newline:
+            stop_conditions.append((newline_token, "\n"))
+        else:
+            for part in self.participants:
+                txt = part + ":"
+                sc = tokenizer.encode(txt)
+                sc = torch.cat((newline_token, sc), dim=1)
+                stop_conditions.append((sc, "\n" + txt))
+                stop_conditions.append((sc, "\n " + txt))
+
+        # Clean up the input a bit
+
+        user_input = user_input.strip()
+
+        if len(user_input) > 0:
+
+            # Append input to context
+
+            author = None
+            if len(self.participants) > 0: author = self.participants[0]
+            newNode = Node(user_input, author)
+            self.history.append(newNode)
+
+            self.save()
+
+            # Echo input back to client
+
+            packet = {"cmd": "begin_block",
+                      "init_text": user_input,
+                      "uuid": newNode.uuid}
+            if author is not None: packet["author"] = author
             yield json.dumps(packet) + "\n"
 
-            # Prepare stop conditions
+        # Prepare context for generator
 
-            # stop_conditions = [ (torch.Tensor([[tokenizer.eos_token_id]]).long(), None) ]
-            stop_conditions = []
-            newline_token = torch.Tensor([[tokenizer.newline_token_id]]).long()
+        self.set_context_window()
+        context, text_context = self.get_tokenized_context()
 
-            if self.break_on_newline:
-                stop_conditions.append((newline_token, "\n"))
-            else:
-                for part in self.participants:
-                    txt = part + ":"
-                    sc = tokenizer.encode(txt)
-                    sc = torch.cat((newline_token, sc), dim=1)
-                    stop_conditions.append((sc, "\n" + txt))
-                    stop_conditions.append((sc, "\n " + txt))
+        # Start generating, reusing cache for any part of the context that hasn't changed
 
-            # Clean up the input a bit
-
-            user_input = user_input.strip()
-
-            if len(user_input) > 0:
-
-                # Append input to context
-
-                author = None
-                if len(self.participants) > 0: author = self.participants[0]
-                newNode = Node(user_input, author)
-                self.history.append(newNode)
-
-                self.save()
-
-                # Echo input back to client
-
-                packet = {"cmd": "begin_block",
-                          "init_text": user_input,
-                          "uuid": newNode.uuid}
-                if author is not None: packet["author"] = author
-                yield json.dumps(packet) + "\n"
-
-            # Prepare context for generator
-
-            self.set_context_window()
-            context, text_context = self.get_tokenized_context()
-
-            # Start generating, reusing cache for any part of the context that hasn't changed
-
-            if context is None:
-                print("No initial context")
-                reused = generator.gen_begin_empty()
-            else:
-                begin_time = time.time()
-                reused = generator.gen_begin_reuse(context)
-                end_time = time.time()
-                elapsed = end_time - begin_time
-                new_tokens = context.shape[-1] - reused
-                print(f"Prompt processed in {elapsed:.2f} seconds, {new_tokens} new tokens, {(new_tokens / elapsed):.2f} tokens/second:")
-
+        if context is None:
+            print("No initial context")
+            reused = generator.gen_begin_empty()
+        else:
             begin_time = time.time()
-            total_tokens = [0]
+            reused = generator.gen_begin_reuse(context)
+            end_time = time.time()
+            elapsed = end_time - begin_time
+            new_tokens = context.shape[-1] - reused
+            print(f"Prompt processed in {elapsed:.2f} seconds, {new_tokens} new tokens, {(new_tokens / elapsed):.2f} tokens/second:")
 
-            # No participants
+        begin_time = time.time()
+        total_tokens = [0]
 
-            if len(self.participants) == 0:
+        # No participants
 
-                yield from self.respond(None, stop_conditions, total_tokens)
+        if len(self.participants) == 0:
 
-            # Two participants
+            yield from self.respond(None, stop_conditions, total_tokens)
 
-            elif len(self.participants) == 2:
+        # Two participants
 
-                author = self.participants[1]
-                res_line = author + ":"
-                res_tokens = tokenizer.encode(res_line)
-                num_res_tokens = res_tokens.shape[-1]
+        elif len(self.participants) == 2:
 
-                generator.gen_feed_tokens(res_tokens)
-                yield from self.respond(self.participants[1], stop_conditions, total_tokens, res_line, num_res_tokens)
+            author = self.participants[1]
+            res_line = author + ":"
+            res_tokens = tokenizer.encode(res_line)
+            num_res_tokens = res_tokens.shape[-1]
 
-            # Multiple bots might answer
+            generator.gen_feed_tokens(res_tokens)
+            yield from self.respond(self.participants[1], stop_conditions, total_tokens, res_line, num_res_tokens)
 
-            elif len(self.participants) > 2:
+        # Multiple bots might answer
 
-                cpart = [p + ":" for p in self.participants]
-                upart = cpart.pop(0)
-                first_round = True
+        elif len(self.participants) > 2:
+
+            cpart = [p + ":" for p in self.participants]
+            upart = cpart.pop(0)
+            first_round = True
+
+            while True:
+
+                res_tokens = []
+                npart = [p for p in cpart]
+                ncrange = [i for i in range(len(cpart))]
+                ntoken = [tokenizer.encode(np).squeeze(0).tolist() for np in npart]
+                winner = -1
 
                 while True:
 
-                    res_tokens = []
-                    npart = [p for p in cpart]
-                    ncrange = [i for i in range(len(cpart))]
-                    ntoken = [tokenizer.encode(np).squeeze(0).tolist() for np in npart]
-                    winner = -1
+                    constraints = [t[len(res_tokens)] for t in ntoken]
+                    next_t = generator.gen_single_token(constraints)
 
-                    while True:
+                    remove = []
+                    for i in range(len(ntoken)):
+                        if ntoken[i][len(res_tokens)] != next_t: remove.append(i)
 
-                        constraints = [t[len(res_tokens)] for t in ntoken]
-                        next_t = generator.gen_single_token(constraints)
+                    for i in reversed(remove):
+                        npart.pop(i)
+                        ntoken.pop(i)
+                        ncrange.pop(i)
 
-                        remove = []
-                        for i in range(len(ntoken)):
-                            if ntoken[i][len(res_tokens)] != next_t: remove.append(i)
+                    res_tokens.append(next_t)
 
-                        for i in reversed(remove):
-                            npart.pop(i)
-                            ntoken.pop(i)
-                            ncrange.pop(i)
+                    for i in range(len(ntoken)):
+                        if len(ntoken[i]) == len(res_tokens): winner = ncrange[i]
 
-                        res_tokens.append(next_t)
+                    if winner != -1: break
 
-                        for i in range(len(ntoken)):
-                            if len(ntoken[i]) == len(res_tokens): winner = ncrange[i]
+                author = cpart.pop(winner)[:-1]
+                res_line = author + ":"
+                num_res_tokens = len(res_tokens)
 
-                        if winner != -1: break
+                if author == self.participants[0]:
+                    generator.gen_rewind(num_res_tokens)
+                    break
 
-                    author = cpart.pop(winner)[:-1]
-                    res_line = author + ":"
-                    num_res_tokens = len(res_tokens)
+                # generator.gen_feed_tokens(res_tokens)
+                yield from self.respond(self.participants[1], stop_conditions, total_tokens, res_line, num_res_tokens)
 
-                    if author == self.participants[0]:
-                        generator.gen_rewind(num_res_tokens)
-                        break
+                if first_round:
+                    first_round = False
+                    cpart.append(upart)
 
-                    # generator.gen_feed_tokens(res_tokens)
-                    yield from self.respond(self.participants[1], stop_conditions, total_tokens, res_line, num_res_tokens)
+        end_time = time.time()
+        elapsed = end_time - begin_time
 
-                    if first_round:
-                        first_round = False
-                        cpart.append(upart)
+        print(f"Response generated in {elapsed:.2} seconds, {total_tokens[0]} tokens, {(total_tokens[0] / elapsed):.2f} tokens/second:")
 
-            end_time = time.time()
-            elapsed = end_time - begin_time
-
-            print(f"Response generated in {elapsed:.2} seconds, {total_tokens[0]} tokens, {(total_tokens[0] / elapsed):.2f} tokens/second:")
-
-            self.save()
+        self.save()
 
 

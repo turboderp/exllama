@@ -6,12 +6,7 @@ import cuda_ext
 import json
 import math
 from enum import Enum
-import struct
 
-# Magic numbers
-
-optimal_switch_thd = 6  # Model mostly runs one token at a time, or many. So this probably doesn't matter too much.
-attn_switch_thd = 16
 
 class ParsedEnum(Enum):
 
@@ -69,7 +64,6 @@ class ExLlamaConfig:
         self.max_seq_len = 2048  # Reduce to save memory. Can also be increased, but the pretrained models produce degenerate output after 2048 tokens in any case. Should be possible to finetune for longer sequence lengths.
         self.gpu_peer_fix = False # Apparently Torch can have problems transferring tensors directly one GPU to another sometimes. Enable this to move tensors via system RAM instead, where needed
         self.auto_map = None  # List of ints with memory allocation in GB, per CUDA device, overrides device_map
-        self.debug = False
 
         # Tuning
 
@@ -104,28 +98,11 @@ class ExLlamaConfig:
         else: self.auto_map = [float(alloc) for alloc in map_string.split(",")]
 
 
-def _dump_tensor(t, name):
-
-    if t is None:
-        with open(name, "w"):
-            pass
-        with open(name + ".shape", "w"):
-            pass
-    else:
-        t.cpu().numpy().tofile(name)
-        t = t.view(-1, t.shape[-1])
-        with open(name + ".shape", "wb") as file:
-            shape_struct = struct.pack("<ii", t.shape[0], t.shape[1])
-            file.write(shape_struct)
-
-
 # 4-bit linear layer implementation
 
 class Ex4bitLinear:
-# class Ex4bitLinear(nn.Module):
 
     def __init__(self, config, in_features, out_features, has_bias, tensors, key):
-        # super().__init__()
 
         self.config = config
         self.key = key
@@ -174,30 +151,11 @@ class Ex4bitLinear:
         return out
 
 
-    def debug(self, name):
-
-        print(f" !!  - {name}: {self.qweight.device} ", end = "")
-        print(f"[Q", end = "")
-        if self.x_map is not None: print(f",x_map", end = "")
-        if self.bias is not None: print(f",bias", end = "")
-        print(f"]", end = "")
-        unique_q = torch.unique(self.qweight[0, :]).numel()
-        width_q = self.qweight.shape[-1]
-        if unique_q < width_q / 2: print(f" ### qweight abnormal", end = "")
-        unique_z = torch.unique(self.qzeros[0, :]).numel()
-        width_z = self.qzeros.shape[-1]
-        if unique_z < width_z / 8: print(f" ### qzeros abnormal", end = "")
-        print(f" scales min/max/std: {self.scales.min().item():.6f}/{self.scales.max().item():.6f}/{self.scales.std().item():.6f}", end = "")
-        print("")
-
-
 # Llama MLP
 
 class ExLlamaMLP:
-# class ExLlamaMLP(nn.Module):
 
     def __init__(self, config, tensors, key):
-        # super().__init__()
 
         self.config = config
 
@@ -221,10 +179,8 @@ class ExLlamaMLP:
 # RMS Layer norm.
 
 class ExLlamaRMSNorm:
-# class ExLlamaRMSNorm(nn.Module):
 
     def __init__(self, config, tensors, key):
-        # super().__init__()
 
         self.config = config
         self.variance_epsilon = self.config.rms_norm_eps
@@ -237,18 +193,11 @@ class ExLlamaRMSNorm:
         return hidden_states
 
 
-    def debug(self):
-
-        print(f" !!  - layernorm.weight: {_describe_tensor(self.weight, True)} eps: {self.variance_epsilon:.8f}")
-
-
 # Llama attention
 
 class ExLlamaAttention:
-# class ExLlamaAttention(nn.Module):
 
     def __init__(self, config, tensors, key, sin, cos, index):
-        # super().__init__()
 
         self.config = config
         self.sin = sin
@@ -336,8 +285,6 @@ class ExLlamaAttention:
 
         # Add keys and values to cache
 
-        if self.config.debug: cache.debug(self.index)
-
         new_keys = cache.key_states[self.index].narrow(2, past_len, q_len)
         new_values = cache.value_states[self.index].narrow(2, past_len, q_len)
         new_keys.copy_(key_states)
@@ -391,10 +338,8 @@ def _rows(x):
     return xdp
 
 class ExLlamaDecoderLayer:
-# class ExLlamaDecoderLayer(nn.Module):
 
     def __init__(self, config, tensors, key, index, sin, cos):
-        # super().__init__()
 
         self.config = config
         self.index = index
@@ -410,17 +355,6 @@ class ExLlamaDecoderLayer:
 
         # Self-attention
 
-        if self.config.debug:
-            print(f" !! Begin decoder {self.index}")
-            print(f" !! Begin self-attention")
-            print(f" !!  - hidden_states: {_describe_tensor(hidden_states, True)}")
-            buffer.debug()
-            self.input_layernorm.debug()
-            self.self_attn.q_proj.debug("self_attn.q_proj")
-            self.self_attn.k_proj.debug("self_attn.k_proj")
-            self.self_attn.v_proj.debug("self_attn.v_proj")
-            self.self_attn.o_proj.debug("self_attn.o_proj")
-
         if self.config.fused_attn and _rows(hidden_states) == 1:
 
             self.self_attn.fused(hidden_states, cache, buffer, self.input_layernorm)
@@ -434,18 +368,7 @@ class ExLlamaDecoderLayer:
 
         # MLP
 
-        if self.config.debug:
-
-            print(f" !! Begin MLP")
-            print(f" !!  - hidden_states: {_describe_tensor(hidden_states, True)}")
-            self.post_attention_layernorm.debug()
-            self.mlp.gate_proj.debug("mlp.gate_proj")
-            self.mlp.up_proj.debug("mlp.up_proj")
-            self.mlp.down_proj.debug("mlp.down_proj")
-
         if self.config.fused_mlp_thd > 0 and _rows(hidden_states) <= self.config.fused_mlp_thd:
-
-            if self.config.debug: print(f" !!  - method: fused")
 
             cuda_ext.exllama_ext.q4_mlp(hidden_states.view(-1, hidden_states.shape[-1]),
                                         self.post_attention_layernorm.weight,
@@ -455,8 +378,6 @@ class ExLlamaDecoderLayer:
                                         self.mlp.down_proj.q4)
 
         else:
-
-            if self.config.debug: print(f" !!  - method: normal")
 
             residual = hidden_states
             hidden_states = self.post_attention_layernorm.forward(hidden_states, buffer)
@@ -538,11 +459,6 @@ class ExLlamaCache:
             target_view_v.copy_(source_view_v)
 
 
-    def debug(self, index):
-
-        print(f" !!  - cache device: {self.key_states[index].device}, seq_len: {self.current_seq_len}")
-
-
 # Device map for the model.
 
 class ExLlamaDeviceMap:
@@ -575,23 +491,6 @@ class ExLlamaDeviceMap:
         raise ValueError("Unknown key: " + key)
 
 
-    def debug(self):
-
-        print(f" !! Device map:")
-        print(f" !!  - embed_tokens: {self.embed_tokens}")
-
-        a = 0
-        while a < len(self.layers):
-            b = min(a + 10, len(self.layers))
-            print(f" !!  - layers [{a}:{b}]:", end = "")
-            for i in range(a, b): print(" " + self.layers[i], end = "")
-            print("")
-            a = b
-
-        print(f" !!  - norm: {self.norm}")
-        print(f" !!  - lm_head: {self.lm_head}")
-
-
 class ExLlamaBuffer:
 
     config: ExLlamaConfig
@@ -613,11 +512,6 @@ class ExLlamaBuffer:
         return new
 
 
-    def debug(self):
-
-        print(f" !!  - attn_mask: {_describe_tensor(self.attn_mask, True)}")
-
-
 def _device_to_int(device):
 
     return int(device[device.find(":") + 1:])
@@ -628,26 +522,9 @@ def _skip_key(key):
     if key.endswith(".rotary_emb.inv_freq"): return True
     return False
 
-def _describe_tensor(tensor, stats = False):
-
-    if tensor is None: return "None"
-    desc = f"device: {tensor.device}"
-    desc += f", shape: {str(list(tensor.shape))}"
-    desc += f", dtype: {str(tensor.dtype).replace('torch.', '')}"
-    if stats:
-        if tensor.dtype in (torch.float16, torch.float32, torch.float64):
-            desc += f", min: {tensor.min().item():.6f}"
-            desc += f", max: {tensor.max().item():.6f}"
-            desc += f", std: {tensor.std().item():.6f}"
-        else:
-            desc += f", min: {tensor.min().item()}"
-            desc += f", max: {tensor.max().item()}"
-    return desc
-
 def _move_tensor(tensor, new_device, name, config):
     device = str(tensor.device)
     if device == new_device: return tensor
-    if config.debug: print(f" !! Moving {name} from {device} to {new_device}")
     if config.gpu_peer_fix:
         if device.startswith("cuda:") and new_device.startswith("cuda:"):
             tensor = tensor.to("cpu")
@@ -655,27 +532,16 @@ def _move_tensor(tensor, new_device, name, config):
 
 
 class ExLlama:
-# class ExLlama(nn.Module):
 
     def __init__(self, config):
-        # super().__init__()
-        # self.eval()
 
         self.config = config
-
-        if self.config.debug:
-            device_count = torch.cuda.device_count()
-            print(f" !! Available CUDA devices:")
-            for i in range(device_count):
-                print(f'" !!  - cuda:{i}: {torch.cuda.get_device_name(i)}')
 
         # Copy tuning parameters to C++ extension
 
         self.config.set_tuning_params()
 
         # Load model weights
-
-        if self.config.debug: print(f" !! Loading safetensors file: {self.config.model_path}")
 
         tensors = {}
         with safe_open(self.config.model_path, framework="pt", device="cpu") as f:
@@ -688,8 +554,6 @@ class ExLlama:
             half_element_size = torch.tensor([], dtype = torch.float16).element_size()
 
             if self.config.auto_map is not None:
-
-                if self.config.debug: print(f" !! Begin auto device map")
 
                 self.config.device_map.embed_tokens = "cpu"
                 self.config.device_map.layers = ["cuda:0"] + ["?"] * (self.config.num_hidden_layers - 1)
@@ -709,11 +573,6 @@ class ExLlama:
                     if key.startswith("lm_head."):
                         tensor = f.get_tensor(key)
                         head_size += tensor.numel() * tensor.element_size()
-
-                if self.config.debug:
-                    print(f" !! Decoder size: {decoder_size:,} bytes")
-                    print(f" !! Norm size: {norm_size:,} bytes")
-                    print(f" !! Head size: {head_size:,} bytes")
 
                 # Assign layers automatically
 
@@ -743,23 +602,16 @@ class ExLlama:
                     device_usage += this_layer_size
                     layer_index_device += 1
 
-                if self.config.debug: self.config.device_map.debug()
-
             # Load tensors, move to device(s)
 
             max_dq_buffer_size = 0
 
-            if self.config.debug: print(f" !! Begin load tensors")
             for key in f.keys():
 
                 if _skip_key(key): continue
 
                 device = self.config.device_map.map(key, loading = True)
                 tensor = f.get_tensor(key)
-
-                if self.config.debug:
-                    if key.startswith("model.layers.0.") or not key.startswith("model.layers."):
-                        print(f" !!  - {key} read: {_describe_tensor(tensor)}")
 
                 if key.endswith(".scales"): tensor = tensor.half()
                 if key == "lm_head.weight": tensor = tensor.float() if device == "cpu" else tensor.half()
@@ -771,10 +623,6 @@ class ExLlama:
                 tensor = tensor.to(device, non_blocking = True)
 
                 if key.endswith(".qweight"): max_dq_buffer_size = max(max_dq_buffer_size, tensor.numel() * 8)
-
-                if self.config.debug:
-                    if key.startswith("model.layers.0.") or not key.startswith("model.layers."):
-                        print(f" !!  - {key} map: {_describe_tensor(tensor, device.startswith('cuda'))}")
 
                 tensors[key] = tensor
 
@@ -795,8 +643,6 @@ class ExLlama:
 
         # Prepare position embeddings for max seq length
 
-        if self.config.debug: print(f" !! Computing RoPE table for seq length: {self.config.max_seq_len}")
-
         devs = self.config.device_map.get_layers_devs()
 
         self.sincos = {}
@@ -811,7 +657,6 @@ class ExLlama:
             cos = emb.cos()[None, None, :, :].half()
 
             self.sincos[device] = (sin, cos)
-            if self.config.debug: print(f" !! - stored for device: {device}")
 
         # Layers
 
@@ -828,7 +673,6 @@ class ExLlama:
             modules.append(layer)
 
         self.layers = modules
-        # self.layers = nn.ModuleList(modules)
 
         # Prepare CUDA buffers
 
@@ -857,89 +701,73 @@ class ExLlama:
 
     def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False):
 
-        if torch.is_grad_enabled():
-            raise ValueError("Forward pass called with gradients enabled. Back propagation is not supported yet.")
+        # if torch.is_grad_enabled():
+        #     raise ValueError("Forward pass called with gradients enabled. Back propagation is not supported yet.")
+        with torch.no_grad():
 
-        if self.config.debug: print(f" !! Begin forward pass")
+            batch_size, seq_len = input_ids.shape
+            past_len = cache.current_seq_len
 
-        batch_size, seq_len = input_ids.shape
-        past_len = cache.current_seq_len
+            buffer = ExLlamaBuffer(self.config)
 
-        buffer = ExLlamaBuffer(self.config)
+            # Build attention mask on first device, copy to others if necessary
 
-        # Build attention mask on first device, copy to others if necessary
+            devs = self.config.device_map.get_layers_devs()
 
-        devs = self.config.device_map.get_layers_devs()
+            if seq_len > 1:
 
-        if seq_len > 1:
+                attn_mask = torch.zeros(batch_size, 1, seq_len, past_len + seq_len, dtype = torch.float16, device = devs[0])
+                attn_mask_triu = torch.triu(torch.full((seq_len - 1, seq_len - 1), torch.finfo(torch.float16).min))
+                attn_mask[:, :, : seq_len - 1, past_len + 1: past_len + seq_len] = attn_mask_triu
 
-            attn_mask = torch.zeros(batch_size, 1, seq_len, past_len + seq_len, dtype = torch.float16, device = devs[0])
-            attn_mask_triu = torch.triu(torch.full((seq_len - 1, seq_len - 1), torch.finfo(torch.float16).min))
-            attn_mask[:, :, : seq_len - 1, past_len + 1: past_len + seq_len] = attn_mask_triu
+            else:
 
-        else:
+                attn_mask = None
+                # attn_mask = torch.zeros(batch_size, 1, seq_len, seq_len + past_len, dtype = torch.float16, device = devs[0])
 
-            attn_mask = None
-            # attn_mask = torch.zeros(batch_size, 1, seq_len, seq_len + past_len, dtype = torch.float16, device = devs[0])
+            buffer.attn_mask = attn_mask
 
-        buffer.attn_mask = attn_mask
+            # Embeddings
+            # TODO: Allow passing input embeddings instead of IDs
 
-        # Embeddings
-        # TODO: Allow passing input embeddings instead of IDs
+            input_ids = _move_tensor(input_ids, "cpu", "input_ids", self.config)
+            hidden_states = self.embed_tokens(input_ids)
 
-        input_ids = _move_tensor(input_ids, "cpu", "input_ids", self.config)
-        hidden_states = self.embed_tokens(input_ids)
+            # Split buffers to devices
 
-        if self.config.debug: print(f" !! Built initial hidden state: {_describe_tensor(hidden_states, True)}")
+            buffers = {devs[0]: buffer}
+            for device in devs[1:]:
+                buffers[device] = buffer.to(device)
 
-        # Split buffers to devices
+            # Decoder layers
 
-        buffers = {devs[0]: buffer}
-        for device in devs[1:]:
-            buffers[device] = buffer.to(device)
+            for i, decoder_layer in enumerate(self.layers):
 
-        if self.config.debug:
-            for device in devs:
-                print(f" !! Prepared buffer for device: {device}")
-                buffers[device].debug()
+                device = self.config.device_map.layers[i]
+                hidden_states = _move_tensor(hidden_states, device, "hidden_states", self.config)
 
-        # Decoder layers
+                hidden_states = decoder_layer.forward(hidden_states, cache, buffers[device])
 
-        for i, decoder_layer in enumerate(self.layers):
+            cache.current_seq_len += seq_len
 
-            device = self.config.device_map.layers[i]
-            hidden_states = _move_tensor(hidden_states, device, "hidden_states", self.config)
+            # Early exit when we don't need logits
 
-            hidden_states = decoder_layer.forward(hidden_states, cache, buffers[device])
+            if preprocess_only: return None
 
-        cache.current_seq_len += seq_len
+            # Norm
 
-        # Early exit when we don't need logits
+            hidden_states = _move_tensor(hidden_states, self.config.device_map.norm, "hidden_states", self.config)
+            hidden_states = self.norm.forward(hidden_states, buffer)
 
-        if preprocess_only: return None
+            # Head
 
-        # Norm
+            if last_id_only: hidden_states = hidden_states[:, -1:, :].contiguous()
+            if self.config.device_map.lm_head == "cpu": hidden_states = hidden_states.float()
 
-        hidden_states = _move_tensor(hidden_states, self.config.device_map.norm, "hidden_states", self.config)
+            hidden_states = _move_tensor(hidden_states, self.config.device_map.lm_head, "hidden_states", self.config)
+            logits = self.lm_head(hidden_states)
+            # logits = cuda_ext.matmul_half(hidden_states, self.lm_head_data, cublas = False)
 
-        if self.config.debug: print(f" !! pre norm, hidden_states: {_describe_tensor(hidden_states, True)}")
-
-        hidden_states = self.norm.forward(hidden_states, buffer)
-
-        # Head
-
-        if last_id_only: hidden_states = hidden_states[:, -1:, :].contiguous()
-        if self.config.device_map.lm_head == "cpu": hidden_states = hidden_states.float()
-
-        hidden_states = _move_tensor(hidden_states, self.config.device_map.lm_head, "hidden_states", self.config)
-
-        if self.config.debug: print(f" !! pre lm_head, hidden_states: {_describe_tensor(hidden_states, True)}")
-
-        logits = self.lm_head(hidden_states)
-        # logits = cuda_ext.matmul_half(hidden_states, self.lm_head_data, cublas = False)
-
-        if self.config.debug: print(f" !! logits: {_describe_tensor(logits, True)}")
-
-        logits = logits.float()
-        logits = _move_tensor(logits, self.config.device_map.embed_tokens, "logits", self.config)
-        return logits
+            logits = logits.float()
+            logits = _move_tensor(logits, self.config.device_map.embed_tokens, "logits", self.config)
+            return logits
