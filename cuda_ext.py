@@ -57,7 +57,7 @@ exllama_ext = load(
     extra_include_paths = [os.path.join(library_dir, "exllama_ext")],
     verbose = verbose,
     extra_ldflags = ["cublas.lib"] if windows else [],
-    extra_cuda_cflags = ["-U__HIP_NO_HALF_CONVERSIONS__", "-O3"] if torch.version.hip else [],
+    extra_cuda_cflags = ["-lineinfo"] + (["-U__HIP_NO_HALF_CONVERSIONS__", "-O3"] if torch.version.hip else []),
     extra_cflags = ["-O3"]
     # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
 )
@@ -68,7 +68,7 @@ from exllama_ext import make_q4
 from exllama_ext import q4_matmul
 from exllama_ext import half_matmul
 from exllama_ext import half_matmul_cublas
-from exllama_ext import q4_mlp
+# from exllama_ext import q4_mlp
 from exllama_ext import rms_norm
 from exllama_ext import rope_
 from exllama_ext import rep_penalty
