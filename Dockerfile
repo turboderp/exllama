@@ -15,7 +15,6 @@ COPY --chown=user . /app
 WORKDIR /app
 
 RUN pip install --upgrade pip setuptools wheel \
-    && pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu118 \
     && pip install -r requirements.txt \
     && pip install flask==2.3.2
 

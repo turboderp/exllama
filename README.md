@@ -20,7 +20,7 @@ incompatibilities with older cards. I have no way of testing that right now.
 
 This list might be incomplete:
 
-* `torch` tested on 2.1.0 (nightly) with cu118
+* `torch` tested on 2.0.1 and 2.1.0 (nightly) with cu118
 * `safetensors` 0.3.1
 * `sentencepiece`
 * `ninja`
@@ -28,7 +28,7 @@ This list might be incomplete:
 
 ## Linux/WSL prerequisites
 
-    pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu118
+    pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu118
 
 ## Windows prerequisites
 
