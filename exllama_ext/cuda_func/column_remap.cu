@@ -33,7 +33,6 @@ __global__ void column_remap_kernel
     }
 }
 
-
 // Remap columns in x to correspond to sequential group index before matmul
 //
 // perform x -> seq_x such that seq_x @ seq_w == x @ w

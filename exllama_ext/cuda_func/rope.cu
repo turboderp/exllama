@@ -6,6 +6,17 @@ const int THREADS_X = 32;
 const int THREADS_Y = 4;
 const int MAX_POS_EMBEDDINGS = 32768;  // Actual number doesn't matter
 
+typedef void (*fp_rope_cuda_kernel)
+(
+    half*,
+    const half*,
+    const half*,
+    int,
+    int,
+    int,
+    int
+);
+
 template<bool use_half2>
 __global__ void rope_cuda_kernel
 (
@@ -73,6 +84,16 @@ __global__ void rope_cuda_kernel
     }
 }
 
+fp_rope_cuda_kernel rope_cuda_kernel_pick(ExLlamaTuning* tuningParams)
+{
+    // <bool use_half2>
+    if (tuningParams->matmul_no_half2) {
+        return rope_cuda_kernel<false>;
+    } else {
+        return rope_cuda_kernel<true>;
+    }
+};
+
 void rope_cuda
 (
     ExLlamaTuning* tuningParams,
@@ -94,12 +115,6 @@ void rope_cuda
         1
     );
 
-    if (tuningParams->rope_no_half2)
-    {
-        rope_cuda_kernel<false><<<blocks, threads>>>(x, sin, cos, rows, head_dim, num_heads, past_len);
-    }
-    else
-    {
-        rope_cuda_kernel<true><<<blocks, threads>>>(x, sin, cos, rows, head_dim, num_heads, past_len);
-    }
+    fp_rope_cuda_kernel kernel = rope_cuda_kernel_pick(tuningParams);
+    kernel<<<blocks, threads>>>(x, sin, cos, rows, head_dim, num_heads, past_len);
 }

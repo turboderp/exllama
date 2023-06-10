@@ -11,12 +11,28 @@
 const int THREADS_X = 32;       // Block size and thread count along columns in w and out
 const int THREADS_Y = 1;        // Block size and thread count along rows in x and out
 
+typedef void (*fp_q4_matmul_kernel)
+(
+    const half*,
+    const uint32_t*,
+    half*,
+    const half*,
+    const uint32_t*,
+    const int,
+    const int,
+    const int,
+    const int,
+    const int,
+    const uint32_t*,
+    bool no_zero
+);
+
 template<bool use_half2, bool use_groupsize, bool use_x_map>
 __global__ void q4_matmul_kernel
 (
     const half* __restrict__ x,
     const uint32_t* __restrict__ w,
-    half* __restrict__ out,  // (y)
+    half* __restrict__ out,
     const half* __restrict__ w_scales,
     const uint32_t* __restrict__ w_zeros,
     const int height,
@@ -48,12 +64,6 @@ __global__ void q4_matmul_kernel
 
     // Zero output
 
-//     if (!no_zero && blockIdx.z == 0)
-//     {
-//         out_.set(x_row, w_column, {});
-//         __syncthreads();
-//     }
-
     if (!no_zero && blockIdx.z == 0 && (threadIdx.x & 1) == 0)
     {
         *((uint32_t*) out_.item_ptr(x_row, w_column)) = 0;
@@ -70,33 +80,23 @@ __global__ void q4_matmul_kernel
         // For quant matrices where groupsize divides BLOCK_SIZE_Z we always start on a group boundary, so this
         // could be slightly faster
 
-        for (int k = x_column, group = x_column / groupsize; k < x_column + iterations * 8; )
+        for (int k = x_column, group = x_column / groupsize; k < x_column + iterations * 8; group++, k += groupsize)
         {
             if constexpr (use_half2)
             {
                 half2 w_scale = w_scales_.item_half2half2(group, w_column);
                 uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
 
-                if constexpr (use_x_map)
-                    acc = dot_product_8_x_map(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8, x_map);
-                else
-                    acc = dot_product_8(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8);
-
-                group++;
-                k += groupsize;
+                if constexpr (use_x_map) acc = dot_product_8_x_map(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8, x_map);
+                else                     acc = dot_product_8      (acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8);
             }
             else
             {
                 half w_scale = w_scales_.item(group, w_column);
                 uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
 
-                if constexpr (use_x_map)
-                    acc_h = dot_product_8_x_map_h(acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8, x_map);
-                else
-                    acc_h = dot_product_8_h(acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8);
-
-                group++;
-                k += groupsize;
+                if constexpr (use_x_map) acc_h = dot_product_8_x_map_h(acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8, x_map);
+                else                     acc_h = dot_product_8_h      (acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8);
             }
         }
     }
@@ -104,36 +104,25 @@ __global__ void q4_matmul_kernel
     {
         // Otherwise assume groupsize is a multiple of 8, do 8 columns per iteration and trust the cache
 
-        if constexpr (use_half2)
+        for (int k = x_column; k < x_column + iterations * 8; k += 8)
         {
-            for (int k = x_column; k < x_column + iterations * 8; )
+            if constexpr (use_half2)
             {
                 int group = k / groupsize;
                 half2 w_scale = w_scales_.item_half2half2(group, w_column);
                 uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
 
-                if constexpr (use_x_map)
-                    acc = dot_product_8_x_map(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1, x_map);
-                else
-                    acc = dot_product_8(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1);
-
-                k += 8;
+                if constexpr (use_x_map) acc = dot_product_8_x_map(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1, x_map);
+                else                     acc = dot_product_8      (acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1);
             }
-        }
-        else
-        {
-            for (int k = x_column; k < x_column + iterations * 8; )
+            else
             {
                 int group = k / groupsize;
                 half w_scale = w_scales_.item(group, w_column);
                 uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
 
-                if constexpr (use_x_map)
-                    acc_h = dot_product_8_x_map_h(acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1, x_map);
-                else
-                    acc_h = dot_product_8_h(acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1);
-
-                k += 8;
+                if constexpr (use_x_map) acc_h = dot_product_8_x_map_h(acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1, x_map);
+                else                     acc_h = dot_product_8_h      (acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1);
             }
         }
     }
@@ -150,6 +139,29 @@ __global__ void q4_matmul_kernel
         atomicAdd(out_.item_ptr(x_row, w_column), acc_h);
     }
 }
+
+fp_q4_matmul_kernel q4_matmul_kernel_pick(ExLlamaTuning* tuningParams, int block_size_z, int groupsize, uint32_t* x_map)
+{
+    // <bool use_half2, bool use_groupsize, bool use_x_map>
+    if (tuningParams->matmul_no_half2) {
+        if (block_size_z % groupsize == 0) {
+            if (x_map) return q4_matmul_kernel<false, true,  true >;
+            else       return q4_matmul_kernel<false, true,  false>;
+        } else {
+            if (x_map) return q4_matmul_kernel<false, false, true >;
+            else       return q4_matmul_kernel<false, false, false>;
+        }
+    } else {
+        if (block_size_z % groupsize == 0)
+        {
+            if (x_map) return q4_matmul_kernel<true,  true,  true >;
+            else       return q4_matmul_kernel<true,  true,  false>;
+        } else {
+            if (x_map) return q4_matmul_kernel<true,  false, true >;
+            else       return q4_matmul_kernel<true,  false, false>;
+        }
+    }
+};
 
 // Compute y = x @ w
 
@@ -199,32 +211,8 @@ void q4_matmul_cuda
         (dim + block_size_z - 1) / block_size_z
     );
 
-    if (tuningParams->matmul_no_half2)
-    {
-        if (block_size_z % w->groupsize == 0)
-        {
-            if (x_map) q4_matmul_kernel <false, true, true>  <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
-            else       q4_matmul_kernel <false, true, false> <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, NULL, no_zero);
-        }
-        else
-        {
-            if (x_map) q4_matmul_kernel <false, false, true>  <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
-            else       q4_matmul_kernel <false, false, false> <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, NULL, no_zero);
-        }
-    }
-    else
-    {
-        if (block_size_z % w->groupsize == 0)
-        {
-            if (x_map) q4_matmul_kernel <true,  true, true>  <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
-            else       q4_matmul_kernel <true,  true, false> <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, NULL, no_zero);
-        }
-        else
-        {
-            if (x_map) q4_matmul_kernel <true,  false, true>  <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
-            else       q4_matmul_kernel <true,  false, false> <<<blocks, threads>>>(x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, NULL, no_zero);
-        }
-    }
+    fp_q4_matmul_kernel kernel = q4_matmul_kernel_pick(tuningParams, block_size_z, w->groupsize, x_map);
+    kernel<<<blocks, threads>>> (x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
 }
 
 void q4_matmul_recons_cuda
