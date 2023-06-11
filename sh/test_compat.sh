@@ -13,6 +13,7 @@ echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/mo
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/TheBloke_Manticore-13B-GPTQ
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/TheBloke_medalpaca-13B-GPTQ-4bit
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/TheBloke_medalpaca-13B-GPTQ-4bit_compat
+echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/TheBloke_tulu-30B-GPTQ
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/TheBloke_vicuna-13B-1.1-GPTQ-4bit-128g
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/TheBloke_VicUnlocked-30B-LoRA-GPTQ
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/TheBloke_wizard-mega-13B-GPTQ

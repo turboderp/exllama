@@ -53,6 +53,7 @@ class ExLlamaConfig:
 
         self.groupsize = None  # Autodetected
         self.act_order = False  # Autodetected
+        self.empty_g_idx = False  # Autodetected
 
         # Required settings
 
@@ -114,6 +115,10 @@ class Ex4bitLinear:
         self.scales = tensors[key + ".scales"]
         self.g_idx = tensors[key + ".g_idx"].cpu() if key + ".g_idx" in tensors else None
         self.bias = tensors[key + ".bias"] if has_bias else None
+
+        if (self.g_idx == 0).all():
+            self.config.empty_g_idx = True
+            self.g_idx = None
 
         self.device = self.qweight.device
         self.device_index = self.device.index

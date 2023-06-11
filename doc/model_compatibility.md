@@ -19,6 +19,7 @@ As of **2023-05-24**, the following GPTQ models on HuggingFace all appear to be 
 - TheBloke/Manticore-13B-GPTQ
 - TheBloke/medalpaca-13B-GPTQ-4bit
 - TheBloke/medalpaca-13B-GPTQ-4bit (compat version)
+- TheBloke/tulu-30B-GPTQ
 - TheBloke/vicuna-13B-1.1-GPTQ-4bit-128g
 - TheBloke/VicUnlocked-30B-LoRA-GPTQ
 - TheBloke/wizard-mega-13B-GPTQ

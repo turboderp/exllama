@@ -119,3 +119,5 @@ def print_stats(model):
 
     print(f" -- Groupsize (inferred): {model.config.groupsize if model.config.groupsize is not None else 'None'}")
     print(f" -- Act-order (inferred): {'yes' if model.config.act_order else 'no'}")
+    if model.config.empty_g_idx:
+        print(f" !! Model has empty group index (discarded)")
