@@ -116,7 +116,7 @@ class Ex4bitLinear:
         self.g_idx = tensors[key + ".g_idx"].cpu() if key + ".g_idx" in tensors else None
         self.bias = tensors[key + ".bias"] if has_bias else None
 
-        if (self.g_idx == 0).all():
+        if self.g_idx is not None and (self.g_idx == 0).all():
             self.config.empty_g_idx = True
             self.g_idx = None
 
