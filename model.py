@@ -705,6 +705,10 @@ class ExLlama:
                                                  temp_zeros_float,
                                                  temp_dq)
 
+        # Clear the cache
+
+        torch.cuda.empty_cache()
+
 
     def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False):
 

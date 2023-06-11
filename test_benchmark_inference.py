@@ -33,7 +33,14 @@ def begin():
 def next_logits(input_ids, last_id_only = True):
     global model, cache
 
-    return model.forward(input_ids, cache, last_id_only)
+    n_logits = None
+    a = 0
+    while a < input_ids.shape[-1]:
+        b = min(input_ids.shape[-1], a + 2048)
+        n_logits = model.forward(input_ids[:, a:b], cache, last_id_only)
+        a = b
+
+    return n_logits
 
 
 def tokenize(text):
@@ -121,7 +128,7 @@ if args.perf:
 
     # Warming up apparently makes a huge difference
 
-    for i in range(1, 4):
+    for i in range(1, 3):
         print(f" -- Warmup pass {i}...")
         begin()
         logits = timer("Warmup", lambda: next_logits(ids))
