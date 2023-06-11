@@ -16,7 +16,8 @@ void rope_cuda
     const int rows,
     const int head_dim,
     const int num_heads,
-    const int past_len
+    const int past_len,
+    cudaStream_t alt_stream = NULL
 );
 
 #endif

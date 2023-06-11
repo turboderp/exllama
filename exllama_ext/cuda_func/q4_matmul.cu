@@ -172,7 +172,8 @@ void q4_matmul_cuda
     const int x_height,
     const Q4Matrix* w,
     half* out,
-    bool no_zero
+    bool no_zero,
+    cudaStream_t alt_stream
 )
 {
     int height = x_height;
@@ -183,7 +184,7 @@ void q4_matmul_cuda
 
     uint32_t* x_map = w->cuda_x_map;
     const half* x_mapped = x;
-    if (x_map && !tuningParams->matmul_fused_remap)
+    if (x_map && !tuningParams->matmul_fused_remap && !alt_stream)
     {
         CudaBuffers* buffers = get_buffers(w->device);
         column_remap_cuda(x, buffers->temp_state, x_height, dim, w->cuda_x_map);
@@ -212,7 +213,7 @@ void q4_matmul_cuda
     );
 
     fp_q4_matmul_kernel kernel = q4_matmul_kernel_pick(tuningParams, block_size_z, w->groupsize, x_map);
-    kernel<<<blocks, threads>>> (x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
+    kernel<<<blocks, threads, 0, alt_stream>>> (x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
 }
 
 void q4_matmul_recons_cuda

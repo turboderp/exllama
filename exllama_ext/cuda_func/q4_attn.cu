@@ -97,25 +97,7 @@ void q4_attn_cuda
     const int device_index
 )
 {
-    CudaBuffers* buffers = get_buffers(device_index);
-
-    half* temp_x = buffers->temp_state + q_len * dim; // TODO: ..
-    rms_norm_cuda(tuningParams, x, rms_norm_weight, temp_x, epsilon, q_len, dim, device_index);
-
-    // Project q, k, v
-
-    q4_matmul_cuda(tuningParams, temp_x, q_len, q_proj, query_states);
-    q4_matmul_cuda(tuningParams, temp_x, q_len, k_proj, key_states);
-    q4_matmul_cuda(tuningParams, temp_x, q_len, v_proj, value_states);
-
-    // Positional embeddings
-    // TODO: these can be fused to reduce launch overhead by about 1500 ns and kernel time by a little, too
-
-    int _rows = q_len * num_heads;
-    rope_cuda(tuningParams, query_states, sin, cos, _rows, head_dim, num_heads, past_len);
-    rope_cuda(tuningParams, key_states, sin, cos, _rows, head_dim, num_heads, past_len);
-
-    // Update cache tensors with projected k, v
+    // Cache update grid
 
     dim3 threads(THREADS_X, THREADS_Y, THREADS_Z);
 
@@ -126,18 +108,67 @@ void q4_attn_cuda
         num_heads / THREADS_Z / BLOCKSIZE_Z
     );
 
-    update_cache_kernel<<<blocks, threads>>>
-    (
-        key_states,
-        value_states,
-        key_cache,
-        value_cache,
-        head_dim,
-        num_heads,
-        q_len,
-        max_seq_len,
-        past_len
-    );
+    int _rows = q_len * num_heads;
+
+    CudaBuffers* buffers = get_buffers(device_index);
+
+    // Layernorm
+
+    half* temp_x = buffers->temp_state + q_len * dim; // TODO: ..
+    rms_norm_cuda(tuningParams, x, rms_norm_weight, temp_x, epsilon, q_len, dim, device_index);
+
+    if (!tuningParams->concurrent_streams)
+    {
+        // Project q, k, v
+
+        q4_matmul_cuda(tuningParams, temp_x, q_len, q_proj, query_states);
+        q4_matmul_cuda(tuningParams, temp_x, q_len, k_proj, key_states);
+        q4_matmul_cuda(tuningParams, temp_x, q_len, v_proj, value_states);
+
+        // Positional embeddings q, k
+
+        rope_cuda(tuningParams, query_states, sin, cos, _rows, head_dim, num_heads, past_len);
+        rope_cuda(tuningParams, key_states, sin, cos, _rows, head_dim, num_heads, past_len);
+
+        // Update cache tensors with projected k, v
+
+        update_cache_kernel<<<blocks, threads>>>(key_states, value_states, key_cache, value_cache, head_dim, num_heads, q_len, max_seq_len, past_len);
+    }
+    else
+    {
+        // Project q, k, v, add positional embeddings to q, k, update cache tensors with projected k, v
+
+        cudaStream_t str_1 = buffers->alt_stream_1;
+        cudaStream_t str_2 = buffers->alt_stream_2;
+        cudaStream_t str_3 = buffers->alt_stream_3;
+        cudaEvent_t sync_1 = buffers->alt_stream_1_done;
+        cudaEvent_t sync_2 = buffers->alt_stream_2_done;
+        cudaEvent_t sync_3 = buffers->alt_stream_3_done;
+
+        // str_1: project q, positions q, sync
+
+        q4_matmul_cuda(tuningParams, temp_x, q_len, q_proj, query_states, false, str_1);
+        rope_cuda(tuningParams, query_states, sin, cos, _rows, head_dim, num_heads, past_len, str_1);
+        cudaEventRecord(sync_1, str_1);
+
+        // str_2: project k, positions k, sync
+
+        q4_matmul_cuda(tuningParams, temp_x, q_len, k_proj, key_states, false, str_2);
+        rope_cuda(tuningParams, key_states, sin, cos, _rows, head_dim, num_heads, past_len, str_2);
+        cudaEventRecord(sync_2, str_2);
+
+        // str_3: project v, wait for str_2, copy (k,v) to cache, sync
+
+        q4_matmul_cuda(tuningParams, temp_x, q_len, v_proj, value_states, false, buffers->alt_stream_3);
+        cudaStreamWaitEvent(str_3, sync_2, 0);
+        update_cache_kernel<<<blocks, threads, 0, str_3>>>(key_states, value_states, key_cache, value_cache, head_dim, num_heads, q_len, max_seq_len, past_len);
+        cudaEventRecord(sync_3, str_3);
+
+        // default: wait for str_1 and str_3
+
+        cudaStreamWaitEvent(NULL, sync_1, 0);
+        cudaStreamWaitEvent(NULL, sync_3, 0);
+    }
 }
 
 void q4_attn_2_cuda

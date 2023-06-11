@@ -25,6 +25,13 @@ public:
     int current_zeros_float;
     int max_zeros_float;
 
+    cudaStream_t alt_stream_1;
+    cudaStream_t alt_stream_2;
+    cudaStream_t alt_stream_3;
+    cudaEvent_t alt_stream_1_done;
+    cudaEvent_t alt_stream_2_done;
+    cudaEvent_t alt_stream_3_done;
+
     CudaBuffers
     (
         int _device,

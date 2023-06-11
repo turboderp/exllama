@@ -103,7 +103,8 @@ void rope_cuda
     const int rows,
     const int head_dim,
     const int num_heads,
-    const int past_len
+    const int past_len,
+    cudaStream_t alt_stream
 )
 {
     dim3 threads(THREADS_X, THREADS_Y, 1);
@@ -116,5 +117,5 @@ void rope_cuda
     );
 
     fp_rope_cuda_kernel kernel = rope_cuda_kernel_pick(tuningParams);
-    kernel<<<blocks, threads>>>(x, sin, cos, rows, head_dim, num_heads, past_len);
+    kernel<<<blocks, threads, 0, alt_stream>>>(x, sin, cos, rows, head_dim, num_heads, past_len);
 }

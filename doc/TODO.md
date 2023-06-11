@@ -46,6 +46,7 @@
 - [x] Examine if scaled_dot_product_attention is actually the best attention method for single tokens (it's not)
 - [ ] Implement attention in CUDA
 - [x] Rewrite at least the quantized matmul kernel. Should be a bunch of special cases to consider
+- [x] Experiment with concurrent streams where possible (fused MLP and QKV proj.)
 
 ## Generation
 
@@ -54,7 +55,7 @@
 - [ ] Multi-token censoring/de-censoring
 - [ ] Multi-token repetition penalties
 - [ ] (Multi) LoRA support
-- [ ] Guided generation (chat with multiple bots at once, etc.)
+- [x] Guided generation (chat with multiple bots at once, etc.)
 - [ ] Multiple chat modes with prompt templates (instruct, etc.)
 
 ## Interface

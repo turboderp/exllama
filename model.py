@@ -77,6 +77,7 @@ class ExLlamaConfig:
         self.rope_no_half2 = False
         self.matmul_no_half2 = False
         self.silu_no_half2 = False
+        self.concurrent_streams = False
 
     # Copy tuning params to C++ extension
 
@@ -89,7 +90,8 @@ class ExLlamaConfig:
                                                self.rmsnorm_no_half2,
                                                self.rope_no_half2,
                                                self.matmul_no_half2,
-                                               self.silu_no_half2)
+                                               self.silu_no_half2,
+                                               self.concurrent_streams)
 
     # Parse and set list of GPU VRAM allocations
 

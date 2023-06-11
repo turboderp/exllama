@@ -23,7 +23,8 @@ void q4_matmul_cuda
     const int x_height,
     const Q4Matrix* w,
     half* out,
-    bool no_zero = false
+    bool no_zero = false,
+    cudaStream_t alt_stream = NULL
 );
 
 void q4_matmul_recons_cuda

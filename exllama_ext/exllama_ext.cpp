@@ -94,7 +94,8 @@ void set_tuning_params
     bool rmsnorm_no_half2,
     bool rope_no_half2,
     bool matmul_no_half2,
-    bool silu_no_half2
+    bool silu_no_half2,
+    bool concurrent_streams
 )
 {
     tuningParams.matmul_recons_thd = matmul_recons_thd;
@@ -106,6 +107,7 @@ void set_tuning_params
     tuningParams.rope_no_half2 = rope_no_half2;
     tuningParams.matmul_no_half2 = matmul_no_half2;
     tuningParams.silu_no_half2 = silu_no_half2;
+    tuningParams.concurrent_streams = concurrent_streams;
 }
 
 // Prepare buffers for forward pass

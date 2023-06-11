@@ -117,11 +117,30 @@ void q4_mlp_cuda
     half* temp_x = buffers->temp_state + height * dim;  // TOOD: ..
     rms_norm_cuda(tuningParams, x, rms_norm_weight, temp_x, epsilon, height, dim, device_index);
 
-    // temp_mlp[0] = temp_x @ gate
-    // temp_mlp[1] = temp_x @ up
+    if (!tuningParams->concurrent_streams)
+    {
+        // temp_mlp[0] = temp_x @ gate
+        // temp_mlp[1] = temp_x @ up
 
-    q4_matmul_cuda(tuningParams, temp_x, height, gate, buffers->temp_mlp);
-    q4_matmul_cuda(tuningParams, temp_x, height, up, buffers->temp_mlp + height * up->width);
+        q4_matmul_cuda(tuningParams, temp_x, height, gate, buffers->temp_mlp);
+        q4_matmul_cuda(tuningParams, temp_x, height, up, buffers->temp_mlp + height * up->width);
+    }
+    else
+    {
+        cudaStream_t str_1 = buffers->alt_stream_1;
+        cudaStream_t str_2 = buffers->alt_stream_2;
+        cudaEvent_t sync_1 = buffers->alt_stream_1_done;
+        cudaEvent_t sync_2 = buffers->alt_stream_2_done;
+
+        q4_matmul_cuda(tuningParams, temp_x, height, gate, buffers->temp_mlp, false, str_1);
+        cudaEventRecord(sync_1, str_1);
+
+        q4_matmul_cuda(tuningParams, temp_x, height, up, buffers->temp_mlp + height * up->width, false, str_2);
+        cudaEventRecord(sync_2, str_2);
+
+        cudaStreamWaitEvent(NULL, sync_1, 0);
+        cudaStreamWaitEvent(NULL, sync_2, 0);
+    }
 
     // temp_mlp[0] = silu(temp_mlp[0]) * temp_mlp[1]
 

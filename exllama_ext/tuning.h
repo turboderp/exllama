@@ -12,6 +12,7 @@ struct ExLlamaTuning
     bool rope_no_half2;
     bool matmul_no_half2;
     bool silu_no_half2;
+    bool concurrent_streams;
 };
 
 #endif

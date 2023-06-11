@@ -23,6 +23,14 @@ CudaBuffers::CudaBuffers
     max_zeros_float(_max_zeros_float),
     current_zeros_float(0)
 {
+    cudaSetDevice(_device);
+
+    cudaStreamCreate(&alt_stream_1);
+    cudaStreamCreate(&alt_stream_2);
+    cudaStreamCreate(&alt_stream_3);
+    cudaEventCreate(&alt_stream_1_done);
+    cudaEventCreate(&alt_stream_2_done);
+    cudaEventCreate(&alt_stream_3_done);
 }
 
 CudaBuffers::~CudaBuffers()

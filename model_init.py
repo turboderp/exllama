@@ -26,6 +26,7 @@ def add_args(parser):
     parser.add_argument("-snh2", "--silu_no_half2", action = "store_true", help = "Don't use half2 in SiLU kernel")
     parser.add_argument("-nh2", "--no_half2", action = "store_true", help = "(All of the above) disable half2 in all kernela")
     parser.add_argument("-fh2", "--force_half2", action = "store_true", help = "Force enable half2 even if unsupported")
+    parser.add_argument("-cs", "--concurrent_streams", action = "store_true", help = "Use concurrent CUDA streams")
 
 
 def post_parse(args):
@@ -84,6 +85,7 @@ def print_options(args, extra_options = None):
     if args.rope_no_half2: print(f" -- --rope_no_half2")
     if args.matmul_no_half2: print(f" -- --matmul_no_half2")
     if args.silu_no_half2: print(f" -- --silu_no_half2")
+    if args.concurrent_streams: print(f" -- ----concurrent_streams")
 
     print(f" -- Options: {print_opts}")
 
@@ -109,6 +111,7 @@ def make_config(args):
     config.rope_no_half2 = args.rope_no_half2
     config.matmul_no_half2 = args.matmul_no_half2
     config.silu_no_half2 = args.silu_no_half2
+    config.concurrent_streams = args.concurrent_streams
 
     return config
 

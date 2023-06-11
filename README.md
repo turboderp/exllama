@@ -7,7 +7,7 @@ Disclaimer: The project is coming along, but it's still a work in progress!
 
 ## Hardware requirements
 
-I am developing on an RTX 4090 and an RTX 3090-Ti. Both cards support the CUDA kernel, but there might be
+I am developing on an RTX 4090 and an RTX 3090-Ti. Both cards support the CUDA kernels, but there might be
 incompatibilities with older cards.
 
 ## Dependencies
@@ -118,8 +118,8 @@ docker run --gpus all -p 5000:5000 -v <path_to_model_files>:/app/model/ --rm -it
 ### New implementation
 | Model    | Size | grpsz | act             | Seq. len.            | VRAM      | Prompt     | Best    | Worst   | Ppl  |
 |----------|------|-------|-----------------|----------------------|-----------|------------|---------|---------|------|
-| Llama    | 7B   | 128   | no              | 2,048 t              | 5,194 MB  | 13,918 t/s | 168 t/s | 139 t/s | 6.45 |
-| Llama    | 13B  | 128   | no              | 2,048 t              | 9,127 MB  | 7,507 t/s  | 99 t/s  | 84 t/s  | 5.60 |
+| Llama    | 7B   | 128   | no              | 2,048 t              | 5,194 MB  | 13,918 t/s | 173 t/s | 140 t/s | 6.45 |
+| Llama    | 13B  | 128   | no              | 2,048 t              | 9,127 MB  | 7,507 t/s  | 102 t/s | 86 t/s  | 5.60 |
 | Llama    | 30B  | 128   | no              | 2,048 t              | 20,795 MB | 2,959 t/s  | 47 t/s  | 40 t/s  | 4.60 |
 | Llama    | 30B  | 128   | yes             | 2,048 t              | 20,795 MB | 2,784 t/s  | 45 t/s  | 37 t/s  | 4.55 |
 | Llama    | 30B  | 32    | yes             | 1,550 t <sup>1</sup> | 21,486 MB | 2,636 t/s  | 41 t/s  | 37 t/s  | 4.52 |
@@ -208,3 +208,7 @@ from 69% actual CPU utilization to 37%. This should do a lot to address the bott
 single-threaded performance.
 
 **2024-06-10**: Docker support now! And some minor optimizations. Cleaned up the project a bit.
+
+**2024-06-11**: Added some concurrency a couple of places. It's only beneficial on the 4090, on small models where the
+cores are somewhat underutilized and the L2 cache can keep up. For the 3090 it's detrimental to performance, so it's
+disabled by default. YMMV. Use `-cs` to try it out.
