@@ -1,6 +1,7 @@
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
 from tokenizer import ExLlamaTokenizer
 from generator import ExLlamaGenerator
+from perplexity import Perplexity
 import time
 import torch
 import torch.nn.functional as F
@@ -88,7 +89,8 @@ parser = argparse.ArgumentParser(description = "Benchmark tests for ExLlama")
 model_init.add_args(parser)
 
 parser.add_argument("-p", "--perf", action = "store_true", help = "Benchmark speed and VRAM usage")
-parser.add_argument("-ppl", "--perplexity", action = "store_true", help = "Perplexity benchmark (slow)")
+parser.add_argument("-ppl", "--perplexity", nargs='?', const='default', metavar="METHOD", help = "Perplexity benchmark (slow). Optionally specify method: default (jsonl), gptq-for-llama, llama.cpp")
+parser.add_argument("-ppl-ds", "--perplexity-dataset", metavar="DATAPATH", type=str, help = "Load dataset for perplexity (JSONL if .jsonl, otherwise parses it as raw text)")
 parser.add_argument("-v", "--validate", action = "store_true", help = "Quick perplexity benchmark just to test if model is working at all, and short text completion")
 
 args = parser.parse_args()
@@ -100,6 +102,7 @@ model_init.get_model_files(args)
 print_opts = []
 if args.perf: print_opts.append("perf")
 if args.perplexity: print_opts.append("perplexity")
+if args.perplexity_dataset: print_opts.append("perplexity_dataset")
 if args.validate: print_opts.append("validate")
 
 model_init.print_options(args, print_opts)
@@ -168,66 +171,32 @@ if args.perf:
 # Benchmark perplexity
 
 if args.perplexity or args.validate:
+    # Load valid type (default, gptq-for-llama, llama.cpp, etc)
+    ppl = Perplexity(args.perplexity, model, cache, tokenizer)
 
     print(" -- Loading dataset...")
+    if args.perplexity_dataset:
+        testdata_path = args.perplexity_dataset
+    ppl.load(testdata_path)
 
-    ds = []
-    with open(testdata_path) as f:
-        for line in f:
-            example = json.loads(line)["text"]
-            if len(example) > 50: ds.append(example)
-
-    def _ppl_test(text, ex_count):
-
-        print(" -- Testing", end="")
-        sys.stdout.flush()
-
-        logprob_sum = 0.0
-        logprob_count = 0
-
-        for ex in ds:
-
-            begin()
-
-            ids = tokenize(ex)
-            ids = ids[:, :max_seq_len + 1]
-            input_ids = ids[:, :-1]
-            target_ids = ids[:, 1:]
-
-            logits = next_logits(input_ids, last_id_only=False)
-
-            log_probs = F.log_softmax(logits, dim=-1)
-            token_log_probs = log_probs.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)
-
-            logprob_sum += token_log_probs.sum().item()
-            logprob_count += target_ids.numel()
-
-            ex_count -= 1
-            if ex_count % 10 == 0:
-                print(".", end = "")
-            sys.stdout.flush()
-            if ex_count == 0: break
-
-        mean_log_prob = logprob_sum / logprob_count
-        perplexity = math.exp(-mean_log_prob)
-
-        print("")
-        print(f" ** Perplexity{text}: {perplexity:.4f}")
-
-    if args.perplexity:
-
-        _ppl_test("", 100)
+    # Different Types of Perplexity
+    if args.perplexity == "default":
+        # First 100 examples
+        ppl.test(100)
+    elif args.perplexity == "raw":
+        ppl.test()
 
     if args.validate:
+        begin()
 
         # Short perplexity tests in switched and quant mode, should produce roughly equal results
 
         model.config.matmul_recons_thd = 1
-        _ppl_test(" (reconstruct)", 8)
+        ppl.test(8, tag=" (reconstruct)")
         model.config.matmul_recons_thd = 0
-        _ppl_test(" (quant)", 8)
+        ppl.test(8, tag=" (quant)")
         # model.config.fused_attn_thd = 1
-        # _ppl_test(" (fused_attn)", 8)
+        # ppl.test(8, tag=" (fused_attn)")
 
         # Do a short, easy topk=1 completion to see if we're generating garbage. Should run in switched mode
         # for the prompt and quant for individual tokens
