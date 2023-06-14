@@ -197,18 +197,18 @@ for individual tokens, but benchmarks updated anyway. Closing in on 10k tokens/s
 rewrite at some point to make the client-side code less seizure-inducing. It has multibot mode, chat rewind and editing
 features, sessions, and more. I'm going to build it out with support for instruct prompting and such, in time.
 
-**2024-06-04**: Refactored a whole bunch to move more of the work into the extension, setting up for more tuning
+**2023-06-04**: Refactored a whole bunch to move more of the work into the extension, setting up for more tuning
 options to come soon and eventually auto tuning. Also optimized a little, for about a 5% speedup.
 
-**2024-06-06**: Some minor optimizations. Also it should now compile the extension more easily and run more seamlessly
+**2023-06-06**: Some minor optimizations. Also it should now compile the extension more easily and run more seamlessly
 on Windows.
 
-**2024-06-09**: Fused most of the self-attention step. More to come. Slight speedup already, but more importantly went
+**2023-06-09**: Fused most of the self-attention step. More to come. Slight speedup already, but more importantly went
 from 69% actual CPU utilization to 37%. This should do a lot to address the bottleneck on CPUs with lower 
 single-threaded performance.
 
-**2024-06-10**: Docker support now! And some minor optimizations. Cleaned up the project a bit.
+**2023-06-10**: Docker support now! And some minor optimizations. Cleaned up the project a bit.
 
-**2024-06-11**: Added some concurrency a couple of places. It's only beneficial on the 4090, on small models where the
+**2023-06-11**: Added some concurrency a couple of places. It's only beneficial on the 4090, on small models where the
 cores are somewhat underutilized and the L2 cache can keep up. For the 3090 it's detrimental to performance, so it's
 disabled by default. YMMV. Use `-cs` to try it out.
