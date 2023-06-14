@@ -53,7 +53,7 @@ a minute to compile.
 
 Chatbot example:
 
-    python test_chatbot.py -d <path_to_model_files> -un "Jeff" -p prompt_chatbort.txt
+    python example_chatbot.py -d <path_to_model_files> -un "Jeff" -p prompt_chatbort.txt
 
 ## Web UI
 
