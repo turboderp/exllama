@@ -7,9 +7,10 @@ class ExLlamaGenerator:
     class Settings:
 
         temperature = 0.95
-        top_k = 20
-        top_p = 0.65
-        min_p = 0.0  # Do not consider tokens with probability less than this
+        top_k = 40                              # consider the most probable top_k samples, 0 to disable top_k sampling
+        top_p = 0.65                            # consider tokens up to a cumulative probabiltiy of top_p, 0.0 to disable top_p sampling
+        min_p = 0.0                             # Do not consider tokens with probability less than this
+        typical = 0.0                           # Locally typical sampling threshold, 0.0 to disable typical sampling
 
         token_repetition_penalty_max = 1.15  # Repetition penalty for most recent tokens
         token_repetition_penalty_sustain = 256  # No. most recent tokens to repeat penalty for, -1 to apply to whole context
@@ -54,7 +55,7 @@ class ExLlamaGenerator:
         return cuda_ext.ext_rep_penalty_mask_cpu(self.model.config.vocab_size, self.sequence, penalty_max, sustain, decay)
 
 
-    def sample(self, logits, temperature, top_k, top_p, min_p, num = 1):
+    def sample(self, logits, temperature, top_k, top_p, min_p, typical, num = 1):
 
         # torch.manual_seed(42)
 
@@ -73,20 +74,53 @@ class ExLlamaGenerator:
 
         # Top K
 
-        top_probs, top_indices = torch.topk(probs, top_k)
+        if top_k == 0:
+            top_probs, top_indices = torch.sort(probs, descending = True)
+        else:
+            top_probs, top_indices = torch.topk(probs, top_k)
 
         # Top P
 
-        num_top_p_probs = 0
-        cum_prob = top_probs[0].item()
-        while True:
-            num_top_p_probs += 1
-            if num_top_p_probs == top_probs.shape[-1]: break
-            if top_probs[num_top_p_probs].item() < min_p: break
-            cum_prob += top_probs[num_top_p_probs].item()
-            if cum_prob > top_p: break
+        if top_p > 0.0:
 
-        top_probs = top_probs[:num_top_p_probs]
+            num_top_p_probs = 0
+            cum_prob = top_probs[0].item()
+            while True:
+                num_top_p_probs += 1
+                if num_top_p_probs == top_probs.shape[-1]: break
+                if top_probs[num_top_p_probs].item() < min_p: break
+                cum_prob += top_probs[num_top_p_probs].item()
+                if cum_prob > top_p: break
+
+            top_probs = top_probs[:num_top_p_probs]
+            top_indices = top_indices[:num_top_p_probs]
+
+        # Locally typical sampling
+
+        if typical > 0.0:
+
+            epsilon = 1e-10
+            log_probs = (top_probs + epsilon).log()
+            neg_entropy = (top_probs * log_probs).sum()
+            entropy_dev = (neg_entropy - log_probs).abs()
+            _, entropy_dev_order = torch.sort(entropy_dev)
+
+            top_probs = top_probs.gather(-1, entropy_dev_order)
+            top_indices = top_indices.gather(-1, entropy_dev_order)
+
+            num_typical_probs = 0
+            cum_prob = top_probs[0].item()
+            while True:
+                num_typical_probs += 1
+                if num_typical_probs == top_probs.shape[-1]: break
+                cum_prob += top_probs[num_typical_probs].item()
+                if cum_prob > typical: break
+
+            top_probs = top_probs[:num_typical_probs]
+            top_indices = top_indices[:num_typical_probs]
+
+        # Multinomial sampling from top_probs, kept in same order as top_indices
+
         norm_probs = top_probs / torch.sum(top_probs, dim = -1)  # Was extra softmax here (..?)
         sampled_ind = torch.multinomial(norm_probs, norm_probs.shape[-1] if num == -1 else min(num, norm_probs.shape[-1]))
         sampled_tokens = top_indices[sampled_ind]
@@ -278,7 +312,8 @@ class ExLlamaGenerator:
                                    self.settings.temperature,
                                    self.settings.top_k,
                                    self.settings.top_p,
-                                   self.settings.min_p + 0.01 if constraints is not None else 0.0)
+                                   self.settings.min_p + 0.01 if constraints is not None else 0.0,
+                                   self.settings.typical)
 
         else:
 
@@ -450,6 +485,7 @@ class ExLlamaGenerator:
                                             self.settings.top_k,
                                             self.settings.top_p,
                                             self.settings.min_p,
+                                            self.settings.typical,
                                             num = self.settings.beams)
 
                 # self.cache is updated with k/v for last token
@@ -483,6 +519,7 @@ class ExLlamaGenerator:
                                                 self.settings.top_k,
                                                 self.settings.top_p,
                                                 self.settings.min_p,
+                                                self.settings.typical,
                                                 num = -1)
 
                     beam.sampled_tokens = tokens

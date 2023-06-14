@@ -39,22 +39,31 @@ function send(api, packet, ok_func = null, fail_func = null) {
 
 // Generator settings
 
+function getTBNumber(id) {
+
+    let num = 0;
+    let v = document.getElementById(id).value;
+    if (v != document.getElementById(id).dataset.text0) num = Number(v);
+    return num;
+}
+
 function sendGenSettings() {
 
     let json = {};
 
-    json.temperature = Number(document.getElementById("sl_temperature_tb").value);
-    json.top_p = Number(document.getElementById("sl_topp_tb").value);
-    json.min_p = Number(document.getElementById("sl_minp_tb").value);
-    json.top_k = Number(document.getElementById("sl_topk_tb").value);
+    json.temperature = getTBNumber("sl_temperature_tb");
+    json.top_p = getTBNumber("sl_topp_tb");
+    json.min_p = getTBNumber("sl_minp_tb");
+    json.top_k = getTBNumber("sl_topk_tb");
+    json.typical = getTBNumber("sl_typical_tb");
 
-    json.chunk_size = Number(document.getElementById("sl_chunksize_tb").value);
-    json.max_response_tokens = Number(document.getElementById("sl_maxtokens_tb").value);
+    json.chunk_size = getTBNumber("sl_chunksize_tb");
+    json.max_response_tokens = getTBNumber("sl_maxtokens_tb");
     json.gen_endnewline = document.querySelector("#cb_gen_endnewline input").checked;
 
-    json.token_repetition_penalty_max = Number(document.getElementById("sl_repp_penalty_tb").value);
-    json.token_repetition_penalty_sustain = Number(document.getElementById("sl_repp_sustain_tb").value);
-    json.token_repetition_penalty_decay = Number(document.getElementById("sl_repp_decay_tb").value);
+    json.token_repetition_penalty_max = getTBNumber("sl_repp_penalty_tb");
+    json.token_repetition_penalty_sustain = getTBNumber("sl_repp_sustain_tb");
+    json.token_repetition_penalty_decay = getTBNumber("sl_repp_decay_tb");
 
     console.log(json);
     send("/api/set_gen_settings", json);
@@ -67,9 +76,18 @@ function setSlider(id, value) {
     let decimals = slider.dataset.decimals;
     let mult = Math.pow(10, decimals);
     let tvalue = value * mult;
-    let svalue = value.toFixed(decimals);
     slider.value = tvalue;
-    tb.value = svalue;
+
+    if (tb.dataset.text0 != "" && slider.value == 0)
+    {
+        tb.value = tb.dataset.text0;
+        tb.style.opacity = 0.4;
+    }
+    else
+    {
+        tb.value = value.toFixed(decimals);
+        tb.style.opacity = 1;
+    }
 }
 
 function sliderChanged(slider) {
@@ -111,14 +129,16 @@ function prepSlider(id) {
     addTextboxEvents(tb, sliderTBChangedDone);
 }
 
-function createSlider(text, id, min, max, actualmax, decimals) {
+function createSlider(text, id, min, max, actualmax, decimals, text0 = null) {
+
+    if (text) text0_str = "data-text0='" + (text0 ? text0 : "") + "' ";
 
     let newDiv = document.createElement('div');
     newDiv.className = 'custom-slider';
     newDiv.id = id + "_";
     newDiv.innerHTML = "<label for='" + id + "'>" + text + "</label>" +
                        "<input type='range' min='" + min + "' max='" + max + "' value='" + min + "' id='" + id + "' class = 'custom-slider-sl' data-decimals='" + decimals + "' oninput='sliderChanged(this)' onchange='sliderChangedDone(this)'>" +
-                       "<input type='text' id='" + id + "_tb' class='custom-slider-tb' data-decimals='" + decimals + "' data-actualmax='" + actualmax + "' data-actualmin='" + min + "' />";
+                       "<input type='text' id='" + id + "_tb' class='custom-slider-tb' data-decimals='" + decimals + "' data-actualmax='" + actualmax + "' data-actualmin='" + min + "' " + text0_str + " />";
 
     return newDiv;
 }
@@ -131,19 +151,22 @@ function createGenSettings() {
     settingsDiv.innerHTML = "";
 
     settingsDiv.appendChild(createSlider("Temperature", "sl_temperature", 1, 200, 100000, 2));
-    settingsDiv.appendChild(createSlider("Top-P", "sl_topp", 1, 100, 100, 2));
-    settingsDiv.appendChild(createSlider("Min-P", "sl_minp", 0, 99, 99, 2));
-    settingsDiv.appendChild(createSlider("Top-K", "sl_topk", 1, 100, 32000, 0));
+    settingsDiv.appendChild(createSlider("Top-K", "sl_topk", 0, 100, 32000, 0, "off"));
+    settingsDiv.appendChild(createSlider("Top-P", "sl_topp", 0, 100, 100, 2, "off"));
+    settingsDiv.appendChild(createSlider("Min-P", "sl_minp", 0, 99, 99, 2, "off"));
+    settingsDiv.appendChild(createSlider("Typical", "sl_typical", 0, 100, 100, 2, "off"));
 
     prepSlider("sl_temperature");
     prepSlider("sl_topp");
     prepSlider("sl_minp");
     prepSlider("sl_topk");
+    prepSlider("sl_typical");
 
     setSlider("sl_temperature", 1.00);
     setSlider("sl_topp", 0.65);
     setSlider("sl_minp", 0.00);
     setSlider("sl_topk", 40);
+    setSlider("sl_typical", 0);
 
     // Stop conditions
 
@@ -249,6 +272,7 @@ function populate() {
             setSlider("sl_topp", data.top_p);
             setSlider("sl_minp", data.min_p);
             setSlider("sl_topk", data.top_k);
+            setSlider("sl_typical", data.typical);
 
             // Stop conditions
 

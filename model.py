@@ -64,7 +64,7 @@ class ExLlamaConfig:
 
         self.max_seq_len = 2048  # Reduce to save memory. Can also be increased, but the pretrained models produce degenerate output after 2048 tokens in any case. Should be possible to finetune for longer sequence lengths.
         self.gpu_peer_fix = False # Apparently Torch can have problems transferring tensors directly one GPU to another sometimes. Enable this to move tensors via system RAM instead, where needed
-        self.auto_map = None  # List of ints with memory allocation in GB, per CUDA device, overrides device_map
+        self.auto_map = None  # List of floats with memory allocation in GB, per CUDA device, overrides device_map
 
         # Tuning
 
@@ -665,7 +665,7 @@ class ExLlama:
 
             self.sincos[device] = (sin, cos)
 
-        # Layers
+        # Decoder layers
 
         modules = []
         device_layer_index = [0] * len(devs)

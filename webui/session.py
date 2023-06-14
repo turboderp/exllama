@@ -169,12 +169,13 @@ class Session:
         for jnode in loadhistory: self.history.append(Node(jnode))
 
         generator.settings.temperature = saved.get("temperature", 0.95)
-        generator.settings.top_p = saved.get("top_p", 0.65)
+        generator.settings.top_p = saved.get("top_p", 0.75)
         generator.settings.min_p = saved.get("min_p", 0.0)
-        generator.settings.top_k = saved.get("top_k", 40)
+        generator.settings.top_k = saved.get("top_k", 0)
+        generator.settings.typical = saved.get("typical", 0.25)
         self.break_on_newline = saved.get("break_on_newline", True)
         generator.settings.token_repetition_penalty_max = saved.get("token_repetition_penalty_max", 1.15)
-        generator.settings.token_repetition_penalty_sustain = saved.get("token_repetition_penalty_sustain", 1024)
+        generator.settings.token_repetition_penalty_sustain = saved.get("token_repetition_penalty_sustain", 2048)
         generator.settings.token_repetition_penalty_decay = saved.get("token_repetition_penalty_decay", 512)
 
         self.max_response_tokens = saved.get("max_response_tokens", 512)
@@ -197,6 +198,7 @@ class Session:
                     "top_p": generator.settings.top_p,
                     "min_p": generator.settings.min_p,
                     "top_k": generator.settings.top_k,
+                    "typical": generator.settings.typical,
                     "break_on_newline": self.break_on_newline,
                     "max_response_tokens": self.max_response_tokens,
                     "chunk_size": self.chunk_size,
@@ -286,6 +288,7 @@ class Session:
                 "top_p": generator.settings.top_p,
                 "min_p": generator.settings.min_p,
                 "top_k": generator.settings.top_k,
+                "typical": generator.settings.typical,
                 "break_on_newline": self.break_on_newline,
                 "max_response_tokens": self.max_response_tokens,
                 "chunk_size": self.chunk_size,
@@ -349,6 +352,7 @@ class Session:
         generator.settings.top_p = data["top_p"]
         generator.settings.min_p = data["min_p"]
         generator.settings.top_k = data["top_k"]
+        generator.settings.typical = data["typical"]
         self.break_on_newline = data["gen_endnewline"]
         self.max_response_tokens = data["max_response_tokens"]
         self.chunk_size = data["chunk_size"]
