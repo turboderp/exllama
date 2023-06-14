@@ -85,7 +85,7 @@ def print_options(args, extra_options = None):
     if args.rope_no_half2: print(f" -- --rope_no_half2")
     if args.matmul_no_half2: print(f" -- --matmul_no_half2")
     if args.silu_no_half2: print(f" -- --silu_no_half2")
-    if args.concurrent_streams: print(f" -- ----concurrent_streams")
+    if args.concurrent_streams: print(f" -- --concurrent_streams")
 
     print(f" -- Options: {print_opts}")
 

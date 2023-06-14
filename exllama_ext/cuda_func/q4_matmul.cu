@@ -24,7 +24,7 @@ typedef void (*fp_q4_matmul_kernel)
     const int,
     const int,
     const uint32_t*,
-    bool no_zero
+    bool
 );
 
 template<bool use_half2, bool use_groupsize, bool use_x_map>
