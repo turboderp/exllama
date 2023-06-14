@@ -57,6 +57,7 @@
 - [ ] (Multi) LoRA support
 - [x] Guided generation (chat with multiple bots at once, etc.)
 - [ ] Multiple chat modes with prompt templates (instruct, etc.)
+- [ ] Batched generation
 
 ## Interface
 
