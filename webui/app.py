@@ -117,11 +117,20 @@ def api_userinput():
         result = Response(stream_with_context(session.respond_multi(user_input)), mimetype = 'application/json')
         return result
 
+# manually stores input from the user and ouput from bot in the history of the current session
+@app.route("/api/inputoutput", methods=['POST'])
+def api_inputoutput():
+    data = request.get_json()
+    user_input = data["user_input"]
+    bot_output = data["bot_output"]
+    
+    result = Response(session.store_input_output(user_input, bot_output), mimetype = 'application/json')
+    return result
 
 # Load the model
 
 parser = argparse.ArgumentParser(description="Simple web-based chatbot for ExLlama")
-parser.add_argument("-host", "--host", type = str, help = "IP:PORT eg, 0.0.0.0:7862", default = "localhost:5000")
+parser.add_argument("-host", "--host", type = str, help = "IP:PORT eg, 0.0.0.0:7862", default = "0.0.0.0:5000")
 
 model_init.add_args(parser)
 args = parser.parse_args()

@@ -686,6 +686,15 @@ $(document).ready(function() {
     });
 });
 
+
+fetch("/api/inputoutput", {
+    method: "POST",
+    headers: {
+        "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ user_input: userInput, bot_output,botOutput })
+});
+
 // Read stream
 
 let data = '';
@@ -696,9 +705,9 @@ function processStream(stream) {
     let data = '';
 
     reader.read().then(function process({done, value}) {
-        // console.log("Received chunk:", decoder.decode(value));
+        console.log("Received chunk:", decoder.decode(value));
         if (done) {
-            // console.log("Stream complete");
+            console.log("Stream complete");
             $("#user-input").prop("disabled", false);
             $("#user-input").attr('placeholder', 'Type here...');
             $("#user-input").focus();
@@ -816,7 +825,7 @@ function processItem(data) {
             if (data.hasOwnProperty("author_idx")) idx = data.author_idx;
             let uuid = data.uuid;
 
-            //console.log(header, init_text, idx);
+            console.log(header, init_text, idx);
 
             currentNode = newChatBlock(header, init_text, idx, uuid);
 
@@ -837,7 +846,7 @@ function processItem(data) {
         // Append incoming text
 
         case "rewind": {
-            //console.log(data);
+            console.log(data);
             let bottom = isAtBottom();
             chars = data.chars;
             currentNode = rewindWithLineBreaks(currentNode, chars);

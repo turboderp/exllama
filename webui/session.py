@@ -518,7 +518,7 @@ class Session:
         # print("----")
         # print (f"cache len: {cache.current_seq_len}");
 
-        print(res_line.strip())
+        print(f"response is: {res_line.strip()}")
 
         if author is not None:
             res_line = res_line[len(author) + 1:]
@@ -674,4 +674,13 @@ class Session:
 
         self.save()
 
+    def store_input_output(self, user_input, bot_output):
+        author = self.participants[0]
+        newNode = Node(user_input, author)
+        self.history.append(newNode)
 
+        new_block_uuid = str(uuid.uuid4())
+        newNode = Node(bot_output, "Chatbort", node_id=new_block_uuid)
+        self.history.append(newNode)
+
+        self.save()
