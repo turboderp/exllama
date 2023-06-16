@@ -3,8 +3,7 @@
 - [x] Support for act-order models ~~(a bit slow for now)~~
 - [x] ~~Support for v1 models without groupsize~~ Nah.
 - [x] Test more models
-- [ ] Consider support for loading GGML models
-- [ ] Utility to scan and validate .safetensors files
+- [x] Consider support for loading GGML models (not feasible)
 - [x] Figure out if there are quantized models with irregular groupsize (there are some at least with no groupsize)
 
 ## GPU compatibility (etc.)
@@ -22,7 +21,7 @@
 
 ## Testing
 
-- [ ] Figure out an apples-to-apples way of comparing perplexity with other implementations
+- [x] Figure out an apples-to-apples way of comparing perplexity with other implementations
 - [ ] Compile charts of inference speed vs context length for variety of models, compare to other implementations
 
 ## VRAM optimization
@@ -62,7 +61,7 @@
 ## Interface
 
 - [x] Simple web interface?
-- [ ] API server 
+- [ ] API server
 
 ## Web UI
 
@@ -75,6 +74,7 @@
 
 ## ??
 
+- [ ] FP8/FP16 overlays
 - [ ] Allow for backpropagation
 - [ ] LoRA training features
 - [ ] Soft prompt training

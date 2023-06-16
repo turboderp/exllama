@@ -48,7 +48,7 @@ class Perplexity:
 
 
     # This loads *and* tokenizes into chunks
-    def load(self, dataset_path, context=2048, overlap=0):
+    def load(self, dataset_path, context=2048, overlap=0, minlength = 0):
         file_extension = os.path.splitext(dataset_path)[1]
 
         # JSON format
@@ -56,9 +56,7 @@ class Perplexity:
             with open(dataset_path) as f:
                 for line in f:
                     example = json.loads(line)["text"]
-                    # FIX: this was the default behavior but may lead to unexpected results for someone using this blindly...
-                    # Consider a min-length option?
-                    if len(example) > 50: 
+                    if len(example) > minlength:
                         chunk = self._tokenize(example)
                         chunk = chunk[:, :context + 1]
                         self.dataset_chunks.append(chunk)
@@ -85,7 +83,7 @@ class Perplexity:
         if not self.dataset_chunks:
             sys.exit(" xx ERROR: Empty dataset!")
 
-        print(f" -- Testing {min(len(self.dataset_chunks), chunk_limit)} chunks ", end="")
+        print(f" -- Testing {min(len(self.dataset_chunks), chunk_limit)} chunks", end="")
         sys.stdout.flush()
 
         logprob_sum = 0.0

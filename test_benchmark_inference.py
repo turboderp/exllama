@@ -13,8 +13,6 @@ import os
 import glob
 import model_init
 
-testdata_path = "testdata.jsonl"
-
 torch.cuda._lazy_init()
 # torch.backends.cuda.matmul.allow_tf32 = True
 # torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True
@@ -89,8 +87,8 @@ parser = argparse.ArgumentParser(description = "Benchmark tests for ExLlama")
 model_init.add_args(parser)
 
 parser.add_argument("-p", "--perf", action = "store_true", help = "Benchmark speed and VRAM usage")
-parser.add_argument("-ppl", "--perplexity", nargs='?', const='default', metavar="METHOD", help = "Perplexity benchmark (slow). Optionally specify method: default (jsonl), gptq-for-llama, llama.cpp")
-parser.add_argument("-ppl-ds", "--perplexity-dataset", metavar="DATAPATH", type=str, help = "Load dataset for perplexity (JSONL if .jsonl, otherwise parses it as raw text)")
+parser.add_argument("-ppl", "--perplexity", nargs = '?', const = 'default', metavar = "METHOD", help = "Perplexity benchmark (slow). Optionally specify method: default, gptq-for-llama, llama.cpp (not yet implemented)")
+parser.add_argument("-ppl-ds", "--perplexity-dataset", metavar = "DATAPATH", type = str, help = "Load dataset for perplexity (JSONL if .jsonl, otherwise parses it as raw text)")
 parser.add_argument("-v", "--validate", action = "store_true", help = "Quick perplexity benchmark just to test if model is working at all, and short text completion")
 
 args = parser.parse_args()
@@ -168,43 +166,81 @@ if args.perf:
     mem("Inference")
     mem("Total", total = True)
 
+
 # Benchmark perplexity
 
-if args.perplexity or args.validate:
-    # Load valid type (default, gptq-for-llama, llama.cpp, etc)
+if args.perplexity:
+
     ppl = Perplexity(args.perplexity, model, cache, tokenizer)
 
-    print(" -- Loading dataset...")
+    # Default (legacy) method
+
+    testdata_path = "datasets/wikitext2_val_sample.jsonl"
+    testdata_context = 2048
+    testdata_overlap = 0
+    testdata_minlength = 50
+    num_samples = 100
+
+    # Optionally specified dataset, either raw or .jsonl
+
     if args.perplexity_dataset:
         testdata_path = args.perplexity_dataset
-    ppl.load(testdata_path)
+        testdata_context = 2048
+        testdata_overlap = 0
+        testdata_minlength = 0
 
-    # Different Types of Perplexity
+    # Settings mimicking GPTQ-for-LLaMa
+
+    if args.perplexity == "gptq-for-llama":
+        if not args.perplexity_dataset:
+            testdata_path = "datasets/wikitext2.txt"
+        testdata_context = 2048
+        testdata_overlap = 0
+        testdata_minlength = 0
+        num_samples = 128
+
     if args.perplexity == "default":
-        # First 100 examples
-        ppl.test(100)
-    elif args.perplexity == "raw":
-        ppl.test()
+        pass
 
-    if args.validate:
-        begin()
+    print(" -- Loading dataset...")
 
-        # Short perplexity tests in switched and quant mode, should produce roughly equal results
+    ppl.load(testdata_path,
+             testdata_context,
+             testdata_overlap,
+             testdata_minlength)
 
-        model.config.matmul_recons_thd = 1
-        ppl.test(8, tag=" (reconstruct)")
-        model.config.matmul_recons_thd = 0
-        ppl.test(8, tag=" (quant)")
-        # model.config.fused_attn_thd = 1
-        # ppl.test(8, tag=" (fused_attn)")
+    ppl.test(num_samples)
 
-        # Do a short, easy topk=1 completion to see if we're generating garbage. Should run in switched mode
-        # for the prompt and quant for individual tokens
 
-        model.config.matmul_recons_thd = 4
-        generator = ExLlamaGenerator(model, tokenizer, cache)
-        generator.settings.top_k = 1
-        text = generator.generate_simple("To be or not to be, that is the", max_new_tokens = 20)
-        # text = generator.generate_simple("To be or", max_new_tokens = 20)
-        text = text.replace("\n", "\\n")
-        print(f" ** Generation: {text}")
+# Validate file
+
+if args.validate:
+
+    ppl = Perplexity(args.perplexity, model, cache, tokenizer)
+
+    testdata_path = "datasets/wikitext2_val_sample.jsonl"
+    testdata_context = 2048
+    testdata_overlap = 0
+    testdata_minlength = 50
+
+    begin()
+
+    # Short perplexity tests in switched and quant mode, should produce roughly equal results
+
+    model.config.matmul_recons_thd = 1
+    ppl.test(8, tag=" (reconstruct)")
+    model.config.matmul_recons_thd = 0
+    ppl.test(8, tag=" (quant)")
+    # model.config.fused_attn_thd = 1
+    # ppl.test(8, tag=" (fused_attn)")
+
+    # Do a short, easy topk=1 completion to see if we're generating garbage. Should run in switched mode
+    # for the prompt and quant for individual tokens
+
+    model.config.matmul_recons_thd = 4
+    generator = ExLlamaGenerator(model, tokenizer, cache)
+    generator.settings.top_k = 1
+    text = generator.generate_simple("To be or not to be, that is the", max_new_tokens = 20)
+    # text = generator.generate_simple("To be or", max_new_tokens = 20)
+    text = text.replace("\n", "\\n")
+    print(f" ** Generation: {text}")
