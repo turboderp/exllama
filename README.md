@@ -120,11 +120,11 @@ docker run --gpus all -p 5000:5000 -v <path_to_model_files>:/app/model/ --rm -it
 |----------|------|-------|-----------------|----------------------|-----------|------------|---------|---------|------|
 | Llama    | 7B   | 128   | no              | 2,048 t              | 5,194 MB  | 13,918 t/s | 173 t/s | 140 t/s | 6.45 |
 | Llama    | 13B  | 128   | no              | 2,048 t              | 9,127 MB  | 7,507 t/s  | 102 t/s | 86 t/s  | 5.60 |
-| Llama    | 30B  | 128   | no              | 2,048 t              | 20,795 MB | 2,959 t/s  | 47 t/s  | 40 t/s  | 4.60 |
-| Llama    | 30B  | 128   | yes             | 2,048 t              | 20,795 MB | 2,784 t/s  | 45 t/s  | 37 t/s  | 4.55 |
-| Llama    | 30B  | 32    | yes             | 1,550 t <sup>1</sup> | 21,486 MB | 2,636 t/s  | 41 t/s  | 37 t/s  | 4.52 |
+| Llama    | 33B  | 128   | no              | 2,048 t              | 20,795 MB | 2,959 t/s  | 47 t/s  | 40 t/s  | 4.60 |
+| Llama    | 33B  | 128   | yes             | 2,048 t              | 20,795 MB | 2,784 t/s  | 45 t/s  | 37 t/s  | 4.55 |
+| Llama    | 33B  | 32    | yes             | 1,550 t <sup>1</sup> | 21,486 MB | 2,636 t/s  | 41 t/s  | 37 t/s  | 4.52 |
 | Koala    | 13B  | 128   | yes             | 2,048 t              | 9,127 MB  | 5,529 t/s  | 93 t/s  | 79 t/s  | 6.73 |
-| WizardLM | 30B  | -     | no <sup>2</sup> | 2,048 t              | 20,199 MB | 2,313 t/s  | 47 t/s  | 40 t/s  | 5.75 |
+| WizardLM | 33B  | -     | no <sup>2</sup> | 2,048 t              | 20,199 MB | 2,313 t/s  | 47 t/s  | 40 t/s  | 5.75 |
 
 <sup>1</sup> Can not achieve full sequence length without OoM (yet)  
 <sup>2</sup> Not quite sure if this is act-order or not. Weights have no group index, at least   
@@ -156,16 +156,16 @@ following benchmarks are from a 4090 + 3090-Ti with `-gs 17.2,24`:
 
 ### Testing long sequences
 
-The following tests were all done on **30B/65B, 4bit 128g** with various settings, just to test the max sequence length
+The following tests were all done on **33B/65B, 4bit 128g** with various settings, just to test the max sequence length
 and get a sense of what can be achieved with different or multiple GPUs right now. Llama goes incoherent generating 
 past 2048 tokens anyway, but with some fine-tuning, who knows? Note that these tests were run a while ago and the
 speeds are no longer current.
 
 |                        | Size | Seq. len. | VRAM                 | Long seq. | Ind.   | 
 |------------------------|------|-----------|----------------------|-----------|--------|
-| 4090/24GB              | 30B  | 2,516 t   | 22,145 MB            | 1140 t/s  | 28 t/s |
-| 4090/24GB + 3070Ti/8GB | 30B  | 3,932 t   | 22,055 MB + 7,377 MB | 840 t/s   | 22 t/s |
-| A6000/48GB (headless)  | 30B  | 9,032 t   | 46,863 MB            | 645 t/s   | 12 t/s |
+| 4090/24GB              | 33B  | 2,516 t   | 22,145 MB            | 1140 t/s  | 28 t/s |
+| 4090/24GB + 3070Ti/8GB | 33B  | 3,932 t   | 22,055 MB + 7,377 MB | 840 t/s   | 22 t/s |
+| A6000/48GB (headless)  | 33B  | 9,032 t   | 46,863 MB            | 645 t/s   | 12 t/s |
 | A100/80GB (headless)   | 65B  | 9,520 t   | 79,009 MB            | 650 t/s   | 9 t/s  |
 
 ## Todo
@@ -212,3 +212,6 @@ single-threaded performance.
 **2023-06-11**: Added some concurrency a couple of places. It's only beneficial on the 4090, on small models where the
 cores are somewhat underutilized and the L2 cache can keep up. For the 3090 it's detrimental to performance, so it's
 disabled by default. YMMV. Use `-cs` to try it out.
+
+**2023-06-17**: Fixed a nasty bug in the fused self that was causing slightly incorrect cache states on 13B and 33B
+models. You definitely want to update.

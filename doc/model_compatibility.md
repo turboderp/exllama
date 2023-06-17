@@ -15,6 +15,7 @@ As of **2023-05-24**, the following GPTQ models on HuggingFace all appear to be 
 - TheBloke/gpt4-x-vicuna-13B-GPTQ
 - TheBloke/GPT4All-13B-snoozy-GPTQ
 - TheBloke/guanaco-33B-GPTQ
+- TheBloke/guanaco-65B-GPTQ
 - TheBloke/h2ogpt-oasst1-512-30B-GPTQ <sup>1</sup> 
 - TheBloke/koala-13B-GPTQ-4bit-128g
 - TheBloke/Manticore-13B-GPTQ
