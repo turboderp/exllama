@@ -13,7 +13,7 @@ const int THREADS_X = 32;
 const int THREADS_Y = 1;
 const int THREADS_Z = 4;
 const int BLOCKSIZE_X = 2; // 2*half == 1*uint32_t
-const int BLOCKSIZE_Z = 4;
+const int BLOCKSIZE_Z = 4; // num_heads must be divisible by BLOCKSIZE_Z
 
 __global__ void update_cache_kernel
 (
@@ -103,9 +103,9 @@ void q4_attn_cuda
 
     dim3 blocks
     (
-        head_dim / THREADS_X / BLOCKSIZE_X,
+        ((head_dim + THREADS_X - 1) / THREADS_X + BLOCKSIZE_X - 1) / BLOCKSIZE_X,
         q_len,
-        num_heads / THREADS_Z / BLOCKSIZE_Z
+        ((num_heads + THREADS_Z - 1) / THREADS_Z + BLOCKSIZE_Z - 1) / BLOCKSIZE_Z
     );
 
     int _rows = q_len * num_heads;
