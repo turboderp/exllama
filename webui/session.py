@@ -20,21 +20,24 @@ tokenizer: ExLlamaTokenizer
 cache: ExLlamaCache
 generator: ExLlamaGenerator
 
-def _sessions_dir(filename = None):
+sessions_dir: str
 
-    home_dir = os.path.expanduser("~")
-    path = os.path.join(home_dir, "exllama_sessions")
+def _sessions_dir(filename = None):
+    global sessions_dir
+
+    path = sessions_dir
     if filename is not None: path = os.path.join(path, filename)
     return path
 
 
-def prepare_sessions(_model, _tokenizer):
-    global model, tokenizer, cache, generator
+def prepare_sessions(_model, _tokenizer, _s_dir):
+    global model, tokenizer, cache, generator, sessions_dir
 
     model = _model
     tokenizer = _tokenizer
     cache = None
     generator = None
+    sessions_dir = os.path.expanduser(_s_dir)
 
     sessions_folder = _sessions_dir()
     if not os.path.exists(sessions_folder): os.makedirs(sessions_folder)
@@ -263,9 +266,9 @@ class Session:
 
     def api_populate(self):
 
-        sessions_dir = _sessions_dir()
-        files = os.listdir(sessions_dir)
-        names = [os.path.splitext(f)[0] for f in files if os.path.isfile(os.path.join(sessions_dir, f)) and f.endswith(".json")]
+        s_dir = _sessions_dir()
+        files = os.listdir(s_dir)
+        names = [os.path.splitext(f)[0] for f in files if os.path.isfile(os.path.join(s_dir, f)) and f.endswith(".json")]
         names = sorted(names)
 
         filename = os.path.basename(self.filename)
