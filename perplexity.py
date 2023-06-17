@@ -79,7 +79,7 @@ class Perplexity:
                 self.dataset_chunks.append(chunk)
 
 
-    def test(self, chunk_limit=sys.maxsize, tag=""):
+    def test(self, chunk_limit=sys.maxsize, tag="", ppl_token = False):
         if not self.dataset_chunks:
             sys.exit(" xx ERROR: Empty dataset!")
 
@@ -98,7 +98,14 @@ class Perplexity:
             input_ids = chunk[:, :-1]
             target_ids = chunk[:, 1:]
 
-            logits = self._next_logits(input_ids, last_id_only=False)
+            if ppl_token:
+                logits_s = []
+                for i in range(input_ids.shape[-1]):
+                    logits_t = self._next_logits(input_ids[:, i : i + 1], last_id_only = False)
+                    logits_s.append(logits_t)
+                logits = torch.cat(logits_s, dim = 1)
+            else:
+                logits = self._next_logits(input_ids, last_id_only = False)
 
             log_probs = F.log_softmax(logits, dim=-1)
             token_log_probs = log_probs.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)

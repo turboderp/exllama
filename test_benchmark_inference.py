@@ -89,6 +89,8 @@ model_init.add_args(parser)
 parser.add_argument("-p", "--perf", action = "store_true", help = "Benchmark speed and VRAM usage")
 parser.add_argument("-ppl", "--perplexity", nargs = '?', const = 'default', metavar = "METHOD", help = "Perplexity benchmark (slow). Optionally specify method: default, gptq-for-llama, llama.cpp (not yet implemented)")
 parser.add_argument("-ppl-ds", "--perplexity-dataset", metavar = "DATAPATH", type = str, help = "Load dataset for perplexity (JSONL if .jsonl, otherwise parses it as raw text)")
+parser.add_argument("-ppl-num", "--perplexity-num", nargs = "?", type = int, help = "Number of chunks for perplexity benchmark")
+parser.add_argument("-ppl-t", "--perplexity-token", action = "store_true", help = "Run perplexity test on individual tokens, for debug purposes (slow)")
 parser.add_argument("-v", "--validate", action = "store_true", help = "Quick perplexity benchmark just to test if model is working at all, and short text completion")
 
 args = parser.parse_args()
@@ -101,6 +103,8 @@ print_opts = []
 if args.perf: print_opts.append("perf")
 if args.perplexity: print_opts.append("perplexity")
 if args.perplexity_dataset: print_opts.append("perplexity_dataset")
+if args.perplexity_num: print_opts.append("perplexity-num")
+if args.perplexity_token: print_opts.append("perplexity-token")
 if args.validate: print_opts.append("validate")
 
 model_init.print_options(args, print_opts)
@@ -202,6 +206,11 @@ if args.perplexity:
     if args.perplexity == "default":
         pass
 
+    # Overrides
+
+    if args.perplexity_num:
+        num_samples = args.perplexity_num
+
     print(" -- Loading dataset...")
 
     ppl.load(testdata_path,
@@ -209,8 +218,8 @@ if args.perplexity:
              testdata_overlap,
              testdata_minlength)
 
-    ppl.test(num_samples)
-
+    ppl.test(num_samples,
+             ppl_token = args.perplexity_token)
 
 # Validate file
 
