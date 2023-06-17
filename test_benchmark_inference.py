@@ -232,6 +232,11 @@ if args.validate:
     testdata_overlap = 0
     testdata_minlength = 50
 
+    ppl.load(testdata_path,
+             testdata_context,
+             testdata_overlap,
+             testdata_minlength)
+
     begin()
 
     # Short perplexity tests in switched and quant mode, should produce roughly equal results
@@ -239,7 +244,7 @@ if args.validate:
     model.config.matmul_recons_thd = 1
     ppl.test(8, tag=" (reconstruct)")
     model.config.matmul_recons_thd = 0
-    ppl.test(8, tag=" (quant)")
+    ppl.test(8, tag=" (quant, token)", ppl_token = True)
     # model.config.fused_attn_thd = 1
     # ppl.test(8, tag=" (fused_attn)")
 
