@@ -2,6 +2,7 @@ import cuda_ext
 from model import ExLlama, ExLlamaCache
 from lora import ExLlamaLora
 import torch
+import torch.nn.functional as F
 
 class ExLlamaGenerator:
 
@@ -81,6 +82,7 @@ class ExLlamaGenerator:
             top_probs, top_indices = torch.sort(probs, descending = True)
         else:
             top_probs, top_indices = torch.topk(probs, top_k)
+            top_probs = F.normalize(top_probs, p = 1, dim = -1)
 
         # Top P
 
@@ -96,6 +98,7 @@ class ExLlamaGenerator:
                 if cum_prob > top_p: break
 
             top_probs = top_probs[:num_top_p_probs]
+            top_probs = F.normalize(top_probs, p = 1, dim = -1)
             top_indices = top_indices[:num_top_p_probs]
 
         # Locally typical sampling
@@ -120,12 +123,12 @@ class ExLlamaGenerator:
                 if cum_prob > typical: break
 
             top_probs = top_probs[:num_typical_probs]
+            top_probs = F.normalize(top_probs, p = 1, dim = -1)
             top_indices = top_indices[:num_typical_probs]
 
         # Multinomial sampling from top_probs, kept in same order as top_indices
 
-        norm_probs = top_probs / torch.sum(top_probs, dim = -1)  # Was extra softmax here (..?)
-        sampled_ind = torch.multinomial(norm_probs, norm_probs.shape[-1] if num == -1 else min(num, norm_probs.shape[-1]))
+        sampled_ind = torch.multinomial(top_probs, top_probs.shape[-1] if num == -1 else min(num, top_probs.shape[-1]))
         sampled_tokens = top_indices[sampled_ind]
         sampled_probs = top_probs[sampled_ind]  # Return probs before second norm
 
