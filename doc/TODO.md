@@ -23,6 +23,7 @@
 
 - [x] Figure out an apples-to-apples way of comparing perplexity with other implementations
 - [ ] Compile charts of inference speed vs context length for variety of models, compare to other implementations
+- [ ] Test a bunch of LoRAs to make sure all combinations of rank and target layers work
 
 ## VRAM optimization
 
@@ -46,7 +47,7 @@
 - [ ] Implement attention in CUDA
 - [x] Rewrite at least the quantized matmul kernel. Should be a bunch of special cases to consider
 - [x] Experiment with concurrent streams where possible (fused MLP and QKV proj.)
-- [ ] Faster low-rank matmul to speed up LoRAs
+- [x] Faster low-rank matmul to speed up LoRAs
 
 ## Generation
 
@@ -73,6 +74,7 @@
 - [ ] Make it a little prettier
 - [ ] Test various edge cases
 - [ ] Better error handling
+- [ ] LoRA controls
 
 ## ??
 
