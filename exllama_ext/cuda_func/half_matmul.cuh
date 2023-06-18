@@ -5,6 +5,7 @@
 #include <cuda_fp16.h>
 #include <cstdint>
 #include <ATen/cuda/CUDAContext.h>
+#include "../tuning.h"
 
 // Workaround for hipify_python using rocblas instead of hipblas.
 #if defined(USE_ROCM)
@@ -25,6 +26,7 @@ void half_matmul_cuda
 
 void half_matmul_cublas_cuda
 (
+    ExLlamaTuning* tuningParams,
     const half* x,
     const half* w,
     half* out,
@@ -38,6 +40,7 @@ void half_matmul_cublas_cuda
 
 void half_matmul_small_cuda
 (
+    ExLlamaTuning* tuningParams,
     const half* x,
     const half* w,
     half* out,

@@ -78,8 +78,11 @@ void half_matmul_cuda
 
 // cuBLAS can't be beat for large matrices, probably
 
+const int MAX_DIM_SMALL = 8192;
+
 void half_matmul_cublas_cuda
 (
+    ExLlamaTuning* tuningParams,
     const half* x,
     const half* w,
     half* out,
@@ -93,11 +96,13 @@ void half_matmul_cublas_cuda
 {
     // Fall back on a naive kernel for small matmuls to avoid cuBLAS overhead
 
-    if (height < 4 && dim <= 8192)
+    if (height < 4 && dim <= MAX_DIM_SMALL)
     {
-        half_matmul_small_cuda(x, w, out, height, dim, width, no_zero, alt_stream);
+        half_matmul_small_cuda(tuningParams, x, w, out, height, dim, width, no_zero, alt_stream);
         return;
     }
+
+    // printf("cuBLAS: (%i, %i) @ (%i, %i) -> (%i, %i)\n", height, dim, dim, width, height, width);
 
     // Use cuBLAS
 
@@ -121,10 +126,9 @@ void half_matmul_cublas_cuda
 
 // Alternative to cuBLAS for tall or wide matrices
 
-const int S_THREADS_X = 8;     // width
-const int S_THREADS_Y = 1;     // height
-const int S_BLOCKSIZE = 64;    // dim/k
-const int MAX_DIM = 8192;
+const int S_THREADS_X = 8;                                      // width
+const int S_THREADS_Z = 1;                                      // height
+const int S_BLOCKSIZE = MAX_DIM_SMALL / 1024 * S_THREADS_X;     // dim
 
 template<bool use_half2>
 __global__ void half_matmul_small_kernel
@@ -138,13 +142,14 @@ __global__ void half_matmul_small_kernel
     bool no_zero
 )
 {
-    const int column = blockIdx.x * S_THREADS_X + threadIdx.x;
-    const int row = blockIdx.y * S_THREADS_Y + threadIdx.y;
-    const int k = threadIdx.z * S_BLOCKSIZE;
+    int column = blockIdx.x * S_THREADS_X + threadIdx.x;
+    int row = blockIdx.z * S_THREADS_Z + threadIdx.z;
+    int k = threadIdx.y * S_BLOCKSIZE;
 
     if (row >= height) return;
     if (column >= width) return;
-    //if (k >= dim) return;
+    // if (k >= dim) return;
+    // printf("%i, %i, %i\n", row, column, k);
 
     MatrixView_half x_(x, height, dim);
     MatrixView_half w_(w, dim, width);
@@ -155,40 +160,46 @@ __global__ void half_matmul_small_kernel
 
     const half* x_ptr = x_.item_ptr(row, k);
     const half* x_ptr_end = x_.item_ptr(row, k_end);
+    const half* w_ptr = w_.item_ptr(k, column);
+    half* out_ptr = out_.item_ptr(row, column);
 
-    if constexpr(use_half2)
+    if constexpr (use_half2)
     {
-        const half2* w_ptr = (half2*) w_.item_ptr(k, column * 2);
-        half2* out_ptr = (half2*) out_.item_ptr(row, column * 2);
+        half2* x_ptr2 = (half2*) x_ptr;
+        half2* x_ptr2_end = (half2*) x_ptr_end;
+
         half2 r = {};
 
-        while(x_ptr < x_ptr_end)
+        while(x_ptr2 < x_ptr2_end)
         {
-            #pragma unroll
-            for (int i = 0; i < 4; ++i)
-            {
-                half x_item = *x_ptr++;
-                half2 x_items = __half2half2(x_item);
-                half2 w_items = *w_ptr; w_ptr += width / 2;
-                r = __hfma2(x_items, w_items, r);
-            }
+            half2 x_01 = *x_ptr2++;
+            half2 x_23 = *x_ptr2++;
+            half w_0 = *w_ptr; w_ptr += width;
+            half w_1 = *w_ptr; w_ptr += width;
+            half w_2 = *w_ptr; w_ptr += width;
+            half w_3 = *w_ptr; w_ptr += width;
+            half2 w_01 = __halves2half2(w_0, w_1);
+            half2 w_23 = __halves2half2(w_2, w_3);
+            r = __hfma2(x_01, w_01, r);
+            r = __hfma2(x_23, w_23, r);
         }
 
-        __shared__ half2 accum[MAX_DIM / S_BLOCKSIZE][S_THREADS_X];
-        accum[threadIdx.z][threadIdx.x] = r;
+        half rh = __hadd(r.x, r.y);
 
+        __shared__ half accum[MAX_DIM_SMALL / S_BLOCKSIZE][S_THREADS_X];
+        accum[threadIdx.y][threadIdx.x] = rh;
         __syncthreads();
-        if (threadIdx.z == 0)
+
+        if (threadIdx.y == 0)
         {
-            half2 acc = accum[0][threadIdx.x];
-            for (int i = 1; i < gridDim.z; ++i) acc = __hadd2(acc, accum[i][threadIdx.x]);
-            if (no_zero) acc = __hadd2(acc, *out_ptr);
+            half acc = rh;
+            for (int i = 1; i < blockDim.y; ++i) acc = __hadd(accum[i][threadIdx.x], acc);
+            if (no_zero) acc = __hadd(acc, *out_ptr);
             *out_ptr = acc;
         }
     }
     else
     {
-        const half* w_ptr = w_.item_ptr(k, column);
         half r = {};
 
         while(x_ptr < x_ptr_end)
@@ -202,22 +213,23 @@ __global__ void half_matmul_small_kernel
             }
         }
 
-        __shared__ half accum[MAX_DIM / S_BLOCKSIZE][S_THREADS_X];
-        accum[threadIdx.z][threadIdx.x] = r;
-
+        __shared__ half accum[MAX_DIM_SMALL / S_BLOCKSIZE][S_THREADS_X];
+        accum[threadIdx.y][threadIdx.x] = r;
         __syncthreads();
-        if (threadIdx.z == 0)
+
+        if (threadIdx.y == 0)
         {
             half acc = accum[0][threadIdx.x];
-            for (int i = 1; i < gridDim.z; ++i) acc = __hadd(acc, accum[i][threadIdx.x]);
-            if (no_zero) acc = __hadd(acc, out_.item(row, column));
-            out_.set(row, column, acc);
+            for (int i = 1; i < blockDim.y; ++i) acc = __hadd(accum[i][threadIdx.x], acc);
+            if (no_zero) acc = __hadd(acc, *out_ptr);
+            *out_ptr = acc;
         }
     }
 }
 
 void half_matmul_small_cuda
 (
+    ExLlamaTuning* tuningParams,
     const half* x,
     const half* w,
     half* out,
@@ -228,22 +240,29 @@ void half_matmul_small_cuda
     cudaStream_t alt_stream
 )
 {
-    bool use_half2 = true;
+    bool use_half2 = !tuningParams->matmul_no_half2;
+
+    // printf("kernel: (%i, %i) @ (%i, %i) -> (%i, %i)\n", height, dim, dim, width, height, width);
 
     dim3 threads
     (
         S_THREADS_X,
-        S_THREADS_Y,
-        (dim + S_BLOCKSIZE - 1) / S_BLOCKSIZE
+        (dim + S_BLOCKSIZE - 1) / S_BLOCKSIZE,
+        1
     );
 
     dim3 blocks
     (
-        (width + S_THREADS_X - 1) / S_THREADS_X / (use_half2 ? 2 : 1),
-        (height + S_THREADS_Y - 1) / S_THREADS_Y,
-        1
+        (width + S_THREADS_X - 1) / S_THREADS_X,
+        1,
+        height
     );
 
-    half_matmul_small_kernel<true><<<blocks, threads, 0, alt_stream>>>(x, w, out, height, dim, width, no_zero);
+    // printf("t... %i %i %i\n", threads.x, threads.y, threads.z);
+    // printf("b... %i %i %i\n", blocks.x, blocks.y, blocks.z);
+    //if (!no_zero) cudaMemsetAsync(out, 0, height * width * sizeof(half));
+
+    if (use_half2) half_matmul_small_kernel<true> <<<blocks, threads, 0, alt_stream>>>(x, w, out, height, dim, width, no_zero);
+    else           half_matmul_small_kernel<false><<<blocks, threads, 0, alt_stream>>>(x, w, out, height, dim, width, no_zero);
 }
 
