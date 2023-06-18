@@ -40,12 +40,13 @@
 - [x] ~~Build attention mask in CUDA rather than PyTorch~~
 - [x] ~~Disable attention mask when it isn't needed~~ (not possible with SDP)
 - [x] Figure out why inference appears to be CPU-bound (kernel launch overhead)
-- [ ] Reduce no. kernel launches to minimum (tail launch, fusion etc.)
+- [x] Reduce no. kernel launches to minimum (tail launch, fusion etc.)
 - [x] Measure PyTorch module overhead (negligible in eval mode)
 - [x] Examine if scaled_dot_product_attention is actually the best attention method for single tokens (it's not)
 - [ ] Implement attention in CUDA
 - [x] Rewrite at least the quantized matmul kernel. Should be a bunch of special cases to consider
 - [x] Experiment with concurrent streams where possible (fused MLP and QKV proj.)
+- [ ] Faster low-rank matmul to speed up LoRAs
 
 ## Generation
 
@@ -53,7 +54,8 @@
 - [ ] Optimized beam search
 - [ ] Multi-token censoring/de-censoring
 - [ ] Multi-token repetition penalties
-- [ ] (Multi) LoRA support
+- [x] (Multi) LoRA support
+- [ ] Allow stackable LoRAs
 - [x] Guided generation (chat with multiple bots at once, etc.)
 - [ ] Multiple chat modes with prompt templates (instruct, etc.)
 - [ ] Batched generation
