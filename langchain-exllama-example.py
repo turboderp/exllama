@@ -68,7 +68,7 @@ class Exllama(LLM):
         
         model = ExLlama(config)
         exllama_cache = ExLlamaCache(model)
-        generator = ExLlamaGenerator(model, tokenizer, exllama_cache)   # create generator
+        generator = ExLlamaGenerator(model, tokenizer, exllama_cache)
 
         for key, value in model_params.items():
             setattr(generator.settings, key, value)
@@ -155,7 +155,7 @@ class Exllama(LLM):
                     generator.end_beam_search()
                 return
             
-            #Tokenize the string from the last new line, we can't just decode the last token due to hwo sentencepiece decodes.
+            #Tokenize the string from the last new line, we can't just decode the last token due to how sentencepiece decodes.
             stuff = generator.tokenizer.decode(generator.sequence_actual[0][last_newline_pos:])
             cursor_tail = len(stuff)
             chunk = stuff[cursor_head:cursor_tail]
@@ -169,7 +169,7 @@ class Exllama(LLM):
                 cursor_head = 0
                 cursor_tail = 0
             
-            #Check if th stream buffer is one of the stop sequences
+            #Check if the stream buffer is one of the stop sequences
             status = self.match_status(match_buffer, self.stop_sequences)
             
             if status == self.MatchStatus.EXACT_MATCH:
@@ -177,6 +177,8 @@ class Exllama(LLM):
                 rewind_length = generator.tokenizer.encode(match_buffer).shape[-1]
                 generator.gen_rewind(rewind_length)
                 gen = generator.tokenizer.decode(generator.sequence_actual[0][response_start:])
+                if beam_search:
+                    generator.end_beam_search()
                 return gen
             elif status == self.MatchStatus.PARTIAL_MATCH:
                 #Partially matched a stop, continue buffering but don't yield.
