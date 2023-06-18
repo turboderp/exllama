@@ -7,7 +7,6 @@ import json
 import math
 from enum import Enum
 
-
 class ParsedEnum(Enum):
 
     def __str__(self):
@@ -151,9 +150,46 @@ class Ex4bitLinear:
             self.config.act_order = True
 
 
-    def forward(self, x):
+    def lora_applies(self, lora):
 
-        out = cuda_ext.ext_q4_matmul(x, self.q4, self.width)
+        if lora is None: return False
+        return self.key + ".lora_A.weight" in lora.tensors
+
+
+    def lora_apply(self, lora, x):
+
+        lora_a = lora.tensors[self.key + ".lora_A.weight"]
+        lora_b = lora.tensors[self.key + ".lora_B.weight"]
+        out = torch.matmul(x, lora_a)
+        out = torch.matmul(out, lora_b)
+        # out = cuda_ext.ext_half_matmul(x, lora_a.contiguous(), cublas = True)
+        # out = cuda_ext.ext_half_matmul(out, lora_b.contiguous(), cublas = True)
+        return out
+
+
+    def get_lora_tensors_or_meta(self, lora):
+
+        if not self.lora_applies(lora):
+            return cuda_ext.none_tensor, cuda_ext.none_tensor
+        else:
+            lora_a = lora.tensors[self.key + ".lora_A.weight"]
+            lora_b = lora.tensors[self.key + ".lora_B.weight"]
+            return lora_a, lora_b
+
+
+    def forward(self, x, lora):
+
+        if self.lora_applies(lora):
+            lora_a = lora.tensors[self.key + ".lora_A.weight"]
+            lora_b = lora.tensors[self.key + ".lora_B.weight"]
+            out = cuda_ext.ext_q4_matmul(x, self.q4, self.width, lora_a, lora_b)
+        else:
+            out = cuda_ext.ext_q4_matmul(x, self.q4, self.width)
+
+        # out = cuda_ext.ext_q4_matmul(x, self.q4, self.width)
+        # if self.lora_applies(lora):
+        #     out += self.lora_apply(lora, x)
+
         if self.bias is not None: out.add_(self.bias)
         return out
 
@@ -172,13 +208,40 @@ class ExLlamaMLP:
 
         self.act_fn = nn.SiLU()
 
+    def fused(self, x, buffer, post_attention_layernorm, lora):
 
-    def forward(self, x, buffer):
+        bsz, q_len, _ = x.size()
 
-        y = self.gate_proj.forward(x)
+        gate_a, gate_b = self.gate_proj.get_lora_tensors_or_meta(lora)
+        up_a, up_b = self.up_proj.get_lora_tensors_or_meta(lora)
+        down_a, down_b = self.down_proj.get_lora_tensors_or_meta(lora)
+
+        temp_size = 0
+        if not gate_a.is_meta: temp_size = max(temp_size, bsz * q_len * gate_a.shape[1])
+        if not up_a.is_meta:   temp_size = max(temp_size, bsz * q_len * up_a.shape[1])
+        if not down_a.is_meta: temp_size = max(temp_size, bsz * q_len * down_a.shape[1])
+
+        if temp_size > 0: lora_temp = torch.empty((1, temp_size), dtype = torch.float16, device = x.device)
+        else: lora_temp = cuda_ext.none_tensor
+
+        cuda_ext.exllama_ext.q4_mlp(x.view(-1, x.shape[-1]),
+                                    post_attention_layernorm.weight,
+                                    self.config.rms_norm_eps,
+                                    self.gate_proj.q4,
+                                    self.up_proj.q4,
+                                    self.down_proj.q4,
+                                    gate_a, gate_b,
+                                    up_a, up_b,
+                                    down_a, down_b,
+                                    lora_temp)
+
+
+    def forward(self, x, buffer, lora):
+
+        y = self.gate_proj.forward(x, lora)
         y = self.act_fn(y)
-        y *= self.up_proj.forward(x)
-        y = self.down_proj.forward(y)
+        y *= self.up_proj.forward(x, lora)
+        y = self.down_proj.forward(y, lora)
 
         return y
 
@@ -217,10 +280,25 @@ class ExLlamaAttention:
         self.o_proj = Ex4bitLinear(config, self.config.num_attention_heads * self.config.head_dim, self.config.hidden_size, False, tensors, key + ".o_proj")
 
 
-    def fused(self, hidden_states, cache, buffer, input_layernorm):
+    def fused(self, hidden_states, cache, buffer, input_layernorm, lora):
 
         bsz, q_len, _ = hidden_states.size()
         past_len = cache.current_seq_len
+
+        # Lora tensors
+
+        q_a, q_b = self.q_proj.get_lora_tensors_or_meta(lora)
+        k_a, k_b = self.k_proj.get_lora_tensors_or_meta(lora)
+        v_a, v_b = self.v_proj.get_lora_tensors_or_meta(lora)
+        o_a, o_b = self.o_proj.get_lora_tensors_or_meta(lora)
+
+        temp_size = 0
+        if not q_a.is_meta: temp_size = max(temp_size, bsz * q_len * q_a.shape[1])
+        if not k_a.is_meta: temp_size = max(temp_size, bsz * q_len * k_a.shape[1])
+        if not v_a.is_meta: temp_size = max(temp_size, bsz * q_len * v_a.shape[1])
+        if not o_a.is_meta: temp_size = max(temp_size, bsz * q_len * o_a.shape[1])
+        if temp_size > 0: lora_temp = torch.empty((1, temp_size), dtype = torch.float16, device = hidden_states.device)
+        else: lora_temp = cuda_ext.none_tensor
 
         # Project q, k, v, apply position embeddings to k and v, update cache
 
@@ -245,7 +323,11 @@ class ExLlamaAttention:
                                      self.config.head_dim,
                                      cache.key_states[self.index],
                                      cache.value_states[self.index],
-                                     self.config.max_seq_len)
+                                     self.config.max_seq_len,
+                                     q_a, q_b,
+                                     k_a, k_b,
+                                     v_a, v_b,
+                                     lora_temp)
 
         query_states = query_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim)
 
@@ -269,26 +351,30 @@ class ExLlamaAttention:
 
         # Output projection
 
-        cuda_ext.exllama_ext.q4_attn_2(hidden_states, attn_output, self.o_proj.q4)
+        cuda_ext.exllama_ext.q4_attn_2(hidden_states,
+                                       attn_output,
+                                       self.o_proj.q4,
+                                       o_a, o_b,
+                                       lora_temp)
         # return hidden_states
 
 
-    def forward(self, hidden_states, cache, buffer):
+    def forward(self, hidden_states, cache, buffer, lora):
 
         bsz, q_len, _ = hidden_states.size()
         past_len = cache.current_seq_len
 
         # Project q, k, v, apply position embeddings to k and v
 
-        query_states = self.q_proj.forward(hidden_states)
-        key_states = self.k_proj.forward(hidden_states)
+        query_states = self.q_proj.forward(hidden_states, lora)
+        key_states = self.k_proj.forward(hidden_states, lora)
 
         cuda_ext.exllama_ext.rope_(query_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
         cuda_ext.exllama_ext.rope_(key_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
 
         query_states = query_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
         key_states = key_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
-        value_states = self.v_proj.forward(hidden_states).view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
+        value_states = self.v_proj.forward(hidden_states, lora).view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
 
         # Add keys and values to cache
 
@@ -334,7 +420,7 @@ class ExLlamaAttention:
         # Output projection
 
         attn_output = attn_output.reshape(bsz, q_len, self.config.hidden_size)
-        attn_output = self.o_proj.forward(attn_output)
+        attn_output = self.o_proj.forward(attn_output, lora)
 
         return attn_output
 
@@ -358,37 +444,32 @@ class ExLlamaDecoderLayer:
         self.post_attention_layernorm = ExLlamaRMSNorm(self.config, tensors, key + ".post_attention_layernorm.weight")
 
 
-    def forward(self, hidden_states, cache, buffer):
+    def forward(self, hidden_states, cache, buffer, lora):
 
         # Self-attention
 
         if self.config.fused_attn and _rows(hidden_states) == 1:
 
-            self.self_attn.fused(hidden_states, cache, buffer, self.input_layernorm)
+            self.self_attn.fused(hidden_states, cache, buffer, self.input_layernorm, lora)
 
         else:
 
             residual = hidden_states
             hidden_states = self.input_layernorm.forward(hidden_states, buffer)
-            hidden_states = self.self_attn.forward(hidden_states, cache, buffer)
+            hidden_states = self.self_attn.forward(hidden_states, cache, buffer, lora)
             hidden_states = residual + hidden_states
 
         # MLP
 
         if self.config.fused_mlp_thd > 0 and _rows(hidden_states) <= self.config.fused_mlp_thd:
 
-            cuda_ext.exllama_ext.q4_mlp(hidden_states.view(-1, hidden_states.shape[-1]),
-                                        self.post_attention_layernorm.weight,
-                                        self.config.rms_norm_eps,
-                                        self.mlp.gate_proj.q4,
-                                        self.mlp.up_proj.q4,
-                                        self.mlp.down_proj.q4)
+            self.mlp.fused(hidden_states, buffer, self.post_attention_layernorm, lora)
 
         else:
 
             residual = hidden_states
             hidden_states = self.post_attention_layernorm.forward(hidden_states, buffer)
-            hidden_states = self.mlp.forward(hidden_states, buffer)
+            hidden_states = self.mlp.forward(hidden_states, buffer, lora)
             hidden_states = residual + hidden_states
 
         return hidden_states
@@ -710,7 +791,7 @@ class ExLlama:
         torch.cuda.empty_cache()
 
 
-    def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False):
+    def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False, lora = None):
 
         # if torch.is_grad_enabled():
         #     raise ValueError("Forward pass called with gradients enabled. Back propagation is not supported yet.")
@@ -757,7 +838,7 @@ class ExLlama:
                 device = self.config.device_map.layers[i]
                 hidden_states = _move_tensor(hidden_states, device, "hidden_states", self.config)
 
-                hidden_states = decoder_layer.forward(hidden_states, cache, buffers[device])
+                hidden_states = decoder_layer.forward(hidden_states, cache, buffers[device], lora)
 
             cache.current_seq_len += seq_len
 

@@ -2,6 +2,7 @@
 #include "q4_matmul.cuh"
 #include "rope.cuh"
 #include "rms_norm.cuh"
+#include "half_matmul.cuh"
 #include "../cuda_buffers.cuh"
 #include "../util.cuh"
 #include "../matrix.cuh"
@@ -93,6 +94,16 @@ void q4_attn_cuda
     const int past_len,
     half* key_cache,
     half* value_cache,
+    const half* q_a,
+    const half* q_b,
+    const int q_rank,
+    const half* k_a,
+    const half* k_b,
+    const int k_rank,
+    const half* v_a,
+    const half* v_b,
+    const int v_rank,
+    half* lora_temp,
     const int max_seq_len,
     const int device_index
 )
@@ -114,16 +125,34 @@ void q4_attn_cuda
 
     // Layernorm
 
-    half* temp_x = buffers->temp_state + q_len * dim; // TODO: ..
+    half* temp_x = buffers->temp_state + q_len * dim;
     rms_norm_cuda(tuningParams, x, rms_norm_weight, temp_x, epsilon, q_len, dim, device_index);
+
+    // Adapters
+
+    if (q_a)
+    {
+        half_matmul_cublas_cuda(temp_x, q_a, lora_temp, q_len, dim, q_rank, handle);
+        half_matmul_cublas_cuda(lora_temp, q_b, query_states, q_len, q_rank, dim, handle);
+    }
+    if (k_a)
+    {
+        half_matmul_cublas_cuda(temp_x, k_a, lora_temp, q_len, dim, k_rank, handle);
+        half_matmul_cublas_cuda(lora_temp, k_b, key_states, q_len, k_rank, dim, handle);
+    }
+    if (v_a)
+    {
+        half_matmul_cublas_cuda(temp_x, v_a, lora_temp, q_len, dim, v_rank, handle);
+        half_matmul_cublas_cuda(lora_temp, v_b, value_states, q_len, v_rank, dim, handle);
+    }
 
     if (!tuningParams->concurrent_streams)
     {
         // Project q, k, v
 
-        q4_matmul_cuda(tuningParams, temp_x, q_len, q_proj, query_states);
-        q4_matmul_cuda(tuningParams, temp_x, q_len, k_proj, key_states);
-        q4_matmul_cuda(tuningParams, temp_x, q_len, v_proj, value_states);
+        q4_matmul_cuda(tuningParams, temp_x, q_len, q_proj, query_states, q_a ? true : false);
+        q4_matmul_cuda(tuningParams, temp_x, q_len, k_proj, key_states, k_a ? true : false);
+        q4_matmul_cuda(tuningParams, temp_x, q_len, v_proj, value_states, v_a ? true : false);
 
         // Positional embeddings q, k
 
@@ -147,19 +176,19 @@ void q4_attn_cuda
 
         // str_1: project q, positions q, sync
 
-        q4_matmul_cuda(tuningParams, temp_x, q_len, q_proj, query_states, false, str_1);
+        q4_matmul_cuda(tuningParams, temp_x, q_len, q_proj, query_states, q_a ? true : false, str_1);
         rope_cuda(tuningParams, query_states, sin, cos, _rows, head_dim, num_heads, past_len, str_1);
         cudaEventRecord(sync_1, str_1);
 
         // str_2: project k, positions k, sync
 
-        q4_matmul_cuda(tuningParams, temp_x, q_len, k_proj, key_states, false, str_2);
+        q4_matmul_cuda(tuningParams, temp_x, q_len, k_proj, key_states, k_a ? true : false, str_2);
         rope_cuda(tuningParams, key_states, sin, cos, _rows, head_dim, num_heads, past_len, str_2);
         cudaEventRecord(sync_2, str_2);
 
         // str_3: project v, wait for str_2, copy (k,v) to cache, sync
 
-        q4_matmul_cuda(tuningParams, temp_x, q_len, v_proj, value_states, false, buffers->alt_stream_3);
+        q4_matmul_cuda(tuningParams, temp_x, q_len, v_proj, value_states, v_a ? true : false, buffers->alt_stream_3);
         cudaStreamWaitEvent(str_3, sync_2, 0);
         update_cache_kernel<<<blocks, threads, 0, str_3>>>(key_states, value_states, key_cache, value_cache, head_dim, num_heads, q_len, max_seq_len, past_len);
         cudaEventRecord(sync_3, str_3);
@@ -174,11 +203,23 @@ void q4_attn_cuda
 void q4_attn_2_cuda
 (
     ExLlamaTuning* tuningParams,
+    cublasHandle_t handle,
     half* x,
     half* attn_output,
     Q4Matrix* o_proj,
-    const int height
+    const int height,
+    const half* o_a,
+    const half* o_b,
+    const int o_rank,
+    half* lora_temp
 )
 {
+    if (o_a)
+    {
+        int dim = o_proj->height;
+        half_matmul_cublas_cuda(attn_output, o_a, lora_temp, height, dim, o_rank, handle);
+        half_matmul_cublas_cuda(lora_temp, o_b, x, height, o_rank, dim, handle, true);
+    }
+
     q4_matmul_cuda(tuningParams, attn_output, height, o_proj, x, true);
 }

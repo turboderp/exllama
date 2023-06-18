@@ -1,5 +1,6 @@
 import cuda_ext
 from model import ExLlama, ExLlamaCache
+from lora import ExLlamaLora
 import torch
 
 class ExLlamaGenerator:
@@ -28,6 +29,7 @@ class ExLlamaGenerator:
     max_beam_length: int
     in_beam_search: True
     disallowed_tokens: list[int] or None
+    lora: ExLlamaLora or None
 
     def __init__(self, model, tokenizer, cache):
 
@@ -48,6 +50,7 @@ class ExLlamaGenerator:
         self.max_beam_length = 0
         self.in_beam_search = False
         self.disallowed_tokens = None
+        self.lora = None
 
 
     def make_rep_mask(self, penalty_max, sustain, decay):
@@ -147,7 +150,7 @@ class ExLlamaGenerator:
         self.cache.current_seq_len = 0
 
         if in_tokens.shape[-1] > 1:
-            self.model.forward(self.sequence[:, :-1], self.cache, preprocess_only = True)
+            self.model.forward(self.sequence[:, :-1], self.cache, preprocess_only = True, lora = self.lora)
 
 
     def gen_begin_empty(self):
@@ -200,7 +203,7 @@ class ExLlamaGenerator:
             self.sequence = in_tokens.clone()
         else:
             self.sequence = torch.cat((self.sequence, in_tokens), dim = 1)
-        self.model.forward(self.sequence[:, start:-1], self.cache, preprocess_only = True)
+        self.model.forward(self.sequence[:, start:-1], self.cache, preprocess_only = True, lora = self.lora)
 
         self.sequence_actual = self.sequence
 
@@ -287,7 +290,7 @@ class ExLlamaGenerator:
 
     # Generate a single token with the current settings, append to sequence
 
-    def gen_single_token(self, constraints = None):
+    def gen_single_token(self, constraints = None, lora = None):
 
         self.end_beam_search()
 
@@ -299,7 +302,7 @@ class ExLlamaGenerator:
                                           self.settings.token_repetition_penalty_sustain,
                                           self.settings.token_repetition_penalty_decay)
 
-            logits = self.model.forward(self.sequence[:, -1:], self.cache)
+            logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora)
             logits /= rep_mask
             logits[:, :, self.tokenizer.bos_token_id] = -10000.0
 
@@ -477,7 +480,7 @@ class ExLlamaGenerator:
                                               self.settings.token_repetition_penalty_decay)
 
                 # self.cache.debug()
-                logits = self.model.forward(self.sequence[:, -1:], self.cache)
+                logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora)
                 logits /= rep_mask
 
                 tokens, probs = self.sample(logits,
@@ -511,7 +514,7 @@ class ExLlamaGenerator:
                                                   self.settings.token_repetition_penalty_decay)
 
                     # self.cache.debug()
-                    logits = self.model.forward(self.sequence[:, -1:], self.cache)
+                    logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora)
                     logits /= rep_mask
 
                     tokens, probs = self.sample(logits,

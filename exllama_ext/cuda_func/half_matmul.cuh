@@ -19,7 +19,8 @@ void half_matmul_cuda
     half* out,
     const int height,
     const int dim,
-    const int width
+    const int width,
+    cudaStream_t alt_stream = NULL
 );
 
 void half_matmul_cublas_cuda
@@ -30,7 +31,21 @@ void half_matmul_cublas_cuda
     const int height,
     const int dim,
     const int width,
-    cublasHandle_t handle
+    cublasHandle_t handle,
+    bool no_zero = false,
+    cudaStream_t alt_stream = NULL
+);
+
+void half_matmul_small_cuda
+(
+    const half* x,
+    const half* w,
+    half* out,
+    const int height,
+    const int dim,
+    const int width,
+    bool no_zero = false,
+    cudaStream_t alt_stream = NULL
 );
 
 #endif
