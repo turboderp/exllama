@@ -132,18 +132,18 @@ void q4_attn_cuda
 
     if (q_a)
     {
-        half_matmul_cublas_cuda(temp_x, q_a, lora_temp, q_len, dim, q_rank, handle);
-        half_matmul_cublas_cuda(lora_temp, q_b, query_states, q_len, q_rank, dim, handle);
+        half_matmul_cublas_cuda(tuningParams, temp_x, q_a, lora_temp, q_len, dim, q_rank, handle);
+        half_matmul_cublas_cuda(tuningParams, lora_temp, q_b, query_states, q_len, q_rank, dim, handle);
     }
     if (k_a)
     {
-        half_matmul_cublas_cuda(temp_x, k_a, lora_temp, q_len, dim, k_rank, handle);
-        half_matmul_cublas_cuda(lora_temp, k_b, key_states, q_len, k_rank, dim, handle);
+        half_matmul_cublas_cuda(tuningParams, temp_x, k_a, lora_temp, q_len, dim, k_rank, handle);
+        half_matmul_cublas_cuda(tuningParams, lora_temp, k_b, key_states, q_len, k_rank, dim, handle);
     }
     if (v_a)
     {
-        half_matmul_cublas_cuda(temp_x, v_a, lora_temp, q_len, dim, v_rank, handle);
-        half_matmul_cublas_cuda(lora_temp, v_b, value_states, q_len, v_rank, dim, handle);
+        half_matmul_cublas_cuda(tuningParams, temp_x, v_a, lora_temp, q_len, dim, v_rank, handle);
+        half_matmul_cublas_cuda(tuningParams, lora_temp, v_b, value_states, q_len, v_rank, dim, handle);
     }
 
     if (!tuningParams->concurrent_streams)
@@ -217,8 +217,8 @@ void q4_attn_2_cuda
     if (o_a)
     {
         int dim = o_proj->height;
-        half_matmul_cublas_cuda(attn_output, o_a, lora_temp, height, dim, o_rank, handle);
-        half_matmul_cublas_cuda(lora_temp, o_b, x, height, o_rank, dim, handle, true);
+        half_matmul_cublas_cuda(tuningParams, attn_output, o_a, lora_temp, height, dim, o_rank, handle);
+        half_matmul_cublas_cuda(tuningParams, lora_temp, o_b, x, height, o_rank, dim, handle, true);
     }
 
     q4_matmul_cuda(tuningParams, attn_output, height, o_proj, x, true);

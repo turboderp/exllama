@@ -138,13 +138,13 @@ void q4_mlp_cuda
 
     if (gate_a)
     {
-        half_matmul_cublas_cuda(temp_x, gate_a, lora_temp, height, dim, gate_rank, handle);
-        half_matmul_cublas_cuda(lora_temp, gate_b, temp_mlp_0, height, gate_rank, temp_mlp_width, handle);
+        half_matmul_cublas_cuda(tuningParams, temp_x, gate_a, lora_temp, height, dim, gate_rank, handle);
+        half_matmul_cublas_cuda(tuningParams, lora_temp, gate_b, temp_mlp_0, height, gate_rank, temp_mlp_width, handle);
     }
     if (up_a)
     {
-        half_matmul_cublas_cuda(temp_x, up_a, lora_temp, height, dim, up_rank, handle);
-        half_matmul_cublas_cuda(lora_temp, up_b, temp_mlp_1, height, up_rank, temp_mlp_width, handle);
+        half_matmul_cublas_cuda(tuningParams, temp_x, up_a, lora_temp, height, dim, up_rank, handle);
+        half_matmul_cublas_cuda(tuningParams, lora_temp, up_b, temp_mlp_1, height, up_rank, temp_mlp_width, handle);
     }
 
     if (!tuningParams->concurrent_streams)
@@ -187,8 +187,8 @@ void q4_mlp_cuda
 
     if (down_a)
     {
-        half_matmul_cublas_cuda(temp_mlp_0, down_a, lora_temp, height, temp_mlp_width, down_rank, handle);
-        half_matmul_cublas_cuda(lora_temp, down_b, x, height, down_rank, dim, handle, true);
+        half_matmul_cublas_cuda(tuningParams, temp_mlp_0, down_a, lora_temp, height, temp_mlp_width, down_rank, handle);
+        half_matmul_cublas_cuda(tuningParams, lora_temp, down_b, x, height, down_rank, dim, handle, true);
     }
     q4_matmul_cuda(tuningParams, temp_mlp_0, height, down, x, true);
 

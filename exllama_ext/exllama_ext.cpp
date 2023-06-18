@@ -257,6 +257,7 @@ void q4_matmul_lora
 
     half_matmul_cublas_cuda
     (
+        &tuningParams,
         (half*) x.data_ptr(),
         (half*) lora_A.data_ptr(),
         (half*) lora_temp.data_ptr(),
@@ -270,6 +271,7 @@ void q4_matmul_lora
 
     half_matmul_cublas_cuda
     (
+        &tuningParams,
         (half*) lora_temp.data_ptr(),
         (half*) lora_B.data_ptr(),
         (half*) out.data_ptr(),
@@ -391,6 +393,7 @@ void half_matmul_cublas
 
     half_matmul_cublas_cuda
     (
+        &tuningParams,
         (half*) x.data_ptr(),
         (half*) w.data_ptr(),
         (half*) out.data_ptr(),
