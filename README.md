@@ -16,7 +16,11 @@ incompatibilities with older cards.
 * `safetensors` 0.3.1
 * `sentencepiece`
 * `ninja`
-* `flask` (only for the web UI)
+
+Additionally, only for the web UI:
+
+* `flask`
+* `waitress`
 
 ## Linux/WSL prerequisites
 
@@ -30,7 +34,7 @@ To run on Windows (without WSL):
 Studio 2022` IDE, or alternatively just the `Build Tools for Visual Studio 2022` package (make sure `Desktop
 development with C++` is ticked in the installer), it doesn't really matter which.
 2. Install the appropriate version of [PyTorch](https://pytorch.org/get-started/locally/), choosing one of the CUDA
-versions. I am developing on the nightly build, but the stable version should also work.
+versions. I am developing on the nightly build, but the stable version (2.0.1) should also work.
 3. Install CUDA Toolkit, ([11.7](https://developer.nvidia.com/cuda-11-7-0-download-archive) and 
 [11.8](https://developer.nvidia.com/cuda-11-8-0-download-archive) both seem to work, just make sure to match PyTorch's
 Compute Platform version).
@@ -65,11 +69,12 @@ multibot mode:
 
 To run it:
 
-    pip install flask
+    pip install flask waitress
 
     python webui/app.py -d <path_to_model_files>
 
-Note that sessions are stored in `~/exllama_sessions/`. 
+Note that sessions are stored in `~/exllama_sessions/`. You can change the location of the sessions storage with `-sd`
+if you want.
 
 ## Docker
 For security benefits and easier deployment, it is also possible to run the web UI in an isolated docker container. Note: the docker image currently only supports NVIDIA GPUs.
@@ -179,20 +184,6 @@ confirmed to be working right now.
 
 ## Recent updates
 
-**2023-05-24**: Added fused rotary embeddings and some minor optimizations. 13% faster on 7B, 9% on 13B. Small
-improvement on larger models. Added best-case scores to benchmark results and some clarification. For easier
-comparisons to other implementations, or whatever.
-
-**2023-05-27**: Better memory management in CUDA. Introduced auto switch between Torch's SDP backend and regular 
-matmul attention with some tweaks. Finished CUDA MLP. All in all about 10% faster with these updates.
-
-**2023-05-29**: Web UI is _almost_ up and running. Having to learn JavaScript, and it turns out I hate JavaScript. But
-ChatGPT is an incredible resource for learning new languages, I gotta say, so it's not as painful as it could have
-been. Anyway, in the process of working with the UI I discovered I've been measuring prompt speed incorrectly. Either
-Torch or CUDA or the GPU driver does some sort of caching or self-calibration or lazy initialization during the first
-pass through the model, so subsequent passes are actually _way_ faster than what I've been recording. Doesn't do much
-for individual tokens, but benchmarks updated anyway. Closing in on 10k tokens/second for 7B. (!)
-
 **2023-06-02**: Web UI is now in a fairly working state. Expect it to be a little scuffed in places. There will be a
 rewrite at some point to make the client-side code less seizure-inducing. It has multibot mode, chat rewind and editing
 features, sessions, and more. I'm going to build it out with support for instruct prompting and such, in time.
@@ -216,5 +207,5 @@ disabled by default. YMMV. Use `-cs` to try it out.
 **2023-06-17**: Fixed a nasty bug in the fused attention that was causing slightly incorrect cache states on 13B and
 33B models. You definitely want to update.
 
-**2023-06-18**: LoRA support now. Still needs a lot of testing and som optimization, and currently you can't stack
+**2023-06-18**: LoRA support now. Still needs a lot of testing and some optimization, and currently you can't stack
 multiple LoRAs during the same inference. There's also no support in the web UI yet.

@@ -11,6 +11,7 @@ from session import prepare_sessions, get_initial_session, Session, load_session
 import argparse
 from tokenizer import ExLlamaTokenizer
 from model import ExLlama, ExLlamaConfig
+from waitress import serve
 
 app = Flask(__name__)
 app.static_folder = 'static'
@@ -155,4 +156,4 @@ host, port = machine.split(":")
 if host == "localhost":
     Timer(1, lambda: webbrowser.open(f'http://{machine}/')).start()
 
-app.run(host = host, port = port)
+serve(app, host = host, port = port)
