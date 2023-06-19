@@ -336,6 +336,22 @@ class Session:
                 return
 
 
+    def api_append_block(self, data):
+
+        author = None
+        if "author" in data:
+            author = data["author"]
+        else:
+            if len(self.participants) > 0:
+                author = self.participants[0]
+
+        text = data["text"].strip()
+
+        newNode = Node(text, author)
+        self.history.append(newNode)
+        self.save()
+
+
     def api_set_participants(self, data):
 
         self.participants = data["participants"]
