@@ -223,7 +223,8 @@ void q4_matmul_recons_cuda
     const int x_height,
     Q4Matrix* w,
     half* out,
-    const cublasHandle_t handle
+    const cublasHandle_t handle,
+    bool no_zero
 )
 {
     int height = x_height;
@@ -243,7 +244,7 @@ void q4_matmul_recons_cuda
     w->reconstruct(buffers->temp_dq);
 
     const half alpha = __float2half(1.0f);
-    const half beta = __float2half(0.0f);
+    const half beta = no_zero ? __float2half(1.0f) : __float2half(0.0f);
 
     cublasHgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, width, height, dim, &alpha, buffers->temp_dq, width, x_mapped, dim, &beta, out, width);
 }

@@ -1,6 +1,8 @@
 import cuda_ext
 from model import ExLlama, ExLlamaCache
+from lora import ExLlamaLora
 import torch
+import torch.nn.functional as F
 
 class ExLlamaGenerator:
 
@@ -28,6 +30,7 @@ class ExLlamaGenerator:
     max_beam_length: int
     in_beam_search: True
     disallowed_tokens: list[int] or None
+    lora: ExLlamaLora or None
 
     def __init__(self, model, tokenizer, cache):
 
@@ -48,6 +51,7 @@ class ExLlamaGenerator:
         self.max_beam_length = 0
         self.in_beam_search = False
         self.disallowed_tokens = None
+        self.lora = None
 
 
     def make_rep_mask(self, penalty_max, sustain, decay):
@@ -78,6 +82,7 @@ class ExLlamaGenerator:
             top_probs, top_indices = torch.sort(probs, descending = True)
         else:
             top_probs, top_indices = torch.topk(probs, top_k)
+            top_probs = F.normalize(top_probs, p = 1, dim = -1)
 
         # Top P
 
@@ -93,6 +98,7 @@ class ExLlamaGenerator:
                 if cum_prob > top_p: break
 
             top_probs = top_probs[:num_top_p_probs]
+            top_probs = F.normalize(top_probs, p = 1, dim = -1)
             top_indices = top_indices[:num_top_p_probs]
 
         # Locally typical sampling
@@ -117,12 +123,12 @@ class ExLlamaGenerator:
                 if cum_prob > typical: break
 
             top_probs = top_probs[:num_typical_probs]
+            top_probs = F.normalize(top_probs, p = 1, dim = -1)
             top_indices = top_indices[:num_typical_probs]
 
         # Multinomial sampling from top_probs, kept in same order as top_indices
 
-        norm_probs = top_probs / torch.sum(top_probs, dim = -1)  # Was extra softmax here (..?)
-        sampled_ind = torch.multinomial(norm_probs, norm_probs.shape[-1] if num == -1 else min(num, norm_probs.shape[-1]))
+        sampled_ind = torch.multinomial(top_probs, top_probs.shape[-1] if num == -1 else min(num, top_probs.shape[-1]))
         sampled_tokens = top_indices[sampled_ind]
         sampled_probs = top_probs[sampled_ind]  # Return probs before second norm
 
@@ -147,7 +153,7 @@ class ExLlamaGenerator:
         self.cache.current_seq_len = 0
 
         if in_tokens.shape[-1] > 1:
-            self.model.forward(self.sequence[:, :-1], self.cache, preprocess_only = True)
+            self.model.forward(self.sequence[:, :-1], self.cache, preprocess_only = True, lora = self.lora)
 
 
     def gen_begin_empty(self):
@@ -200,7 +206,7 @@ class ExLlamaGenerator:
             self.sequence = in_tokens.clone()
         else:
             self.sequence = torch.cat((self.sequence, in_tokens), dim = 1)
-        self.model.forward(self.sequence[:, start:-1], self.cache, preprocess_only = True)
+        self.model.forward(self.sequence[:, start:-1], self.cache, preprocess_only = True, lora = self.lora)
 
         self.sequence_actual = self.sequence
 
@@ -287,7 +293,7 @@ class ExLlamaGenerator:
 
     # Generate a single token with the current settings, append to sequence
 
-    def gen_single_token(self, constraints = None):
+    def gen_single_token(self, constraints = None, lora = None):
 
         self.end_beam_search()
 
@@ -299,7 +305,7 @@ class ExLlamaGenerator:
                                           self.settings.token_repetition_penalty_sustain,
                                           self.settings.token_repetition_penalty_decay)
 
-            logits = self.model.forward(self.sequence[:, -1:], self.cache)
+            logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora)
             logits /= rep_mask
             logits[:, :, self.tokenizer.bos_token_id] = -10000.0
 
@@ -477,7 +483,7 @@ class ExLlamaGenerator:
                                               self.settings.token_repetition_penalty_decay)
 
                 # self.cache.debug()
-                logits = self.model.forward(self.sequence[:, -1:], self.cache)
+                logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora)
                 logits /= rep_mask
 
                 tokens, probs = self.sample(logits,
@@ -511,7 +517,7 @@ class ExLlamaGenerator:
                                                   self.settings.token_repetition_penalty_decay)
 
                     # self.cache.debug()
-                    logits = self.model.forward(self.sequence[:, -1:], self.cache)
+                    logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora)
                     logits /= rep_mask
 
                     tokens, probs = self.sample(logits,

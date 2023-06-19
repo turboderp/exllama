@@ -34,7 +34,8 @@ void q4_matmul_recons_cuda
     const int x_height,
     Q4Matrix* w,
     half* out,
-    const cublasHandle_t handle
+    const cublasHandle_t handle,
+    bool no_zero = false
 );
 
 #endif

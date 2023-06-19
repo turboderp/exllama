@@ -213,5 +213,8 @@ single-threaded performance.
 cores are somewhat underutilized and the L2 cache can keep up. For the 3090 it's detrimental to performance, so it's
 disabled by default. YMMV. Use `-cs` to try it out.
 
-**2023-06-17**: Fixed a nasty bug in the fused self that was causing slightly incorrect cache states on 13B and 33B
-models. You definitely want to update.
+**2023-06-17**: Fixed a nasty bug in the fused attention that was causing slightly incorrect cache states on 13B and
+33B models. You definitely want to update.
+
+**2023-06-18**: LoRA support now. Still needs a lot of testing and som optimization, and currently you can't stack
+multiple LoRAs during the same inference. There's also no support in the web UI yet.

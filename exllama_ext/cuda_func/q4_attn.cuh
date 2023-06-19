@@ -31,6 +31,16 @@ void q4_attn_cuda
     const int past_len,
     half* key_cache,
     half* value_cache,
+    const half* q_a,
+    const half* q_b,
+    const int q_rank,
+    const half* k_a,
+    const half* k_b,
+    const int k_rank,
+    const half* v_a,
+    const half* v_b,
+    const int v_rank,
+    half* lora_temp,
     const int max_seq_len,
     const int device_index
 );
@@ -38,10 +48,15 @@ void q4_attn_cuda
 void q4_attn_2_cuda
 (
     ExLlamaTuning* tuningParams,
+    cublasHandle_t handle,
     half* x,
     half* attn_output,
     Q4Matrix* o_proj,
-    const int height
+    const int height,
+    const half* o_a,
+    const half* o_b,
+    const int o_rank,
+    half* lora_temp
 );
 
 #endif

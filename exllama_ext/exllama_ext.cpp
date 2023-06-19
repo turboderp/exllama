@@ -226,6 +226,90 @@ void q4_matmul
     }
 }
 
+// Matmul half @ quant + half @ half @ half -> half
+// Same as q4_matmul, but adds (x @ lora_A) @ lora_B to the result
+
+void q4_matmul_lora
+(
+    torch::Tensor x,
+    uintptr_t w,
+    torch::Tensor out,
+    torch::Tensor lora_A,
+    torch::Tensor lora_B,
+    torch::Tensor lora_temp  // empty tensor, shape of (x @ lora_A)
+)
+{
+    Q4Matrix* wm = reinterpret_cast<Q4Matrix*> (w);
+    TORCH_CHECK(wm->height == x.size(-1), "x and w have incompatible shapes")
+
+    TORCH_CHECK_DTYPE(x, kHalf);
+    TORCH_CHECK_DTYPE(out, kHalf);
+    TORCH_CHECK_SHAPES(x, 0, out, 0, 1);
+    TORCH_CHECK_SHAPES(x, 0, lora_temp, 0, 1);
+    TORCH_CHECK_SHAPES(x, 1, lora_A, 0, 1);
+    TORCH_CHECK_SHAPES(lora_A, 1, lora_B, 0, 1);
+    TORCH_CHECK_SHAPES(lora_B, 1, out, 1, 1);
+
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
+    cublasHandle_t handle = at::cuda::getCurrentCUDABlasHandle();
+
+    // lora_temp = x @ lora_A
+
+    half_matmul_cublas_cuda
+    (
+        &tuningParams,
+        (half*) x.data_ptr(),
+        (half*) lora_A.data_ptr(),
+        (half*) lora_temp.data_ptr(),
+        x.size(0),
+        x.size(1),
+        lora_A.size(1),
+        handle
+    );
+
+    // out = lora_temp @ lora_B
+
+    half_matmul_cublas_cuda
+    (
+        &tuningParams,
+        (half*) lora_temp.data_ptr(),
+        (half*) lora_B.data_ptr(),
+        (half*) out.data_ptr(),
+        lora_temp.size(0),
+        lora_temp.size(1),
+        lora_B.size(1),
+        handle
+    );
+
+    int x_height = x.size(0);
+
+    if (tuningParams.matmul_recons_thd == 0 || x_height < tuningParams.matmul_recons_thd)
+    {
+        q4_matmul_cuda
+        (
+            &tuningParams,
+            (half*) x.data_ptr(),
+            x_height,
+            wm,
+            (half*) out.data_ptr(),
+            true
+        );
+    }
+    else
+    {
+        q4_matmul_recons_cuda
+        (
+            &tuningParams,
+            (half*) x.data_ptr(),
+            x_height,
+            wm,
+            (half*) out.data_ptr(),
+            handle,
+            true
+        );
+    }
+}
+
 // Remap columns in half tensor
 
 void column_remap
@@ -309,6 +393,7 @@ void half_matmul_cublas
 
     half_matmul_cublas_cuda
     (
+        &tuningParams,
         (half*) x.data_ptr(),
         (half*) w.data_ptr(),
         (half*) out.data_ptr(),
@@ -340,7 +425,14 @@ void q4_attn
     int head_dim,
     torch::Tensor key_cache,
     torch::Tensor value_cache,
-    int max_seq_len
+    int max_seq_len,
+    torch::Tensor q_a,
+    torch::Tensor q_b,
+    torch::Tensor k_a,
+    torch::Tensor k_b,
+    torch::Tensor v_a,
+    torch::Tensor v_b,
+    torch::Tensor lora_temp
 )
 {
     TORCH_CHECK_DTYPE(query_states, kHalf);
@@ -354,6 +446,10 @@ void q4_attn
     const at::cuda::OptionalCUDAGuard device_guard(device);
 
     cudaStream_t current_stream = at::cuda::getCurrentCUDAStream().stream();
+
+    int q_rank = q_a.device().is_meta() ? 0 : q_a.size(1);
+    int k_rank = k_a.device().is_meta() ? 0 : k_a.size(1);
+    int v_rank = v_a.device().is_meta() ? 0 : v_a.size(1);
 
     q4_attn_cuda
     (
@@ -378,6 +474,16 @@ void q4_attn
         past_len,
         (half*) key_cache.data_ptr(),
         (half*) value_cache.data_ptr(),
+        q_rank ? (half*) q_a.data_ptr() : NULL,
+        q_rank ? (half*) q_b.data_ptr() : NULL,
+        q_rank,
+        k_rank ? (half*) k_a.data_ptr() : NULL,
+        k_rank ? (half*) k_b.data_ptr() : NULL,
+        k_rank,
+        v_rank ? (half*) v_a.data_ptr() : NULL,
+        v_rank ? (half*) v_b.data_ptr() : NULL,
+        v_rank,
+        lora_temp.device().is_meta() ? NULL : (half*) lora_temp.data_ptr(),
         max_seq_len,
         device_index
     );
@@ -387,7 +493,10 @@ void q4_attn_2
 (
     torch::Tensor x,
     torch::Tensor attn_output,
-    uintptr_t o_proj
+    uintptr_t o_proj,
+    torch::Tensor o_a,
+    torch::Tensor o_b,
+    torch::Tensor lora_temp
 )
 {
     TORCH_CHECK_DTYPE(x, kHalf);
@@ -395,13 +504,20 @@ void q4_attn_2
 
     int height = x.size(0);
 
+    int o_rank = o_a.device().is_meta() ? 0 : o_a.size(1);
+
     q4_attn_2_cuda
     (
         &tuningParams,
+        at::cuda::getCurrentCUDABlasHandle(),
         (half*) x.data_ptr(),
         (half*) attn_output.data_ptr(),
         reinterpret_cast<Q4Matrix*>(o_proj),
-        height
+        height,
+        o_rank ? (half*) o_a.data_ptr() : NULL,
+        o_rank ? (half*) o_b.data_ptr() : NULL,
+        o_rank,
+        lora_temp.device().is_meta() ? NULL : (half*) lora_temp.data_ptr()
     );
 }
 
@@ -414,7 +530,14 @@ void q4_mlp
     float epsilon,
     uintptr_t gate,
     uintptr_t up,
-    uintptr_t down
+    uintptr_t down,
+    torch::Tensor gate_a,
+    torch::Tensor gate_b,
+    torch::Tensor up_a,
+    torch::Tensor up_b,
+    torch::Tensor down_a,
+    torch::Tensor down_b,
+    torch::Tensor lora_temp
 )
 {
     TORCH_CHECK_DTYPE(x, kHalf);
@@ -428,6 +551,10 @@ void q4_mlp
     TORCH_CHECK_DEVICE_INDEX(device_index);
     const at::cuda::OptionalCUDAGuard device_guard(device);
 
+    int gate_rank = gate_a.device().is_meta() ? 0 : gate_a.size(1);
+    int up_rank = gate_a.device().is_meta() ? 0 : up_a.size(1);
+    int down_rank = gate_a.device().is_meta() ? 0 : down_a.size(1);
+
     q4_mlp_cuda
     (
         &tuningParams,
@@ -439,6 +566,17 @@ void q4_mlp
         reinterpret_cast<Q4Matrix*>(down),
         height,
         dim,
+        gate_rank ? (half*) gate_a.data_ptr() : NULL,
+        gate_rank ? (half*) gate_b.data_ptr() : NULL,
+        gate_rank,
+        up_rank ? (half*) up_a.data_ptr() : NULL,
+        up_rank ? (half*) up_b.data_ptr() : NULL,
+        up_rank,
+        down_rank ? (half*) down_a.data_ptr() : NULL,
+        down_rank ? (half*) down_b.data_ptr() : NULL,
+        down_rank,
+        lora_temp.device().is_meta() ? NULL : (half*) lora_temp.data_ptr(),
+        at::cuda::getCurrentCUDABlasHandle(),
         device_index
     );
 }
@@ -552,6 +690,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("prepare_buffers", &prepare_buffers, "prepare_buffers");
     m.def("make_q4", &make_q4, "make_q4");
     m.def("q4_matmul", &q4_matmul, "q4_matmul");
+    m.def("q4_matmul_lora", &q4_matmul_lora, "q4_matmul_lora");
     m.def("q4_attn", &q4_attn, "q4_attn");
     m.def("q4_attn_2", &q4_attn_2, "q4_attn_2");
     m.def("q4_mlp", &q4_mlp, "q4_mlp");
