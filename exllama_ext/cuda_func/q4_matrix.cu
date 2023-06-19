@@ -20,6 +20,7 @@ void g_q4_keep_matrix(Q4Matrix* m)
 void g_q4_free_matrices()
 {
     for (const auto& m : g_q4_matrices) delete m;
+    g_q4_matrices.clear();
 }
 
 Q4Matrix::Q4Matrix

@@ -863,3 +863,13 @@ class ExLlama:
             logits = logits.float()
             logits = _move_tensor(logits, self.config.device_map.embed_tokens, "logits", self.config)
             return logits
+
+
+    # Free unmanaged resources allocated by the C++ extension. Call this before dereferencing the ExLlama object,
+    # e.g. if you intend to create a new instance to load another model, but don't call it in a destructor that wraps
+    # the object, since it relies on CUDA function calls and the CUDA context is one of the first things to go when
+    # a PyTorch application terminates, before other managed objects are destroyed.
+
+    def free_unmanaged(self):
+
+        cuda_ext.exllama_ext.cleanup()

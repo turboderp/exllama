@@ -35,6 +35,12 @@ CudaBuffers::CudaBuffers
 
 CudaBuffers::~CudaBuffers()
 {
+    cudaStreamDestroy(alt_stream_1);
+    cudaStreamDestroy(alt_stream_2);
+    cudaStreamDestroy(alt_stream_3);
+    cudaEventDestroy(alt_stream_1_done);
+    cudaEventDestroy(alt_stream_2_done);
+    cudaEventDestroy(alt_stream_3_done);
 }
 
 float* CudaBuffers::get_zeros_float(const int num_zeros)
@@ -76,23 +82,14 @@ void prepare_buffers_cuda
     );
 
     g_buffers[_device] = buffers;
+}
 
-//     if (!q4_table_init)
-//     {
-//         for (uint v_zero = 0; v_zero < 16; v_zero++)
-//         {
-//             for (uint v_read = 0; v_read < 256; v_read++)
-//             {
-//                 half v_0 = __float2half((float)((int)((v_read      ) & 0x0f) - v_zero - 1));
-//                 half v_1 = __float2half((float)((int)((v_read >>  4) & 0x0f) - v_zero - 1));
-//                 half2 v_01 = {v_0, v_1};
-//                 q4_table_host[v_zero][v_read] = v_01;
-//             }
-//         }
-//         q4_table_init = true;
-//     }
-//
-//     cudaSetDevice(_device);
-//     cudaMemcpyToSymbol(q4_table, q4_table_host, 16 * 256 * sizeof(half2));
-//     cudaDeviceSynchronize();
+void cleanup_buffers_cuda()
+{
+    for (int i = 0; i < CUDA_MAX_DEVICES; i++)
+    {
+        if (!g_buffers[i]) continue;
+        delete g_buffers[i];
+        g_buffers[i] = NULL;
+    }
 }

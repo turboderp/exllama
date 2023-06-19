@@ -58,4 +58,6 @@ void prepare_buffers_cuda
     int _max_zeros_float
 );
 
+void cleanup_buffers_cuda();
+
 #endif
