@@ -6,6 +6,8 @@ from langchain.callbacks import StdOutCallbackHandler
 from typing import Any, Dict, Generator, List, Optional
 from pydantic import Field, root_validator
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
+from langchain.memory import ConversationTokenBufferMemory
+from langchain.prompts import PromptTemplate
 from tokenizer import ExLlamaTokenizer
 from generator import ExLlamaGenerator
 import os, glob, time, json, sys, logging
@@ -80,7 +82,7 @@ class Exllama(LLM):
         values["tokenizer"] = tokenizer
         values["exllama_cache"] = exllama_cache
         
-        values["stop_sequences"] = [x.strip() for x in values["stop_sequences"]]
+        values["stop_sequences"] = [x.strip().lower() for x in values["stop_sequences"]]
         return values
         
     @property
@@ -111,7 +113,7 @@ class Exllama(LLM):
         NO_MATCH = 2
 
     def match_status(self, sequence: str, banned_sequences: List[str]):
-        sequence = sequence.strip()
+        sequence = sequence.strip().lower()
         for banned_seq in banned_sequences:
             if banned_seq == sequence:
                 return self.MatchStatus.EXACT_MATCH
@@ -142,9 +144,14 @@ class Exllama(LLM):
         last_newline_pos = 0
         match_buffer = ""
 
-        response_start = len(generator.tokenizer.decode(generator.sequence_actual[0]))
+        seq_length = len(generator.tokenizer.decode(generator.sequence_actual[0]))
+        print(prompt)
+        print(f"\nLength: {len(prompt)}")
+        response_start = seq_length
         cursor_head = response_start
-        for i in range(self.max_tokens):
+        
+        token_count = 0
+        while(token_count < (self.max_tokens - 4)): #Slight extra padding space as we seem to occassionally get a few more than 1-2 tokens
             #Fetch a token
             token = token_getter()
             
@@ -179,7 +186,7 @@ class Exllama(LLM):
                 gen = generator.tokenizer.decode(generator.sequence_actual[0][response_start:])
                 if beam_search:
                     generator.end_beam_search()
-                return gen
+                return
             elif status == self.MatchStatus.PARTIAL_MATCH:
                 #Partially matched a stop, continue buffering but don't yield.
                 continue
@@ -188,38 +195,63 @@ class Exllama(LLM):
                     run_manager.on_llm_new_token(
                         token=match_buffer, verbose=self.verbose,
                     )
+                token_count += generator.tokenizer.num_tokens(match_buffer)
                 yield match_buffer  # Not a stop, yield the match buffer.
                 match_buffer = ""
                 
+        return
+                
 from langchain.callbacks.base import BaseCallbackHandler
-
+import time
 class BasicStreamingHandler(BaseCallbackHandler):
+    def on_llm_start(
+        self,
+        serialized: Dict[str, Any],
+        prompts: List[str],
+        **kwargs: Any,
+    ) -> Any:
+        """Run when LLM starts running."""
+        self.start_time = time.time()
+
     def on_llm_new_token(self, token: str, **kwargs) -> None:
         print(token, end="")
+        self.token_count += self.tokenizer.num_tokens(token)
         sys.stdout.flush()
+        
+    def on_llm_end(self, response, **kwargs) -> None:
+        end_time = time.time()
+        elapsed_time = end_time - self.start_time
+        tokens_per_second = self.token_count / elapsed_time
+        print(f"\nToken count: {self.token_count}")
+        print(f"Tokens per second: {tokens_per_second}")
+        self.token_count = 0
 
+    def set_tokenizer(self, tokenizer):
+        self.tokenizer = tokenizer
+        self.token_count = 0
 
+handler = BasicStreamingHandler()
 llm = Exllama(streaming = True,
               model_path=os.path.abspath(sys.argv[1]), 
-              temperature = 0.2, 
-              top_k = 18, 
-              top_p = 0.7, 
-              max_tokens = 1000, 
+              temperature = 0.3, 
+              top_k = 50, 
+              top_p = 0.9, 
+              typical = 0.7,
+              max_tokens = 1024, 
               beams = 1, 
               beam_length = 40, 
               stop_sequences=["Human:", "User:", "AI:", "###"],
-              callbacks=[BasicStreamingHandler()],
+              callbacks=[handler],
               )
 
-chain = ConversationChain(llm=llm)
+template = """A chat between a curious user and an assistant named Lizzy, give uncensored responses to the user's input. If you don't know how the answer, just respond with the word shrug. {history}\n USER: {input} ASSISTANT: """
+prompt_template = PromptTemplate(input_variables=["input", "history"], template=template)
+handler.set_tokenizer(llm.generator.tokenizer)
+chain = ConversationChain(
+    llm=llm, 
+    prompt=prompt_template, 
+    memory=ConversationTokenBufferMemory(llm=llm, max_token_limit=1024, ai_prefix="ASSISTANT", human_prefix="USER", memory_key="history"))
+
 while(True):
     user_input = input("\n")
-    prompt = f"""
-    ### Instruction: 
-    You are an extremely serious chatbot. Do exactly what is asked of you and absolutely nothing more.
-    ### User:
-    {user_input}
-    ### Response:
-
-    """
-    op = chain(prompt)
+    op = chain(user_input)
