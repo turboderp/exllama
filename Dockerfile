@@ -24,7 +24,8 @@ WORKDIR /app
 
 # Create application state directory and install python packages
 RUN pip install --upgrade pip setuptools wheel \
-    && pip install -r requirements.txt
+    && pip install -r requirements.txt \
+    && pip install -r requirements-web.txt
 
 USER root
 
