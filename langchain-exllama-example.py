@@ -145,8 +145,6 @@ class Exllama(LLM):
         match_buffer = ""
 
         seq_length = len(generator.tokenizer.decode(generator.sequence_actual[0]))
-        print(prompt)
-        print(f"\nLength: {len(prompt)}")
         response_start = seq_length
         cursor_head = response_start
         
@@ -211,6 +209,8 @@ class BasicStreamingHandler(BaseCallbackHandler):
         **kwargs: Any,
     ) -> Any:
         """Run when LLM starts running."""
+        print(prompts[0])
+        print(f"\nLength: {len(prompts[0])}")
         self.start_time = time.time()
 
     def on_llm_new_token(self, token: str, **kwargs) -> None:
