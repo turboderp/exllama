@@ -16,7 +16,7 @@ WORKDIR /app
 
 RUN pip install --upgrade pip setuptools wheel \
     && pip install -r requirements.txt \
-    && pip install flask==2.3.2
+    && pip install flask==2.3.2 waitress
 
 USER root
 
