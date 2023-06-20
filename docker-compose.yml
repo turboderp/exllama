@@ -4,15 +4,16 @@ services:
   web:
     build:
       context: .
+      args:
+        - RUN_UID=$RUN_UID
+        - APPLICATION_STATE_PATH=$APPLICATION_STATE_PATH
     command: |
       --host 0.0.0.0:$PORT
     env_file:
       - .env
-    environment:
-      - CONTAINER_MODEL_PATH=$CONTAINER_MODEL_PATH
     volumes:
-      - $MODEL_PATH:$CONTAINER_MODEL_PATH
-      - $SESSIONS_PATH:/home/user/exllama_sessions
+      - $MODEL_PATH:$APPLICATION_STATE_PATH/model
+      - $SESSIONS_PATH:$APPLICATION_STATE_PATH/exllama_sessions
     ports:
       - "$PORT:$PORT"
     tmpfs:
