@@ -30,14 +30,15 @@ if windows:
     
     import subprocess
     try:
-        subprocess.check_output(["where", "cl"])
+        subprocess.check_output(["where", "/Q", "cl"])
     except subprocess.CalledProcessError as e:
         cl_path = find_msvc()
         if cl_path:
-            print("Injected compiler path:", cl_path)
+            if verbose:
+                print("Injected compiler path:", cl_path)
             os.environ["path"] += ";" + cl_path
         else:
-            print("Unable to find cl.exe; compilation will probably fail.")
+            print("Unable to find cl.exe; compilation will probably fail.", file=sys.stderr)
 
 exllama_ext = load(
     name = extension_name,
