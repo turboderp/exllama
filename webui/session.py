@@ -615,7 +615,8 @@ class Session:
             end_time = time.time()
             elapsed = end_time - begin_time
             new_tokens = context.shape[-1] - reused
-            print(f"Prompt processed in {elapsed:.2f} seconds, {new_tokens} new tokens, {(new_tokens / elapsed):.2f} tokens/second:")
+            token_rate = 0 if elapsed == 0 else (new_tokens / elapsed)
+            print(f"Prompt processed in {elapsed:.2f} seconds, {new_tokens} new tokens, {token_rate:.2f} tokens/second:")
 
         begin_time = time.time()
         total_tokens = [0]
@@ -692,8 +693,9 @@ class Session:
 
         end_time = time.time()
         elapsed = end_time - begin_time
+        token_rate = 0 if elapsed == 0 else (total_tokens[0] / elapsed)
 
-        print(f"Response generated in {elapsed:.2} seconds, {total_tokens[0]} tokens, {(total_tokens[0] / elapsed):.2f} tokens/second:")
+        print(f"Response generated in {elapsed:.2} seconds, {total_tokens[0]} tokens, {token_rate:.2f} tokens/second:")
 
         self.save()
 
