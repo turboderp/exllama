@@ -110,6 +110,16 @@ void set_tuning_params
     tuningParams.concurrent_streams = concurrent_streams;
 }
 
+
+// Release all unmanaged objects allocated by the extension
+
+void cleanup()
+{
+    cleanup_buffers_cuda();
+    g_q4_free_matrices();
+}
+
+
 // Prepare buffers for forward pass
 
 void prepare_buffers
@@ -688,6 +698,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
     m.def("set_tuning_params", &set_tuning_params, "set_tuning_params");
     m.def("prepare_buffers", &prepare_buffers, "prepare_buffers");
+    m.def("cleanup", &cleanup, "cleanup");
     m.def("make_q4", &make_q4, "make_q4");
     m.def("q4_matmul", &q4_matmul, "q4_matmul");
     m.def("q4_matmul_lora", &q4_matmul_lora, "q4_matmul_lora");
