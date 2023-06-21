@@ -45,7 +45,7 @@ Compute Platform version).
 
 Install dependencies, clone repo and run benchmark:
 
-    pip install safetensors sentencepiece ninja
+    pip install -r requirements.txt
 
     git clone https://github.com/turboderp/exllama
     cd exllama
@@ -70,7 +70,7 @@ multibot mode:
 
 To run it:
 
-    pip install flask waitress
+    pip install -r requirements-web.txt
 
     python webui/app.py -d <path_to_model_files>
 
