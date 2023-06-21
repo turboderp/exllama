@@ -1,6 +1,7 @@
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from model import ExLlama, ExLlamaConfig
 from flask import Flask, render_template, request, jsonify
 from flask import Response, stream_with_context
 from threading import Timer, Lock
@@ -10,7 +11,6 @@ import model_init
 from session import prepare_sessions, get_initial_session, Session, load_session, new_session, _sessions_dir
 import argparse
 from tokenizer import ExLlamaTokenizer
-from model import ExLlama, ExLlamaConfig
 from waitress import serve
 
 app = Flask(__name__)
