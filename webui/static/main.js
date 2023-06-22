@@ -65,13 +65,15 @@ function sendGenSettings() {
     json.token_repetition_penalty_sustain = getTBNumber("sl_repp_sustain_tb");
     json.token_repetition_penalty_decay = getTBNumber("sl_repp_decay_tb");
 
-    console.log(json);
+    // console.log(json);
     send("/api/set_gen_settings", json);
 }
 
-function setSlider(id, value) {
+function setSlider(id, value, override_max = null) {
 
     let slider = document.getElementById(id);
+    if (override_max) slider.max = override_max;
+
     let tb = document.getElementById(id + "_tb");
     let decimals = slider.dataset.decimals;
     let mult = Math.pow(10, decimals);
@@ -256,6 +258,8 @@ function populate() {
             let tf_model_info = document.getElementById("tf_model_info")
             tf_model_info.value = data.model_info;
 
+            let model_max_seq_lan = data.max_seq_len;
+
             // Fixed prompt
 
             let tf_fixed_prompt = document.getElementById("tf_fixed_prompt")
@@ -285,7 +289,7 @@ function populate() {
             // Repetition penalty
 
             setSlider("sl_repp_penalty", data.token_repetition_penalty_max);
-            setSlider("sl_repp_sustain", data.token_repetition_penalty_sustain);
+            setSlider("sl_repp_sustain", data.token_repetition_penalty_sustain, model_max_seq_lan);
             setSlider("sl_repp_decay", data.token_repetition_penalty_decay);
 
             // Participants
