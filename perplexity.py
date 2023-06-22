@@ -62,7 +62,7 @@ class Perplexity:
                         self.dataset_chunks.append(chunk)
         # Raw Text
         else:
-            with open(dataset_path) as f:
+            with open(dataset_path, encoding="utf-8") as f:
                 text = f.read()
 
             tokens = self._tokenize(text)
