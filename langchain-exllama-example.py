@@ -240,7 +240,7 @@ llm = Exllama(streaming = True,
               max_tokens = 1024, 
               beams = 1, 
               beam_length = 40, 
-              stop_sequences=["Human:", "User:", "AI:", "###"],
+              stop_sequences=["Human:", "User:", "AI:"],
               callbacks=[handler],
               )
 
