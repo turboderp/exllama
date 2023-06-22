@@ -130,7 +130,7 @@ const int S_THREADS_X = 8;                                      // width
 const int S_THREADS_Z = 1;                                      // height
 const int S_BLOCKSIZE = MAX_DIM_SMALL / 1024 * S_THREADS_X;     // dim
 
-template<bool use_half2>
+template<bool use_half2, bool odd_rank>
 __global__ void half_matmul_small_kernel
 (
     const half* __restrict__ x,
@@ -163,7 +163,7 @@ __global__ void half_matmul_small_kernel
     const half* w_ptr = w_.item_ptr(k, column);
     half* out_ptr = out_.item_ptr(row, column);
 
-    if constexpr (use_half2)
+    if constexpr (use_half2 && !odd_rank)
     {
         half2* x_ptr2 = (half2*) x_ptr;
         half2* x_ptr2_end = (half2*) x_ptr_end;
@@ -204,12 +204,21 @@ __global__ void half_matmul_small_kernel
 
         while(x_ptr < x_ptr_end)
         {
-            #pragma unroll
-            for (int i = 0; i < 4; ++i)
+            if constexpr (odd_rank)
             {
                 half x_item = *x_ptr++;
                 half w_item = *w_ptr; w_ptr += width;
                 r = __hfma(x_item, w_item, r);
+            }
+            else
+            {
+                #pragma unroll
+                for (int i = 0; i < 4; ++i)
+                {
+                    half x_item = *x_ptr++;
+                    half w_item = *w_ptr; w_ptr += width;
+                    r = __hfma(x_item, w_item, r);
+                }
             }
         }
 
@@ -242,7 +251,7 @@ void half_matmul_small_cuda
 {
     bool use_half2 = !tuningParams->matmul_no_half2;
 
-    // printf("kernel: (%i, %i) @ (%i, %i) -> (%i, %i)\n", height, dim, dim, width, height, width);
+    //printf("kernel: (%i, %i) @ (%i, %i) -> (%i, %i)\n", height, dim, dim, width, height, width);
 
     dim3 threads
     (
@@ -258,11 +267,18 @@ void half_matmul_small_cuda
         height
     );
 
-    // printf("t... %i %i %i\n", threads.x, threads.y, threads.z);
-    // printf("b... %i %i %i\n", blocks.x, blocks.y, blocks.z);
+    //printf("t... %i %i %i\n", threads.x, threads.y, threads.z);
+    //printf("b... %i %i %i\n", blocks.x, blocks.y, blocks.z);
     //if (!no_zero) cudaMemsetAsync(out, 0, height * width * sizeof(half));
 
-    if (use_half2) half_matmul_small_kernel<true> <<<blocks, threads, 0, alt_stream>>>(x, w, out, height, dim, width, no_zero);
-    else           half_matmul_small_kernel<false><<<blocks, threads, 0, alt_stream>>>(x, w, out, height, dim, width, no_zero);
+    if (dim & 0x03)
+    {
+        half_matmul_small_kernel<false, true> <<<blocks, threads, 0, alt_stream>>>(x, w, out, height, dim, width, no_zero);
+    }
+    else
+    {
+        if (use_half2) half_matmul_small_kernel<true,  false> <<<blocks, threads, 0, alt_stream>>>(x, w, out, height, dim, width, no_zero);
+        else           half_matmul_small_kernel<false, false> <<<blocks, threads, 0, alt_stream>>>(x, w, out, height, dim, width, no_zero);
+    }
 }
 
