@@ -128,7 +128,7 @@ def api_append_block():
 
 parser = argparse.ArgumentParser(description="Simple web-based chatbot for ExLlama")
 parser.add_argument("-host", "--host", type = str, help = "IP:PORT eg, 0.0.0.0:7862", default = "localhost:5000")
-parser.add_argument("-sd", "--sessions-dir", type = str, help = "Location for storing user sessions, default: ~/exllama_sessions/", default = "~/exllama_sessions/")
+parser.add_argument("-sd", "--sessions_dir", type = str, help = "Location for storing user sessions, default: ~/exllama_sessions/", default = "~/exllama_sessions/")
 
 model_init.add_args(parser)
 args = parser.parse_args()

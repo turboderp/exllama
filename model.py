@@ -69,6 +69,7 @@ class ExLlamaConfig:
         # Optional settings
 
         self.max_seq_len = 2048  # Reduce to save memory. Can also be increased, but the pretrained models produce degenerate output after 2048 tokens in any case. Should be possible to finetune for longer sequence lengths.
+        self.compress_pos_emb = 1.0  # Increase to compress positional embeddings applied to sequence
         self.gpu_peer_fix = False # Apparently Torch can have problems transferring tensors directly one GPU to another sometimes. Enable this to move tensors via system RAM instead, where needed
         self.auto_map = None  # List of floats with memory allocation in GB, per CUDA device, overrides device_map
 
@@ -745,6 +746,8 @@ class ExLlama:
 
             inv_freq = 1.0 / (self.config.rotary_embedding_base ** (torch.arange(0, self.config.head_dim, 2, device = device).float() / self.config.head_dim))
             t = torch.arange(self.config.max_seq_len, device = device, dtype = torch.float32)
+            if self.config.compress_pos_emb != 1.0: t /= self.config.compress_pos_emb
+
             freqs = torch.einsum("i,j->ij", t, inv_freq)
             emb = torch.cat((freqs, freqs), dim = -1)
 
