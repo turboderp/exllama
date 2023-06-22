@@ -621,7 +621,7 @@ def _move_tensor(tensor, new_device, name, config):
     device = str(tensor.device)
     if device == new_device: return tensor
     if config.gpu_peer_fix:
-        if device.startswith("cuda:") and new_device.startswith("cuda:"):
+        if str(device).startswith("cuda:") and str(new_device).startswith("cuda:"):
             tensor = tensor.to("cpu")
     return tensor.to(new_device)
 
