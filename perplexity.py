@@ -139,14 +139,14 @@ class Perplexity:
 def add_args(parser):
 
     parser.add_argument("-ppl", "--perplexity", nargs = '?', const = 'default', metavar = "METHOD", help = "Perplexity benchmark. Optionally specify method: gptq-for-llama, llama.cpp (not yet implemented)")
-    parser.add_argument("-ppl-ds", "--perplexity-dataset", metavar = "DATAPATH", type = str, help = "Load dataset for perplexity (JSONL if .jsonl, otherwise parses it as raw text)")
-    parser.add_argument("-ppl-cn", "--perplexity-chunk-num", nargs = "?", type = int, help = "Number of chunks for perplexity benchmark", default = 100)
-    parser.add_argument("-ppl-cs", "--perplexity-chunk-size", type = int, help = "Size of chunks for perplexity benchmark", default = 2048)
-    parser.add_argument("-ppl-ct", "--perplexity-chunk-truncate", type = int, help = "Truncated size of chunks for perplexity benchmark", default = 2048)
-    parser.add_argument("-ppl-co", "--perplexity-chunk-overlap", type = int, help = "Chunk overlap", default = 0)
-    parser.add_argument("-ppl-cm", "--perplexity-chunk-min", type = int, help = "Minimum chunk length", default = 50)
-    parser.add_argument("-ppl-key", "--perplexity-json-key", type = str, help = "Key to extract from JSON dataset, default: 'text'", default = "text")
-    parser.add_argument("-ppl-t", "--perplexity-token", action = "store_true", help = "Run perplexity test on individual tokens, for debug purposes (slow)")
+    parser.add_argument("-ppl_ds", "--perplexity_dataset", metavar = "DATAPATH", type = str, help = "Load dataset for perplexity (JSONL if .jsonl, otherwise parses it as raw text)")
+    parser.add_argument("-ppl_cn", "--perplexity_chunk_num", nargs = "?", type = int, help = "Number of chunks for perplexity benchmark", default = 100)
+    parser.add_argument("-ppl_cs", "--perplexity_chunk_size", type = int, help = "Size of chunks for perplexity benchmark", default = 2048)
+    parser.add_argument("-ppl_ct", "--perplexity_chunk_truncate", type = int, help = "Truncated size of chunks for perplexity benchmark", default = 2048)
+    parser.add_argument("-ppl_co", "--perplexity_chunk_overlap", type = int, help = "Chunk overlap", default = 0)
+    parser.add_argument("-ppl_cm", "--perplexity_chunk_min", type = int, help = "Minimum chunk length", default = 50)
+    parser.add_argument("-ppl_key", "--perplexity_json_key", type = str, help = "Key to extract from JSON dataset, default: 'text'", default = "text")
+    parser.add_argument("-ppl_t", "--perplexity_token", action = "store_true", help = "Run perplexity test on individual tokens, for debug purposes (slow)")
 
 
 def post_parse(args):
