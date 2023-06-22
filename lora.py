@@ -59,6 +59,9 @@ class ExLlamaLora:
             lora_half = ks[5]
 
             if lora_half == "bias":
+                epsilon = 1e-6
+                if torch.max(tensor) > epsilon or torch.max(tensor) < -epsilon:
+                    raise ValueError(f" ## Error: unsupported bias target {self.lora_path}: {key}")
                 self.bias_ignored = True
                 continue
 

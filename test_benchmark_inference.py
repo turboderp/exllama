@@ -140,7 +140,7 @@ if args.lora:
         sys.exit()
     lora = ExLlamaLora(model, args.lora_config, args.lora)
     if lora.bias_ignored:
-        print(f" !! Warning: LoRA bias ignored")
+        print(f" !! Warning: LoRA zero bias ignored")
 
 # Test sequence
 
