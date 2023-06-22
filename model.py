@@ -806,6 +806,7 @@ class ExLlama:
 
             batch_size, seq_len = input_ids.shape
             past_len = cache.current_seq_len
+            output_device = input_ids.device
 
             buffer = ExLlamaBuffer(self.config)
 
@@ -829,7 +830,7 @@ class ExLlama:
             # Embeddings
             # TODO: Allow passing input embeddings instead of IDs
 
-            input_ids = _move_tensor(input_ids, "cpu", "input_ids", self.config)
+            input_ids = _move_tensor(input_ids, self.config.device_map.embed_tokens, "input_ids", self.config)
             hidden_states = self.embed_tokens(input_ids)
 
             # Split buffers to devices
@@ -868,7 +869,7 @@ class ExLlama:
             # logits = cuda_ext.matmul_half(hidden_states, self.lm_head_data, cublas = False)
 
             logits = logits.float()
-            logits = _move_tensor(logits, self.config.device_map.embed_tokens, "logits", self.config)
+            logits = _move_tensor(logits, output_device, "logits", self.config)
             return logits
 
 
