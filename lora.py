@@ -13,6 +13,7 @@ class ExLlamaLora:
     lora_scaling: float
     config: ExLlamaConfig
     tensors: dict[torch.tensor]
+    bias_ignored: bool
 
     def __init__(self, model, lora_config_path, lora_path):
 
@@ -21,6 +22,7 @@ class ExLlamaLora:
         self.model = model
         self.config = model.config
         self.tensors = {}
+        self.bias_ignored = False
 
         # Grab relevant items from LoRA config
 
@@ -55,6 +57,10 @@ class ExLlamaLora:
             decoder_part = ks[3]
             decoder_layer = ks[4]
             lora_half = ks[5]
+
+            if lora_half == "bias":
+                self.bias_ignored = True
+                continue
 
             target_module = self.model.layers[decoder_idx]
             if decoder_part == "self_attn": target_module = target_module.self_attn

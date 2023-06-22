@@ -133,6 +133,8 @@ if args.lora:
         print(f" ## Error: please specify lora path to adapter_config.json")
         sys.exit()
     lora = ExLlamaLora(model, args.lora_config, args.lora)
+    if lora.bias_ignored:
+        print(f" !! Warning: LoRA bias ignored")
 
 # Test sequence
 
