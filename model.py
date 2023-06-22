@@ -798,7 +798,7 @@ class ExLlama:
         torch.cuda.empty_cache()
 
 
-    def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False, lora = None):
+    def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False, lora = None, output_device = None):
 
         # if torch.is_grad_enabled():
         #     raise ValueError("Forward pass called with gradients enabled. Back propagation is not supported yet.")
@@ -806,7 +806,7 @@ class ExLlama:
 
             batch_size, seq_len = input_ids.shape
             past_len = cache.current_seq_len
-            output_device = input_ids.device
+            if output_device is None: output_device = input_ids.device
 
             buffer = ExLlamaBuffer(self.config)
 
