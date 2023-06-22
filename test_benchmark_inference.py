@@ -2,6 +2,7 @@ from model import ExLlama, ExLlamaCache, ExLlamaConfig
 from tokenizer import ExLlamaTokenizer
 from generator import ExLlamaGenerator
 from lora import ExLlamaLora
+import perplexity
 from perplexity import Perplexity
 import time
 import torch
@@ -86,29 +87,33 @@ def mem(name, total = False):
 parser = argparse.ArgumentParser(description = "Benchmark tests for ExLlama")
 
 model_init.add_args(parser)
+perplexity.add_args(parser)
 
 parser.add_argument("-p", "--perf", action = "store_true", help = "Benchmark speed and VRAM usage")
-parser.add_argument("-ppl", "--perplexity", nargs = '?', const = 'default', metavar = "METHOD", help = "Perplexity benchmark (slow). Optionally specify method: default, gptq-for-llama, llama.cpp (not yet implemented)")
-parser.add_argument("-ppl-ds", "--perplexity-dataset", metavar = "DATAPATH", type = str, help = "Load dataset for perplexity (JSONL if .jsonl, otherwise parses it as raw text)")
-parser.add_argument("-ppl-num", "--perplexity-num", nargs = "?", type = int, help = "Number of chunks for perplexity benchmark")
-parser.add_argument("-ppl-t", "--perplexity-token", action = "store_true", help = "Run perplexity test on individual tokens, for debug purposes (slow)")
 parser.add_argument("-v", "--validate", action = "store_true", help = "Quick perplexity benchmark just to test if model is working at all, and short text completion")
 parser.add_argument("-lora", "--lora", type = str, help = "Path to LoRA binary to use during benchmark")
 parser.add_argument("-loracfg", "--lora_config", type = str, help = "Path to LoRA config to use during benchmark")
+parser.add_argument("-ld", "--lora_dir", type = str, help = "Path to LoRA config and binary. to use during benchmark")
 
 args = parser.parse_args()
+
 model_init.post_parse(args)
+perplexity.post_parse(args)
 model_init.get_model_files(args)
+
+# Paths
+
+if args.lora_dir is not None:
+    args.lora_config = os.path.join(args.lora_dir, "adapter_config.json")
+    args.lora = os.path.join(args.lora_dir, "adapter_model.bin")
 
 # Feedback
 
 print_opts = []
 if args.perf: print_opts.append("perf")
-if args.perplexity: print_opts.append("perplexity")
-if args.perplexity_dataset: print_opts.append("perplexity_dataset")
-if args.perplexity_num: print_opts.append("perplexity-num")
-if args.perplexity_token: print_opts.append("perplexity-token")
 if args.validate: print_opts.append("validate")
+if args.perplexity: print_opts.append("perplexity")
+if args.perplexity_token: print_opts.append("perplexity_token")
 
 model_init.print_options(args, print_opts)
 
@@ -128,6 +133,7 @@ mem("Model")
 
 lora = None
 if args.lora:
+    print(f" -- LoRA config: {args.lora_config}")
     print(f" -- Loading LoRA: {args.lora}")
     if args.lora_config is None:
         print(f" ## Error: please specify lora path to adapter_config.json")
@@ -192,48 +198,18 @@ if args.perplexity:
 
     ppl = Perplexity(args.perplexity, model, cache, tokenizer)
 
-    # Default (legacy) method
-
-    testdata_path = "datasets/wikitext2_val_sample.jsonl"
-    testdata_context = 2048
-    testdata_overlap = 0
-    testdata_minlength = 50
-    num_samples = 100
-
-    # Optionally specified dataset, either raw or .jsonl
-
-    if args.perplexity_dataset:
-        testdata_path = args.perplexity_dataset
-        testdata_context = 2048
-        testdata_overlap = 0
-        testdata_minlength = 0
-
-    # Settings mimicking GPTQ-for-LLaMa
-
-    if args.perplexity == "gptq-for-llama":
-        if not args.perplexity_dataset:
-            testdata_path = "datasets/wikitext2.txt"
-        testdata_context = 2048
-        testdata_overlap = 0
-        testdata_minlength = 0
-        num_samples = 128
-
-    if args.perplexity == "default":
-        pass
-
-    # Overrides
-
-    if args.perplexity_num:
-        num_samples = args.perplexity_num
-
     print(" -- Loading dataset...")
 
-    ppl.load(testdata_path,
-             testdata_context,
-             testdata_overlap,
-             testdata_minlength)
+    ppl.load(dataset_path = args.perplexity_dataset,
+             chunk_size = args.perplexity_chunk_size,
+             chunk_truncate = args.perplexity_chunk_truncate,
+             overlap = args.perplexity_chunk_overlap,
+             minlength = args.perplexity_chunk_min,
+             json_key = args.perplexity_json_key)
 
-    ppl.test(num_samples,
+    begin()
+
+    ppl.test(args.perplexity_chunk_num,
              lora = lora,
              ppl_token = args.perplexity_token)
 
@@ -243,19 +219,16 @@ if args.validate:
 
     ppl = Perplexity(args.perplexity, model, cache, tokenizer)
 
-    testdata_path = "datasets/wikitext2_val_sample.jsonl"
-    testdata_context = 2048
-    testdata_overlap = 0
-    testdata_minlength = 50
-
-    ppl.load(testdata_path,
-             testdata_context,
-             testdata_overlap,
-             testdata_minlength)
-
-    begin()
+    ppl.load(dataset_path = "datasets/wikitext2_val_sample.jsonl",
+             chunk_size = 2048,
+             chunk_truncate = 2048,
+             overlap = 0,
+             minlength = 50,
+             json_key = "text")
 
     # Short perplexity tests in switched and quant mode, should produce roughly equal results
+
+    begin()
 
     model.config.matmul_recons_thd = 1
     ppl.test(8, lora = lora, tag = " (reconstruct)")
