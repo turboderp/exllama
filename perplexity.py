@@ -69,7 +69,7 @@ class Perplexity:
         # Raw Text: Returned chunks are fixed length windows of the entire tokenized dataset
 
         else:
-            with open(dataset_path) as f:
+            with open(dataset_path, encoding="utf-8") as f:
                 text = f.read()
 
             tokens = self._tokenize(text)
