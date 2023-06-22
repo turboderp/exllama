@@ -694,6 +694,33 @@ void rep_penalty
     );
 }
 
+void apply_rep_penalty
+(
+    torch::Tensor sequence,
+    float penalty_max,
+    int sustain,
+    int decay,
+    torch::Tensor logits
+)
+{
+    TORCH_CHECK_DTYPE(sequence, kLong);
+    TORCH_CHECK_DTYPE(logits, kFloat);
+
+    int vocab_size = logits.size(-1);
+    int seq_len = sequence.size(-1);
+
+    apply_rep_penalty_cpu
+    (
+        vocab_size,
+        (uint64_t*) sequence.data_ptr(),
+        penalty_max,
+        sustain,
+        decay,
+        seq_len,
+        (float*) logits.data_ptr()
+    );
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
     m.def("set_tuning_params", &set_tuning_params, "set_tuning_params");
@@ -711,5 +738,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("half_matmul", &half_matmul, "half_matmul");
     m.def("half_matmul_cublas", &half_matmul_cublas, "half_matmul_cublas");
 
-    m.def("rep_penalty", &rep_penalty, "repetition penalty mask");
+    m.def("rep_penalty", &rep_penalty, "rep_penalty");
+    m.def("apply_rep_penalty", &apply_rep_penalty, "apply_rep_penalty");
 }

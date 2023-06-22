@@ -74,6 +74,7 @@ from exllama_ext import half_matmul_cublas
 from exllama_ext import rms_norm
 from exllama_ext import rope_
 from exllama_ext import rep_penalty
+from exllama_ext import apply_rep_penalty
 
 
 # Dummy tensor to pass instead of g_idx since there is no way to pass "None" to a C++ extension
@@ -158,3 +159,9 @@ def ext_rep_penalty_mask_cpu(vocab_size, sequence, penalty_max, sustain, decay):
     rep_mask = torch.empty(vocab_size, dtype = torch.float32)
     rep_penalty(sequence, rep_mask, penalty_max, sustain, decay)
     return rep_mask
+
+
+def ext_apply_rep_penalty_mask_cpu(sequence, penalty_max, sustain, decay, logits):
+
+    apply_rep_penalty(sequence, penalty_max, sustain, decay, logits)
+
