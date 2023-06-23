@@ -87,6 +87,7 @@ void q4_attn_cuda
     Q4Matrix* v_proj,
     half* sin,
     half* cos,
+    const int bsz,
     const int q_len,
     const int dim,
     const int head_dim,
@@ -119,7 +120,7 @@ void q4_attn_cuda
         ((num_heads + THREADS_Z - 1) / THREADS_Z + BLOCKSIZE_Z - 1) / BLOCKSIZE_Z
     );
 
-    int _rows = q_len * num_heads;
+    int _rows_per_batch = q_len * num_heads;
 
     CudaBuffers* buffers = get_buffers(device_index);
 
@@ -156,8 +157,8 @@ void q4_attn_cuda
 
         // Positional embeddings q, k
 
-        rope_cuda(tuningParams, query_states, sin, cos, _rows, head_dim, num_heads, past_len);
-        rope_cuda(tuningParams, key_states, sin, cos, _rows, head_dim, num_heads, past_len);
+        rope_cuda(tuningParams, query_states, sin, cos, bsz, _rows_per_batch, head_dim, num_heads, past_len);
+        rope_cuda(tuningParams, key_states, sin, cos, bsz, _rows_per_batch, head_dim, num_heads, past_len);
 
         // Update cache tensors with projected k, v
 
@@ -177,13 +178,13 @@ void q4_attn_cuda
         // str_1: project q, positions q, sync
 
         q4_matmul_cuda(tuningParams, temp_x, q_len, q_proj, query_states, q_a ? true : false, str_1);
-        rope_cuda(tuningParams, query_states, sin, cos, _rows, head_dim, num_heads, past_len, str_1);
+        rope_cuda(tuningParams, query_states, sin, cos,  bsz, _rows_per_batch, head_dim, num_heads, past_len, str_1);
         cudaEventRecord(sync_1, str_1);
 
         // str_2: project k, positions k, sync
 
         q4_matmul_cuda(tuningParams, temp_x, q_len, k_proj, key_states, k_a ? true : false, str_2);
-        rope_cuda(tuningParams, key_states, sin, cos, _rows, head_dim, num_heads, past_len, str_2);
+        rope_cuda(tuningParams, key_states, sin, cos,  bsz, _rows_per_batch, head_dim, num_heads, past_len, str_2);
         cudaEventRecord(sync_2, str_2);
 
         // str_3: project v, wait for str_2, copy (k,v) to cache, sync

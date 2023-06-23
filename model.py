@@ -310,9 +310,9 @@ class ExLlamaAttention:
 
         # Project q, k, v, apply position embeddings to k and v, update cache
 
-        query_states = torch.empty((q_len, self.config.hidden_size), dtype = torch.float16, device = hidden_states.device)
-        key_states = torch.empty((q_len, self.config.hidden_size), dtype = torch.float16, device = hidden_states.device)
-        value_states = torch.empty((q_len, self.config.hidden_size), dtype = torch.float16, device = hidden_states.device)
+        query_states = torch.empty((bsz, q_len, self.config.hidden_size), dtype = torch.float16, device = hidden_states.device)
+        key_states = torch.empty((bsz, q_len, self.config.hidden_size), dtype = torch.float16, device = hidden_states.device)
+        value_states = torch.empty((bsz, q_len, self.config.hidden_size), dtype = torch.float16, device = hidden_states.device)
 
         cuda_ext.exllama_ext.q4_attn(hidden_states,
                                      input_layernorm.weight,
