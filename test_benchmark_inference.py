@@ -248,11 +248,11 @@ if args.validate:
     print(f" ** Generation: {text}")
 
     if args.validate > 1:
+        # Test batched generation
+
         bsz = 8
         gen_len = 20
 
-        # Test batched generation
-        saved_logits = []
         torch.manual_seed(42)
         torch.cuda.manual_seed_all(42)
 
@@ -272,7 +272,7 @@ if args.validate:
             ids.append(tokenizer.encode(identical_batch_prompt + cont)[0])
         max_length = max([i.shape[0] for i in ids])
         assert max_length < model.config.max_seq_len, f"Max length {max_length} exceeds model limit {model.config.max_seq_len}"
-        # Left pad with bos tokens
+        # Left pad
         for i in range(len(ids)):
             ids[i] = torch.cat((torch.full((max_length - ids[i].shape[0],), 0), ids[i]), dim = 0)
         ids = torch.stack(ids, dim = 0)
@@ -287,11 +287,13 @@ if args.validate:
             sequence = torch.cat((sequence, next_id_per_batch), dim = -1)
             logits = next_logits(next_id_per_batch, lora)
 
-        print(f"The first {bsz - len(continuations)} generations should be identical. The remaining generations should be different yet not corrupt.\n\n")
+        print(f"\n ** Batching sanity check: 1-{bsz - len(continuations)} should be identical. All should be reasonable for the model you're using.\n")
         separator = tokenizer.encode("...")[0]
         for b in range(len(ids)):
             whole = torch.cat((ids[b], separator, sequence[b]), dim = -1)
             # unpad
             whole = whole[whole != 0]
             text = tokenizer.decode(whole)
-            print(f" {b}. {repr(text)}")
+            print(f" {b + 1}. {repr(text)}")
+
+        # TODO Save the logits and then rerun each prompt with a batch size of 1, same input. The logits should be identical.
