@@ -243,20 +243,24 @@ if args.validate:
     generator.settings.top_k = 1
     generator.lora = lora
     text = generator.generate_simple("To be or not to be, that is the", max_new_tokens = 20 * args.validate)
-    text = text.replace("\n", "\\n")
-    print(f" ** Generation: {text}")
+    print(f" ** Generation: {repr(text)}")
 
     if args.validate > 1:
+
         # Test batched generation
 
         bsz = 8
         gen_len = 20
-
         torch.manual_seed(42)
         torch.cuda.manual_seed_all(42)
 
+        # Bigger cache for the batch
+
         del cache
         cache = ExLlamaCache(model, batch_size = bsz)
+
+        # Create tokenized batch and attention mask
+
         identical_batch_prompt = "When you have eliminated the impossible, whatever remains,"
         continuations = [
             " must be considered",
@@ -264,21 +268,17 @@ if args.validate:
             " (and some scholars say this is",
             " however improbable, is a banana.",
         ]
-        ids = []
-        for i in range(bsz - len(continuations)):
-            ids.append(tokenizer.encode(identical_batch_prompt)[0])
+
+        prompts = [identical_batch_prompt] * (bsz - len(continuations))
         for cont in continuations:
-            ids.append(tokenizer.encode(identical_batch_prompt + cont)[0])
-        max_length = max([i.shape[0] for i in ids])
+            prompts.append(identical_batch_prompt + cont)
 
-        assert max_length < model.config.max_seq_len, f"Max length {max_length} exceeds model limit {model.config.max_seq_len}"
+        ids = tokenizer.encode(prompts)
+        assert ids.shape[1] < model.config.max_seq_len, f"Max length {ids.shape[1]} exceeds model limit {model.config.max_seq_len}"
 
-        # Left pad
-        for i in range(len(ids)):
-            ids[i] = torch.cat((torch.full((max_length - ids[i].shape[0],), tokenizer.pad_token_id), ids[i]), dim = 0)
-
-        ids = torch.stack(ids, dim = 0)
         mask = ids.ne(tokenizer.pad_token_id)
+
+        # Batched generation with greedy sampling
 
         sequence = torch.empty((bsz, 0), dtype = torch.long, device = "cpu")
         logits = next_logits(ids, lora, input_mask = mask)
@@ -291,13 +291,12 @@ if args.validate:
             sequence = torch.cat((sequence, next_id_per_batch), dim = -1)
             logits = next_logits(next_id_per_batch, lora)
 
+        # Print output batch
+
         print(f"\n ** Batching sanity check: 1-{bsz - len(continuations)} should be identical. All should be reasonable for the model you're using.\n")
-        separator = tokenizer.encode("...")[0]
-        for b in range(len(ids)):
-            whole = torch.cat((ids[b], separator, sequence[b]), dim = -1)
-            # unpad
-            whole = whole[whole != 0]
-            text = tokenizer.decode(whole)
-            print(f" {b + 1}. {repr(text)}")
+
+        outputs = tokenizer.decode(sequence)
+        for b in range(bsz):
+            print(f"{b + 1} {repr(prompts[b])} -> {repr(outputs[b])}")
 
         # TODO Save the logits and then rerun each prompt with a batch size of 1, same input. The logits should be identical.
