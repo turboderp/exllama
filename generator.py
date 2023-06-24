@@ -61,11 +61,27 @@ class ExLlamaGenerator:
         return cuda_ext.ext_rep_penalty_mask_cpu(self.model.config.vocab_size, self.sequence, penalty_max, sustain, decay)
 
 
+    def batched_sample(self, logits, temperature, top_k, top_p, min_p, typical, num = 1):
+
+        if logits.shape[0] == 1: return self.sample(logits, temperature, top_k, top_p, min_p, typical, num)
+
+        samples = []
+        scores = []
+        for i in range(logits.shape[0]):
+            t, s = self.sample(logits[i, :, :], temperature, top_k, top_p, min_p, typical)
+            samples.append(t)
+            scores.append(s)
+
+        return torch.cat(samples, dim = 0), torch.cat(scores, dim = 0)
+
+
     def sample(self, logits, temperature, top_k, top_p, min_p, typical, num = 1):
 
         # torch.manual_seed(42)
 
-        logits = logits[0, -1, :]
+        if logits.dim() == 3: logits = logits[0, -1, :]
+        elif logits.dim() == 2: logits = logits[-1, :]
+        else: raise ValueError("Bad logits dimension")
 
         # Disallow tokens
 
@@ -285,7 +301,7 @@ class ExLlamaGenerator:
         return self.sequence_actual.shape[-1]
 
 
-    # Generate some number of tokens and append to
+    # Simple generator function
 
     def generate_simple(self, prompt, max_new_tokens = 128):
 
@@ -294,11 +310,16 @@ class ExLlamaGenerator:
         ids = self.tokenizer.encode(prompt)
         self.gen_begin(ids)
 
+        max_new_tokens = min(max_new_tokens, self.model.config.max_seq_len - ids.shape[1])
+
+        eos = torch.zeros((ids.shape[0],), dtype = torch.bool)
         for i in range(max_new_tokens):
             token = self.gen_single_token()
-            if token.item() == self.tokenizer.eos_token_id: break
+            for j in range(token.shape[0]):
+                if token[j, 0].item() == self.tokenizer.eos_token_id: eos[j] = True
+            if eos.all(): break
 
-        text = self.tokenizer.decode(self.sequence[0])
+        text = self.tokenizer.decode(self.sequence[0] if self.sequence.shape[0] == 1 else self.sequence)
         return text
 
 
@@ -327,12 +348,12 @@ class ExLlamaGenerator:
                 for c in constraints: logits[:, :, c] += 10000.0
                 logits[:, :, :] -= 10000.0
 
-            token, _ = self.sample(logits,
-                                   self.settings.temperature,
-                                   self.settings.top_k,
-                                   self.settings.top_p,
-                                   self.settings.min_p + 0.01 if constraints is not None else 0.0,
-                                   self.settings.typical)
+            token, _ = self.batched_sample(logits,
+                                           self.settings.temperature,
+                                           self.settings.top_k,
+                                           self.settings.top_p,
+                                           self.settings.min_p + 0.01 if constraints is not None else 0.0,
+                                           self.settings.typical)
 
         else:
 

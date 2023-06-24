@@ -47,6 +47,7 @@ class ExLlamaTokenizer:
             for i in range(ids.shape[0]):
                 seq = ids[i].tolist()
                 seq = [t for t in seq if t != self.pad_token_id]
+                if self.eos_token_id in seq: seq = seq[:seq.index(self.eos_token_id)]
                 texts.append(self.tokenizer.Decode(seq))
             return texts
 

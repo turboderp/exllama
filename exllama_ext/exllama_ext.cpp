@@ -686,6 +686,8 @@ void rep_penalty
     int vocab_size = rep_mask.size(0);
     int seq_len = sequence.size(-1);
 
+    // TODO: Support batch size
+
     rep_penalty_cpu
     (
         vocab_size,
@@ -709,20 +711,25 @@ void apply_rep_penalty
 {
     TORCH_CHECK_DTYPE(sequence, kLong);
     TORCH_CHECK_DTYPE(logits, kFloat);
+    TORCH_CHECK_SHAPES(sequence, 0, logits, 0, 1);
 
     int vocab_size = logits.size(-1);
+    int bsz = sequence.size(0);
     int seq_len = sequence.size(-1);
 
-    apply_rep_penalty_cpu
-    (
-        vocab_size,
-        (uint64_t*) sequence.data_ptr(),
-        penalty_max,
-        sustain,
-        decay,
-        seq_len,
-        (float*) logits.data_ptr()
-    );
+    for (int i = 0; i < bsz; i++)
+    {
+        apply_rep_penalty_cpu
+        (
+            vocab_size,
+            ((uint64_t*) sequence.data_ptr()) + i * seq_len,
+            penalty_max,
+            sustain,
+            decay,
+            seq_len,
+            ((float*) logits.data_ptr()) + i * vocab_size
+        );
+    }
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
