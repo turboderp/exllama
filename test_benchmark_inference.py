@@ -272,9 +272,11 @@ if args.validate:
             ids.append(tokenizer.encode(identical_batch_prompt + cont)[0])
         max_length = max([i.shape[0] for i in ids])
         assert max_length < model.config.max_seq_len, f"Max length {max_length} exceeds model limit {model.config.max_seq_len}"
-        # Left pad
+
+        # Left pad with spaces because we can't pass an attention mask to the model
+        space_token = tokenizer.encode(" ")[0].item()
         for i in range(len(ids)):
-            ids[i] = torch.cat((torch.full((max_length - ids[i].shape[0],), 0), ids[i]), dim = 0)
+            ids[i] = torch.cat((torch.full((max_length - ids[i].shape[0],), space_token), ids[i]), dim = 0)
         ids = torch.stack(ids, dim = 0)
 
         sequence = torch.empty((bsz, 0), dtype = torch.long, device = "cpu")
@@ -291,8 +293,6 @@ if args.validate:
         separator = tokenizer.encode("...")[0]
         for b in range(len(ids)):
             whole = torch.cat((ids[b], separator, sequence[b]), dim = -1)
-            # unpad
-            whole = whole[whole != 0]
             text = tokenizer.decode(whole)
             print(f" {b + 1}. {repr(text)}")
 
