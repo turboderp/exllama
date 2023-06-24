@@ -10,6 +10,7 @@ class ExLlamaTokenizer:
         self.tokenizer = SentencePieceProcessor(model_file = self.path)
         self.eos_token_id = self.tokenizer.eos_id()
         self.bos_token_id = self.tokenizer.bos_id()
+        self.pad_token_id = 0
         self.newline_token_id = 13
 
     def encode(self, text):

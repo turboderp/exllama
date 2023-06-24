@@ -31,14 +31,14 @@ def begin():
     else: cache.current_seq_len = 0
 
 
-def next_logits(input_ids, apply_lora, last_id_only = True):
+def next_logits(input_ids, apply_lora, last_id_only = True, input_mask = None):
     global model, cache
 
     n_logits = None
     a = 0
     while a < input_ids.shape[-1]:
         b = min(input_ids.shape[-1], a + 2048)
-        n_logits = model.forward(input_ids[:, a:b], cache, last_id_only, lora = apply_lora)
+        n_logits = model.forward(input_ids[:, a:b], cache, last_id_only, lora = apply_lora, input_mask = input_mask)
         a = b
 
     return n_logits
@@ -243,7 +243,6 @@ if args.validate:
     generator.settings.top_k = 1
     generator.lora = lora
     text = generator.generate_simple("To be or not to be, that is the", max_new_tokens = 20 * args.validate)
-    # text = generator.generate_simple("To be or", max_new_tokens = 20)
     text = text.replace("\n", "\\n")
     print(f" ** Generation: {text}")
 
@@ -271,14 +270,19 @@ if args.validate:
         for cont in continuations:
             ids.append(tokenizer.encode(identical_batch_prompt + cont)[0])
         max_length = max([i.shape[0] for i in ids])
+
         assert max_length < model.config.max_seq_len, f"Max length {max_length} exceeds model limit {model.config.max_seq_len}"
+
         # Left pad
         for i in range(len(ids)):
-            ids[i] = torch.cat((torch.full((max_length - ids[i].shape[0],), 0), ids[i]), dim = 0)
+            ids[i] = torch.cat((torch.full((max_length - ids[i].shape[0],), tokenizer.pad_token_id), ids[i]), dim = 0)
+
         ids = torch.stack(ids, dim = 0)
+        mask = ids.ne(tokenizer.pad_token_id)
 
         sequence = torch.empty((bsz, 0), dtype = torch.long, device = "cpu")
-        logits = next_logits(ids, lora)
+        logits = next_logits(ids, lora, input_mask = mask)
+
         for i in range(gen_len):
             logits = logits[:, -1, :]
             id_per_batch = torch.argmax(logits, dim=-1)

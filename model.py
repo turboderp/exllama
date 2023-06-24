@@ -404,8 +404,7 @@ class ExLlamaAttention:
 
             attn_weights = torch.matmul(query_states, key_states.transpose(2, 3))
             attn_weights /= math.sqrt(self.config.head_dim)
-            if buffer.attn_mask is not None and buffer.attn_mask.shape[2] > 1: attn_weights = attn_weights + buffer.attn_mask
-            # attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min))
+            if buffer.attn_mask is not None: attn_weights = attn_weights + buffer.attn_mask
             attn_weights = nn.functional.softmax(attn_weights, dim = -1, dtype = torch.float16).to(query_states.dtype)
             attn_output = torch.matmul(attn_weights, value_states)
             attn_output = attn_output.transpose(1, 2)
@@ -418,7 +417,7 @@ class ExLlamaAttention:
             # it can only apply a square attention mask. It saves quite a bit of VRAM but in practice Torch seems to use
             # the same amount of memory at peak anyway.
 
-            if past_len > 0:
+            if past_len > 0 or (bsz > 1 and buffer.attn_mask is not None):
                 attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask = buffer.attn_mask, is_causal = False)
             else:
                 attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask = None, is_causal = True)
@@ -801,7 +800,9 @@ class ExLlama:
         torch.cuda.empty_cache()
 
 
-    def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False, lora = None, output_device = None):
+    def forward(self, input_ids, cache, last_id_only = True, preprocess_only = False, lora = None, output_device = None, input_mask = None):
+
+        assert input_mask is None or input_mask.shape == input_ids.shape
 
         # if torch.is_grad_enabled():
         #     raise ValueError("Forward pass called with gradients enabled. Back propagation is not supported yet.")
@@ -820,8 +821,15 @@ class ExLlama:
             if seq_len > 1:
 
                 attn_mask = torch.zeros(batch_size, 1, seq_len, past_len + seq_len, dtype = torch.float16, device = devs[0])
-                attn_mask_triu = torch.triu(torch.full((seq_len - 1, seq_len - 1), torch.finfo(torch.float16).min))
+                attn_mask_triu = torch.triu(torch.full((seq_len - 1, seq_len - 1), -65504.))
                 attn_mask[:, :, : seq_len - 1, past_len + 1: past_len + seq_len] = attn_mask_triu
+
+                if input_mask is not None:
+
+                    input_mask = _move_tensor(input_mask, devs[0], "input_mask", self.config)
+                    input_mask = torch.where(input_mask, 0, -65504.).half()
+                    input_mask = input_mask.unsqueeze(1).unsqueeze(2)
+                    attn_mask = torch.minimum(attn_mask, input_mask)
 
             else:
 
