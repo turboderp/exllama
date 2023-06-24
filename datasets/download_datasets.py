@@ -11,7 +11,7 @@ def download_hf(filename, dataset, subset, split, key, div):
     hf_dataset = load_dataset(dataset, subset, split = split)
     data = div.join(hf_dataset[key])
 
-    with open(filename, "w") as f:
+    with open(filename, "w", encoding="utf-8") as f:
         f.write(data)
 
 download_hf("wikitext2.txt", "wikitext", "wikitext-2-raw-v1", "test", "text", "\n\n")

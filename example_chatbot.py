@@ -1,4 +1,5 @@
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
+from lora import ExLlamaLora
 from tokenizer import ExLlamaTokenizer
 from generator import ExLlamaGenerator
 import argparse
@@ -19,6 +20,10 @@ parser = argparse.ArgumentParser(description = "Simple chatbot example for ExLla
 
 model_init.add_args(parser)
 
+parser.add_argument("-lora", "--lora", type = str, help = "Path to LoRA binary to use during benchmark")
+parser.add_argument("-loracfg", "--lora_config", type = str, help = "Path to LoRA config to use during benchmark")
+parser.add_argument("-ld", "--lora_dir", type = str, help = "Path to LoRA config and binary. to use during benchmark")
+
 parser.add_argument("-p", "--prompt", type = str, help = "Prompt file")
 parser.add_argument("-un", "--username", type = str, help = "Display name of user", default = "User")
 parser.add_argument("-bn", "--botname", type = str, help = "Display name of chatbot", default = "Chatbort")
@@ -38,6 +43,12 @@ args = parser.parse_args()
 model_init.post_parse(args)
 model_init.get_model_files(args)
 
+# Paths
+
+if args.lora_dir is not None:
+    args.lora_config = os.path.join(args.lora_dir, "adapter_config.json")
+    args.lora = os.path.join(args.lora_dir, "adapter_model.bin")
+
 # Some feedback
 
 print(f" -- Sequence length: {args.length}")
@@ -54,10 +65,10 @@ if args.botfirst: print_opts.append("botfirst")
 
 model_init.print_options(args, print_opts)
 
+# Load prompt file
+
 username = args.username
 bot_name = args.botname
-
-# Load prompt file
 
 if args.prompt is not None:
     with open(args.prompt, "r") as f:
@@ -81,6 +92,21 @@ tokenizer = ExLlamaTokenizer(args.tokenizer)
 
 model_init.print_stats(model)
 
+# Load LoRA
+
+lora = None
+if args.lora:
+    print(f" -- LoRA config: {args.lora_config}")
+    print(f" -- Loading LoRA: {args.lora}")
+    if args.lora_config is None:
+        print(f" ## Error: please specify lora path to adapter_config.json")
+        sys.exit()
+    lora = ExLlamaLora(model, args.lora_config, args.lora)
+    if lora.bias_ignored:
+        print(f" !! Warning: LoRA zero bias ignored")
+
+# Generator
+
 generator = ExLlamaGenerator(model, tokenizer, cache)
 generator.settings = ExLlamaGenerator.Settings()
 generator.settings.temperature = args.temperature
@@ -92,6 +118,8 @@ generator.settings.token_repetition_penalty_sustain = args.repetition_penalty_su
 generator.settings.token_repetition_penalty_decay = generator.settings.token_repetition_penalty_sustain // 2
 generator.settings.beams = args.beams
 generator.settings.beam_length = args.beam_length
+
+generator.lora = lora
 
 break_on_newline = not args.no_newline
 

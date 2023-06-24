@@ -15,5 +15,5 @@ fi
 # Run service as specified (non-root) user
 exec runuser -u $(id -un $RUN_UID) -- python3 /app/webui/app.py \
 	-d $CONTAINER_MODEL_PATH \
-	--sessions-dir $CONTAINER_SESSIONS_PATH \
+	--sessions_dir $CONTAINER_SESSIONS_PATH \
 	$@

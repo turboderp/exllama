@@ -4,6 +4,8 @@ from lora import ExLlamaLora
 import torch
 import torch.nn.functional as F
 
+DEFAULT_MAX_CHUNK = 2048
+
 class ExLlamaGenerator:
 
     class Settings:
@@ -144,7 +146,7 @@ class ExLlamaGenerator:
         self.disallowed_tokens = tokens
 
 
-    def gen_begin(self, in_tokens):
+    def gen_begin(self, in_tokens, max_chunk = DEFAULT_MAX_CHUNK):
 
         self.end_beam_search()
 
@@ -153,7 +155,11 @@ class ExLlamaGenerator:
         self.cache.current_seq_len = 0
 
         if in_tokens.shape[-1] > 1:
-            self.model.forward(self.sequence[:, :-1], self.cache, preprocess_only = True, lora = self.lora)
+            a = 0
+            while a < self.sequence.shape[-1] - 1:
+                b = min(a + max_chunk, self.sequence.shape[-1] - 1)
+                self.model.forward(self.sequence[:, a:b], self.cache, preprocess_only = True, lora = self.lora)
+                a = b
 
 
     def gen_begin_empty(self):
@@ -164,11 +170,11 @@ class ExLlamaGenerator:
         self.cache.current_seq_len = 0
 
 
-    def gen_begin_reuse(self, in_tokens):
+    def gen_begin_reuse(self, in_tokens, max_chunk = DEFAULT_MAX_CHUNK):
 
         self.end_beam_search()
         if self.sequence is None or self.cache.current_seq_len == 0:
-            self.gen_begin(in_tokens)
+            self.gen_begin(in_tokens, max_chunk)
             return 0
 
         # if in_tokens.shape[-1] < self.sequence.shape[-1]:
@@ -179,7 +185,7 @@ class ExLlamaGenerator:
             reuse += 1
 
         if reuse < 2:
-            self.gen_begin(in_tokens)
+            self.gen_begin(in_tokens, max_chunk)
             return 0
 
         # print (f"Reusing cache: {reuse} tokens")
@@ -192,10 +198,10 @@ class ExLlamaGenerator:
         return reuse
 
 
-    def gen_feed_tokens(self, in_tokens):
+    def gen_feed_tokens(self, in_tokens, max_chunk = DEFAULT_MAX_CHUNK):
 
         if self.sequence is None:
-            self.gen_begin(in_tokens)
+            self.gen_begin(in_tokens, max_chunk)
             return
 
         self.end_beam_search()
@@ -206,7 +212,12 @@ class ExLlamaGenerator:
             self.sequence = in_tokens.clone()
         else:
             self.sequence = torch.cat((self.sequence, in_tokens), dim = 1)
-        self.model.forward(self.sequence[:, start:-1], self.cache, preprocess_only = True, lora = self.lora)
+
+        a = start
+        while a < self.sequence.shape[-1] - 1:
+            b = min(a + max_chunk, self.sequence.shape[-1] - 1)
+            self.model.forward(self.sequence[:, a:b], self.cache, preprocess_only = True, lora = self.lora)
+            a = b
 
         self.sequence_actual = self.sequence
 
@@ -293,7 +304,7 @@ class ExLlamaGenerator:
 
     # Generate a single token with the current settings, append to sequence
 
-    def gen_single_token(self, constraints = None, lora = None):
+    def gen_single_token(self, constraints = None):
 
         self.end_beam_search()
 
@@ -301,12 +312,14 @@ class ExLlamaGenerator:
 
         if self.sequence is not None:
 
-            rep_mask = self.make_rep_mask(self.settings.token_repetition_penalty_max,
-                                          self.settings.token_repetition_penalty_sustain,
-                                          self.settings.token_repetition_penalty_decay)
-
             logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora)
-            logits /= rep_mask
+
+            cuda_ext.ext_apply_rep_penalty_mask_cpu(self.sequence,
+                                                    self.settings.token_repetition_penalty_max,
+                                                    self.settings.token_repetition_penalty_sustain,
+                                                    self.settings.token_repetition_penalty_decay,
+                                                    logits)
+
             logits[:, :, self.tokenizer.bos_token_id] = -10000.0
 
             if constraints is not None:
@@ -478,13 +491,14 @@ class ExLlamaGenerator:
 
                 # Initial tokens for initial beams
 
-                rep_mask = self.make_rep_mask(self.settings.token_repetition_penalty_max,
-                                              self.settings.token_repetition_penalty_sustain,
-                                              self.settings.token_repetition_penalty_decay)
-
                 # self.cache.debug()
                 logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora)
-                logits /= rep_mask
+
+                cuda_ext.ext_apply_rep_penalty_mask_cpu(self.sequence,
+                                                        self.settings.token_repetition_penalty_max,
+                                                        self.settings.token_repetition_penalty_sustain,
+                                                        self.settings.token_repetition_penalty_decay,
+                                                        logits)
 
                 tokens, probs = self.sample(logits,
                                             self.settings.temperature,
@@ -512,13 +526,14 @@ class ExLlamaGenerator:
 
                     beam.to_sequence()
 
-                    rep_mask = self.make_rep_mask(self.settings.token_repetition_penalty_max,
-                                                  self.settings.token_repetition_penalty_sustain,
-                                                  self.settings.token_repetition_penalty_decay)
-
                     # self.cache.debug()
                     logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora)
-                    logits /= rep_mask
+
+                    cuda_ext.ext_apply_rep_penalty_mask_cpu(self.sequence,
+                                                            self.settings.token_repetition_penalty_max,
+                                                            self.settings.token_repetition_penalty_sustain,
+                                                            self.settings.token_repetition_penalty_decay,
+                                                            logits)
 
                     tokens, probs = self.sample(logits,
                                                 self.settings.temperature,

@@ -282,22 +282,23 @@ class Session:
                 jnode["author_idx"] = self.participants.index(author)
 
         dic = {"sessions": names,
-                "current_session": name,
-                "fixed_prompt": self.fixed_prompt.text,
-                "keep_fixed_prompt": self.keep_fixed_prompt,
-                "participants": self.participants,
-                "history": historyjson,
-                "temperature": generator.settings.temperature,
-                "top_p": generator.settings.top_p,
-                "min_p": generator.settings.min_p,
-                "top_k": generator.settings.top_k,
-                "typical": generator.settings.typical,
-                "break_on_newline": self.break_on_newline,
-                "max_response_tokens": self.max_response_tokens,
-                "chunk_size": self.chunk_size,
-                "token_repetition_penalty_max": generator.settings.token_repetition_penalty_max,
-                "token_repetition_penalty_sustain": generator.settings.token_repetition_penalty_sustain,
-                "token_repetition_penalty_decay": generator.settings.token_repetition_penalty_decay}
+               "current_session": name,
+               "fixed_prompt": self.fixed_prompt.text,
+               "keep_fixed_prompt": self.keep_fixed_prompt,
+               "participants": self.participants,
+               "history": historyjson,
+               "temperature": generator.settings.temperature,
+               "top_p": generator.settings.top_p,
+               "min_p": generator.settings.min_p,
+               "top_k": generator.settings.top_k,
+               "typical": generator.settings.typical,
+               "break_on_newline": self.break_on_newline,
+               "max_response_tokens": self.max_response_tokens,
+               "chunk_size": self.chunk_size,
+               "token_repetition_penalty_max": generator.settings.token_repetition_penalty_max,
+               "token_repetition_penalty_sustain": generator.settings.token_repetition_penalty_sustain,
+               "token_repetition_penalty_decay": generator.settings.token_repetition_penalty_decay,
+               "max_seq_len": model.config.max_seq_len}
 
         # Add model info
 

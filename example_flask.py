@@ -1,5 +1,5 @@
-from flask import Flask, request
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
+from flask import Flask, request
 from tokenizer import ExLlamaTokenizer
 from generator import ExLlamaGenerator
 import os, glob
