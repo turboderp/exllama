@@ -90,7 +90,7 @@ model_init.add_args(parser)
 perplexity.add_args(parser)
 
 parser.add_argument("-p", "--perf", action = "store_true", help = "Benchmark speed and VRAM usage")
-parser.add_argument("-v", "--validate", action = "store_true", help = "Quick perplexity benchmark just to test if model is working at all, and short text completion")
+parser.add_argument("-v", "--validate", action = "count", help = "Run validation check and generate some sample output; specify twice for a more thorough test")
 parser.add_argument("-lora", "--lora", type = str, help = "Path to LoRA binary to use during benchmark")
 parser.add_argument("-loracfg", "--lora_config", type = str, help = "Path to LoRA config to use during benchmark")
 parser.add_argument("-ld", "--lora_dir", type = str, help = "Path to LoRA config and binary. to use during benchmark")
@@ -242,7 +242,58 @@ if args.validate:
     generator = ExLlamaGenerator(model, tokenizer, cache)
     generator.settings.top_k = 1
     generator.lora = lora
-    text = generator.generate_simple("To be or not to be, that is the", max_new_tokens = 20)
+    text = generator.generate_simple("To be or not to be, that is the", max_new_tokens = 20 * args.validate)
     # text = generator.generate_simple("To be or", max_new_tokens = 20)
     text = text.replace("\n", "\\n")
     print(f" ** Generation: {text}")
+
+    if args.validate > 1:
+        # Test batched generation
+
+        bsz = 8
+        gen_len = 20
+
+        torch.manual_seed(42)
+        torch.cuda.manual_seed_all(42)
+
+        del cache
+        cache = ExLlamaCache(model, batch_size = bsz)
+        identical_batch_prompt = "When you have eliminated the impossible, whatever remains,"
+        continuations = [
+            " must be considered",
+            " ought to be",
+            " (and some scholars say this is",
+            " however improbable, is a banana.",
+        ]
+        ids = []
+        for i in range(bsz - len(continuations)):
+            ids.append(tokenizer.encode(identical_batch_prompt)[0])
+        for cont in continuations:
+            ids.append(tokenizer.encode(identical_batch_prompt + cont)[0])
+        max_length = max([i.shape[0] for i in ids])
+        assert max_length < model.config.max_seq_len, f"Max length {max_length} exceeds model limit {model.config.max_seq_len}"
+
+        # Left pad with spaces because we can't pass an attention mask to the model
+        space_token = tokenizer.encode(" ")[0].item()
+        for i in range(len(ids)):
+            ids[i] = torch.cat((torch.full((max_length - ids[i].shape[0],), space_token), ids[i]), dim = 0)
+        ids = torch.stack(ids, dim = 0)
+
+        sequence = torch.empty((bsz, 0), dtype = torch.long, device = "cpu")
+        logits = next_logits(ids, lora)
+        for i in range(gen_len):
+            logits = logits[:, -1, :]
+            id_per_batch = torch.argmax(logits, dim=-1)
+            assert id_per_batch.shape == (bsz,), f"{id_per_batch.shape} != {(bsz,)}"
+            next_id_per_batch = id_per_batch.unsqueeze(-1)
+            sequence = torch.cat((sequence, next_id_per_batch), dim = -1)
+            logits = next_logits(next_id_per_batch, lora)
+
+        print(f"\n ** Batching sanity check: 1-{bsz - len(continuations)} should be identical. All should be reasonable for the model you're using.\n")
+        separator = tokenizer.encode("...")[0]
+        for b in range(len(ids)):
+            whole = torch.cat((ids[b], separator, sequence[b]), dim = -1)
+            text = tokenizer.decode(whole)
+            print(f" {b + 1}. {repr(text)}")
+
+        # TODO Save the logits and then rerun each prompt with a batch size of 1, same input. The logits should be identical.

@@ -13,6 +13,7 @@ void rope_cuda
     half* x,
     const half* sin,
     const half* cos,
+    const int bsz,
     const int rows,
     const int head_dim,
     const int num_heads,

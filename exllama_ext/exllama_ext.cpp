@@ -418,12 +418,12 @@ void half_matmul_cublas
 
 void q4_attn
 (
-    torch::Tensor x,                // shape == (q_len, dim)
+    torch::Tensor x,                // shape == (bsz, q_len, dim)
     torch::Tensor rms_norm_weight,  // shape == (x.shape[1],) == (dim,)
     float epsilon,
-    torch::Tensor query_states,     // shape == (q_len, dim)
-    torch::Tensor key_states,       // shape == (q_len, dim)
-    torch::Tensor value_states,     // shape == (q_len, dim)
+    torch::Tensor query_states,     // shape == (bsz, q_len, dim)
+    torch::Tensor key_states,       // shape == (bsz, q_len, dim)
+    torch::Tensor value_states,     // shape == (bsz, q_len, dim)
     uintptr_t q_proj,
     uintptr_t k_proj,
     uintptr_t v_proj,
@@ -448,7 +448,8 @@ void q4_attn
     TORCH_CHECK_DTYPE(query_states, kHalf);
     TORCH_CHECK_DTYPE(key_states, kHalf);
 
-    int dim = query_states.size(1);
+    int bsz = query_states.size(0);
+    int dim = query_states.size(2);
 
     torch::Device device = x.device();
     int device_index = device.index();
@@ -477,6 +478,7 @@ void q4_attn
         reinterpret_cast<Q4Matrix*>(v_proj),
         (half*) sin.data_ptr(),
         (half*) cos.data_ptr(),
+        bsz,
         q_len,
         dim,
         head_dim,
@@ -648,7 +650,8 @@ void rope_
     TORCH_CHECK(head_dim == cos.size(-1), "cos table does not match head_dim");
     TORCH_CHECK(head_dim == sin.size(-1), "sin table does not match head_dim");
 
-    int rows = x.numel() / head_dim;
+    int bsz = x.size(0);
+    int rows_per_batch = x.numel() / head_dim / bsz;
 
     const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
 
@@ -658,7 +661,8 @@ void rope_
         (half*) x.data_ptr(),
         (half*) sin.data_ptr(),
         (half*) cos.data_ptr(),
-        rows,
+        bsz,
+        rows_per_batch,
         head_dim,
         num_heads,
         past_len
