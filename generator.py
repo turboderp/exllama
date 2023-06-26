@@ -321,11 +321,42 @@ class ExLlamaGenerator:
 
         text = self.tokenizer.decode(self.sequence[0] if self.sequence.shape[0] == 1 else self.sequence)
         return text
+    
 
+    def generate_raw_stream_with_bias(self, prefix, logit_bias, max_new_tokens=128):
+        self.end_beam_search()
+
+        ids = prefix
+
+        self.gen_begin(ids)
+    
+        max_new_tokens = min(max_new_tokens, self.model.config.max_seq_len - ids.shape[1])
+
+        for _ in range(max_new_tokens):
+            token = self.gen_single_token(logit_bias=logit_bias)
+            yield token
+
+
+    def generate_token_with_bias(self, prefix, logit_bias, decode=True, encode=True):
+        self.end_beam_search()
+
+        if encode:
+            ids = self.tokenizer.encode(prefix)
+        else:
+            ids = prefix
+
+        self.gen_begin(ids)
+
+        token = self.gen_single_token(logit_bias=logit_bias)
+        if decode:
+            text = self.tokenizer.decode(token)
+            return text[0]
+        else:
+            return token
 
     # Generate a single token with the current settings, append to sequence
 
-    def gen_single_token(self, constraints = None):
+    def gen_single_token(self, constraints = None, logit_bias = None):
 
         self.end_beam_search()
 
@@ -343,10 +374,22 @@ class ExLlamaGenerator:
 
             logits[:, :, self.tokenizer.bos_token_id] = -10000.0
 
+            
             if constraints is not None:
 
                 for c in constraints: logits[:, :, c] += 10000.0
                 logits[:, :, :] -= 10000.0
+
+            if logit_bias is not None:
+                if isinstance(logit_bias, dict):
+                    logit_bias_tensor = torch.zeros([1, 1, self.model.config.vocab_size])
+                    for key, value in logit_bias.items():
+                        logit_bias_tensor[:, :, key] += value
+
+                else:
+                    logit_bias_tensor = logit_bias
+
+                logits = logits + logit_bias_tensor
 
             token, _ = self.batched_sample(logits,
                                            self.settings.temperature,
@@ -368,6 +411,7 @@ class ExLlamaGenerator:
 
         self.gen_accept_token(token)
         return token
+
 
 
     # Beam search
