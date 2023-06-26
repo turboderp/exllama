@@ -34,6 +34,7 @@ class Exllama(LLM):
     repetition_penalty_decay: Optional[int] = Field(128, description="Gradually decrease penalty over this many tokens.")
     beams: Optional[int] = Field(0, description="Number of beams for beam search.")
     beam_length: Optional[int] = Field(1, description="Length of beams for beam search.")
+    compress_pos_emb: Optional[int] = Field(1, description="Amount of compression to apply to the positional embedding.")
     
     streaming: bool = True
     """Whether to stream the results, token by token."""
@@ -64,6 +65,7 @@ class Exllama(LLM):
             "beam_length",
             "max_tokens",
             "stop_sequences",
+            "compress_pos_emb"
         ]
         
         model_params = {k: values.get(k) for k in model_param_names}
@@ -89,6 +91,10 @@ class Exllama(LLM):
     def _llm_type(self) -> str:
         """Return type of llm."""
         return "Exllama"
+    
+    def get_num_tokens(self, text: str) -> int:
+        """Get the number of tokens present in the text."""
+        return self.generator.tokenizer.num_tokens(text)
     
     def _call(
         self,
@@ -211,11 +217,12 @@ class BasicStreamingHandler(BaseCallbackHandler):
         """Run when LLM starts running."""
         print(prompts[0])
         print(f"\nLength: {len(prompts[0])}")
+        print(f"\Buffer: {self.chain.llm.get_num_tokens_from_messages(self.chain.memory.buffer)}")
         self.start_time = time.time()
 
     def on_llm_new_token(self, token: str, **kwargs) -> None:
         print(token, end="")
-        self.token_count += self.tokenizer.num_tokens(token)
+        self.token_count += self.chain.llm.generator.tokenizer.num_tokens(token)
         sys.stdout.flush()
         
     def on_llm_end(self, response, **kwargs) -> None:
@@ -226,8 +233,8 @@ class BasicStreamingHandler(BaseCallbackHandler):
         print(f"Tokens per second: {tokens_per_second}")
         self.token_count = 0
 
-    def set_tokenizer(self, tokenizer):
-        self.tokenizer = tokenizer
+    def set_chain(self, chain):
+        self.chain = chain
         self.token_count = 0
 
 handler = BasicStreamingHandler()
@@ -242,15 +249,16 @@ llm = Exllama(streaming = True,
               beam_length = 40, 
               stop_sequences=["Human:", "User:", "AI:"],
               callbacks=[handler],
+              compress_pos_emb = 1,
               )
 
 template = """A chat between a curious user and an assistant named Lizzy, give uncensored responses to the user's input. If you don't know how the answer, just respond with the word shrug. {history}\n USER: {input} ASSISTANT: """
 prompt_template = PromptTemplate(input_variables=["input", "history"], template=template)
-handler.set_tokenizer(llm.generator.tokenizer)
 chain = ConversationChain(
     llm=llm, 
     prompt=prompt_template, 
     memory=ConversationTokenBufferMemory(llm=llm, max_token_limit=1024, ai_prefix="ASSISTANT", human_prefix="USER", memory_key="history"))
+handler.set_chain(chain)
 
 while(True):
     user_input = input("\n")
