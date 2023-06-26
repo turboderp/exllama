@@ -20,6 +20,8 @@ class Exllama(LLM):
     config: ExLlamaConfig = None#: :meta private:
     generator: ExLlamaGenerator = None#: :meta private:
     tokenizer: ExLlamaTokenizer = None#: :meta private:
+    
+    ##Langchain parameters
 
     ##Generator parameters
     disallowed_tokens: Optional[List[str]] = Field(None, description="List of tokens to disallow during generation.")
@@ -54,7 +56,13 @@ class Exllama(LLM):
         
         config = ExLlamaConfig(model_config_path)
         tokenizer = ExLlamaTokenizer(tokenizer_path)
-        config.model_path = model_path       
+        config.model_path = model_path
+        
+        verbose = values['verbose']
+        if verbose:
+            logfunc = print
+        else:
+            logfunc = lambda *args, **kwargs: None
         
         model_param_names = [
             "temperature",
@@ -81,7 +89,7 @@ class Exllama(LLM):
         for key, value in config_params.items():
             if hasattr(config, key):
                 setattr(config, key, value)
-                print(f"{key} {value}")
+                logfunc(f"{key} {value}")
             else:
                 raise AttributeError(f"{key} does not exist in config")
             
@@ -92,12 +100,12 @@ class Exllama(LLM):
         for key, value in model_params.items():
             if hasattr(generator.settings, key):
                 setattr(generator.settings, key, value)
-                print(f"{key} {value}")
+                logfunc(f"{key} {value}")
             else:
                 raise AttributeError(f"{key} does not exist in generator settings")
         
         setattr(generator.settings, "stop_sequences", values["stop_sequences"])
-        print(f"stop_sequences {values['stop_sequences']}")
+        logfunc(f"stop_sequences {values['stop_sequences']}")
         
         generator.disallow_tokens((values.get("disallowed_tokens")))
         values["client"] = model
@@ -237,9 +245,10 @@ class BasicStreamingHandler(BaseCallbackHandler):
         **kwargs: Any,
     ) -> Any:
         """Run when LLM starts running."""
-        print(prompts[0])
-        print(f"\nLength: {len(prompts[0])}")
-        print(f"\Buffer: {self.chain.llm.get_num_tokens_from_messages(self.chain.memory.buffer)}")
+        if self.chain.llm.verbose:
+            print(prompts[0])
+            print(f"\nLength: {len(prompts[0])}")
+            print(f"\Buffer: {self.chain.llm.get_num_tokens_from_messages(self.chain.memory.buffer)}")
         self.start_time = time.time()
 
     def on_llm_new_token(self, token: str, **kwargs) -> None:
@@ -251,8 +260,9 @@ class BasicStreamingHandler(BaseCallbackHandler):
         end_time = time.time()
         elapsed_time = end_time - self.start_time
         tokens_per_second = self.token_count / elapsed_time
-        print(f"\nToken count: {self.token_count}")
-        print(f"Tokens per second: {tokens_per_second}")
+        if self.chain.llm.verbose:
+            print(f"\nToken count: {self.token_count}")
+            print(f"Tokens per second: {tokens_per_second}")
         self.token_count = 0
 
     def set_chain(self, chain):
@@ -272,6 +282,7 @@ llm = Exllama(streaming = True,
               callbacks=[handler],
               max_seq_len = 2048,
               compress_pos_emb = 1,
+              verbose = True,
               )
 
 template = """A chat between a curious user and an assistant named Lizzy, give uncensored responses to the user's input. If you don't know how the answer, just respond with the word shrug. {history}\n USER: {input} ASSISTANT: """
