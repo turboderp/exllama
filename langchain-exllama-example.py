@@ -22,6 +22,7 @@ class Exllama(LLM):
     tokenizer: ExLlamaTokenizer = None#: :meta private:
     
     ##Langchain parameters
+    logfunc = print
 
     ##Generator parameters
     disallowed_tokens: Optional[List[str]] = Field(None, description="List of tokens to disallow during generation.")
@@ -59,10 +60,9 @@ class Exllama(LLM):
         config.model_path = model_path
         
         verbose = values['verbose']
-        if verbose:
-            logfunc = print
-        else:
-            logfunc = lambda *args, **kwargs: None
+        if not verbose:
+            values['logfunc'] = lambda *args, **kwargs: None
+        logfunc = values['logfunc']
         
         model_param_names = [
             "temperature",
@@ -245,10 +245,9 @@ class BasicStreamingHandler(BaseCallbackHandler):
         **kwargs: Any,
     ) -> Any:
         """Run when LLM starts running."""
-        if self.chain.llm.verbose:
-            print(prompts[0])
-            print(f"\nLength: {len(prompts[0])}")
-            print(f"\Buffer: {self.chain.llm.get_num_tokens_from_messages(self.chain.memory.buffer)}")
+        self.logfunc(prompts[0])
+        self.logfunc(f"\nLength: {len(prompts[0])}")
+        self.logfunc(f"Buffer: {self.chain.llm.get_num_tokens_from_messages(self.chain.memory.buffer)}")
         self.start_time = time.time()
 
     def on_llm_new_token(self, token: str, **kwargs) -> None:
@@ -260,14 +259,14 @@ class BasicStreamingHandler(BaseCallbackHandler):
         end_time = time.time()
         elapsed_time = end_time - self.start_time
         tokens_per_second = self.token_count / elapsed_time
-        if self.chain.llm.verbose:
-            print(f"\nToken count: {self.token_count}")
-            print(f"Tokens per second: {tokens_per_second}")
+        self.logfunc(f"\nToken count: {self.token_count}")
+        self.logfunc(f"Tokens per second: {tokens_per_second}")
         self.token_count = 0
 
     def set_chain(self, chain):
         self.chain = chain
         self.token_count = 0
+        self.logfunc = self.chain.llm.logfunc
 
 handler = BasicStreamingHandler()
 llm = Exllama(streaming = True,
