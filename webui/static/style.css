@@ -1,6 +1,4 @@
 :root {
-    --sessions_column_width: 240px;
-    --control_column_width: 400px;
     --font-size-large: 16px;
     --font-size-medium: 14px;
     --font-size-small: 12px;
@@ -23,7 +21,6 @@
     --sessions-new-back-color: rgb(44, 44, 44);
     --sessions-new-back-color-h: rgb(52, 52, 52);
     --sessions-new-text-color: rgba(255, 255, 255, 0.4);
-    --sessions-current-back-color: rgb(56, 56, 72);
     --sessions-current-back-color-h: rgb(68, 68, 90);
     --sessions-current-text-color: rgba(255, 255, 255, 1);
     --sessions-current-back-color-b: rgba(128, 128, 150, 0.50);
@@ -51,10 +48,11 @@ body {
     margin: 10px;
     display: flex;
     justify-content: center;
-    align-items: center;
     height: calc(100vh - 20px);
     width: calc(100vw - 20px);
     background-color: var(--background-color);
+    overflow: hidden;
+    position: absolute;
 }
 
 .name {
@@ -63,6 +61,7 @@ body {
     color: var(--chat-name-color);
     font-weight: bold;
     margin-bottom: 7px;
+    font-size: 1em;
 }
 
 .text {
@@ -80,10 +79,10 @@ body {
     border-radius: 3px;
     border: 1px solid var(--sessions-back-color-b);
     margin-top: 10px;
-    margin-left: 10px;
     padding-left: 10px;
     height: 44px;
     min-height: 44px;
+    line-height: 44px;
     background-color: var(--sessions-back-color);
     color: var(--sessions-text-color);
     box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.3);
@@ -113,6 +112,13 @@ body {
     background-color: var(--sessions-new-back-color);
     color: var(--sessions-new-text-color);
     font-weight: bold;
+    font-size: 30px;
+    width: 44px;
+    padding: 0;
+    text-align: center;
+}
+.session p {
+    margin: 0;
 }
 
 .session_new:hover {
@@ -126,7 +132,6 @@ body {
 
 .session_current {
     border: 2px solid var(--sessions-current-back-color-b);
-    background-color: var(--sessions-current-back-color);
     color: var(--sessions-current-text-color);
     font-weight: bold;
 }
@@ -171,44 +176,64 @@ svg:hover {
 #chat-container {
     display: flex;
     flex-direction: row;
-    height: 100%;
+    height: 90%;
+    width: 100%;
     padding-top: 10px;
     padding-bottom: 10px;
+    box-sizing: border-box;
 }
 
 #chat-column {
     display: flex;
     flex-direction: column;
-    width: calc(100vw - var(--sessions_column_width) - var(--control_column_width));
+    flex-grow: 1;
     height: 100%;
+    position: relative;
 }
 
 #control-column {
-    width: var(--control_column_width);
-    display: flex;
+    width: 300px;
+    min-width: 300px;
     flex-direction: column;
-    overflow-y: auto;
+    padding-left: 10px;
+    padding-right: 10px;
 }
 
 #sessions-column {
-    width: calc(var(--sessions_column_width) - 20px);
+    width: 240px;
+    min-width: 240px;
     display: flex;
     flex-direction: column;
     overflow-y: auto;
-    border-radius: 10px;
-    padding-left: 10px;
     padding-right: 10px;
+}
+#controls, #sessions
+{
+    overflow-y: auto;
+    max-height: calc(100% - 74px);
+    padding-bottom: 20px;
+    margin-top: 10px;
+}
+#sessions-column.hidden, #control-column.hidden {
+    width: 44px;
+    min-width: 44px;
+}
+#sessions-column.hidden #sessions, #control-column.hidden #controls {
+    display: none;
 }
 
 #sessions-box {
     width: calc(100% - 20px);
 }
 
+.session
+{
+    overflow: hidden;
+}
+
 #chatbox {
     padding-left: 10px;
     padding-right: 10px;
-    width: calc(100% - 20px);
-    height: calc(100% - 40px);
     overflow-y: auto;
     background-color: --background-color;
 }
@@ -220,7 +245,6 @@ svg:hover {
     border: 1px solid var(--chat-back-color-b);
     line-height: 1.4;
     position: relative;
-    background-color: var(--chat-back-color);
     box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.3);
     overflow-y: auto;
 }
@@ -241,8 +265,37 @@ svg:hover {
     padding-right: 10px;
     width: calc(100% - 20px);
     display: flex;
-    position: relative;
+    position: fixed;
+    bottom: 0;
     justify-content: space-between;
+    left: 0;
+    background-color: var(--background-color);
+    height:10%;
+    padding: 10px;
+}
+
+#chat-input-form .buttons {
+    display: flex;
+    align-content: center;
+    justify-content: center;
+    flex-direction: column;
+    min-width: 140px;
+    padding: 0px 10px;
+}
+
+#chat-input-form button {
+    width: 100%;
+    height: 30px;
+    background-color: var(--sessions-back-color);
+    color: var(--sessions-text-color);
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--sessions-back-color-b);
+    cursor: pointer;
+    margin: 5px 0px;
+}
+
+#chat-input-form button:hover {
+    text-decoration: underline;
 }
 
 #user-input {
@@ -255,8 +308,10 @@ svg:hover {
     border-radius: 3px;
     background-color: var(--input-field-color);
     color: var(--chat-text-color);
-    max-height: 200px;
-    min-height: 24px;
+    max-height: 100%;
+    min-height: 100%;
+    resize: none;
+    box-sizing: border-box;
     overflow-y: auto;
     box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.3);
 }
@@ -292,8 +347,7 @@ svg:hover {
     border: 1px solid var(--controls-frame-back-color-b);
     background-color: var(--controls-frame-back-color);
     border-radius: 3px;
-    margin: 10px;
-    margin-right: 20px;
+    margin-top: 10px;
     display: flex;
     flex-direction: column;
     box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.3);
@@ -323,6 +377,7 @@ svg:hover {
 .controls-frame .contents {
     padding: 10px;
     padding-top: 0px;
+    position: relative;
 }
 
 .controls-frame .textfield {
@@ -335,24 +390,18 @@ svg:hover {
     height: 280px;
     min-height: 150px;
     max-height: 500px;
-    width: calc(var(--control_column_width) - 74px);
-    min-width: calc(var(--control_column_width) - 74px);
-    max-width: calc(var(--control_column_width) - 74px);
+    max-width: 100%;
+    min-width: 100%;
+    box-sizing: border-box;
 }
 
-.controls-frame .textfield_info {
+.controls-frame .textfield.info {
     font-size: var(--font-size-small);
-    padding: 10px;
     background-color: var(--background-dark-color);
     border: 1px solid var(--input-field-color-b);
-    border-radius: 3px;
     color: var(--infotext-color);
-    height: 280px;
-    min-height: 40px;
-    max-height: 40px;
-    width: calc(var(--control_column_width) - 74px);
-    min-width: calc(var(--control_column_width) - 74px);
-    max-width: calc(var(--control_column_width) - 74px);
+    min-height: 50px;
+    max-height: 50px;
 }
 
 
@@ -436,7 +485,7 @@ svg:hover {
     font-size: var(--font-size-medium);
     color: var(--controls-frame-header-text-color);
     margin-right: 20px;
-    width: 90px;
+    width: 40px;
 }
 
 .custom-textbox input {
@@ -463,6 +512,7 @@ svg:hover {
     color: var(--controls-frame-header-text-color);
     margin-right: 0px;
     margin-left: 10px;
+    white-space: nowrap;
 }
 
 .custom-textbox-rlabel:hover {
@@ -489,7 +539,7 @@ svg:hover {
 }
 
 .custom-slider .custom-slider-sl {
-    width: 150px;
+    max-width: 150px;
 }
 
 .custom-slider .custom-slider-tb {
@@ -570,7 +620,35 @@ input[type=range]::-moz-range-thumb {
 input[type=range]:hover::-moz-range-track {
    /* background: var(--slider-hover-color);*/
 }
+#clr_session_color input[type=color] {
+    height: 20px;
+    width: 20px;
+    margin-right: 5px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    box-shadow: 1px 1px 1px #000000, 0px 0px 1px #0d0d0d;
+}
 
+.toggle-column-size-button
+{
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--sessions-back-color-b);
+    background-color: var(--sessions-back-color);
+    color: var(--sessions-text-color);
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.3);
+}
+.toggle-column-size-button.right-aligned
+{
+    margin-left: auto;
+    margin-right: 0;
+}
+.toggle-column-size-button:hover
+{
+    cursor: pointer;
+    background-color: #888;
+}
 
 
 ::-webkit-scrollbar {

@@ -1,12 +1,18 @@
 var participants = [];
-var chat_colors = [ "#343434",
-                    "#383848",
-                    "#374a48",
-                    "#4a373d",
-                    "#374a3d",
-                    "#57503b",
-                    "#3e2845",
-                    "#452927" ]
+[ 
+    "#343434",
+    "#383848",
+    "#374a48",
+    "#4a373d",
+    "#374a3d",
+    "#57503b",
+    "#3e2845",
+    "#452927" 
+].forEach((color, index) =>
+{
+    document.documentElement.style.setProperty('--chat-back-color-' + index, hexToRgb(color));
+});
+
 
 var textbox_initial = "";
 
@@ -61,11 +67,14 @@ function sendGenSettings() {
     json.max_response_tokens = getTBNumber("sl_maxtokens_tb");
     json.gen_endnewline = document.querySelector("#cb_gen_endnewline input").checked;
 
+    json.format_use_italic = document.querySelector("#cb_use_italic input").checked;
+    json.format_use_bold = document.querySelector("#cb_use_bold input").checked;
+    json.session_color = document.querySelector("#clr_session_color input").value;
+
     json.token_repetition_penalty_max = getTBNumber("sl_repp_penalty_tb");
     json.token_repetition_penalty_sustain = getTBNumber("sl_repp_sustain_tb");
     json.token_repetition_penalty_decay = getTBNumber("sl_repp_decay_tb");
 
-    console.log(json);
     send("/api/set_gen_settings", json);
 }
 
@@ -88,6 +97,12 @@ function setSlider(id, value) {
         tb.value = value.toFixed(decimals);
         tb.style.opacity = 1;
     }
+}
+
+function setCheckbox(id, value)
+{
+    let checkbox = document.querySelector('#' + id + ' input');
+    checkbox.checked = value;
 }
 
 function sliderChanged(slider) {
@@ -143,6 +158,16 @@ function createSlider(text, id, min, max, actualmax, decimals, text0 = null) {
     return newDiv;
 }
 
+function createCheckbox(text, id, value, onchanged = 'sendGenSettings()') {
+
+    let newDiv = document.createElement('label');
+    newDiv.className = 'custom-checkbox no-select';
+    newDiv.id = id;
+    newDiv.innerHTML = '<input type="checkbox" hidden onchange="' + onchanged + '" ' + (value ? 'checked' : '') + '/><span class="checkbox-container"></span><span class="label-text">' + text + '</span>';
+
+    return newDiv;
+}
+
 function createGenSettings() {
 
     // Sampling
@@ -168,6 +193,10 @@ function createGenSettings() {
     setSlider("sl_topk", 40);
     setSlider("sl_typical", 0);
 
+    // Context
+
+    document.getElementById("context-settings").appendChild(createCheckbox("Keep context", 'cb_keep_fixed_prompt', false, 'sendFixedPromptSettings()'));
+
     // Stop conditions
 
     let stopDiv = document.getElementById("stop_settings");
@@ -182,7 +211,7 @@ function createGenSettings() {
     setSlider("sl_maxtokens", 512);
     setSlider("sl_chunksize", 128);
 
-    document.getElementById("cb_gen_endnewline").addEventListener('change', sendGenSettings);
+    stopDiv.appendChild(createCheckbox("End on newline", 'cb_gen_endnewline', false));
 
     // Repetition penalty
 
@@ -201,6 +230,12 @@ function createGenSettings() {
     setSlider("sl_repp_sustain", 1024);
     setSlider("sl_repp_decay", 512);
 
+    // Formatting settings
+    let formatDiv = document.getElementById("format_settings");
+    formatDiv.innerHTML = "";
+
+    formatDiv.appendChild(createCheckbox("Use italic", 'cb_use_italic', false));
+    formatDiv.appendChild(createCheckbox("Use bold", 'cb_use_bold', false));
 }
 
 // Populate view
@@ -222,7 +257,10 @@ function populate() {
 
                 let newDiv = document.createElement('div');
                 if (sessions[i] == current_session)
+                {
                     newDiv.className = 'session session_current no-select';
+                    newDiv.style.background = 'var(--chat-back-color-1)';
+                }
                 else
                     newDiv.className = 'session no-select';
 
@@ -241,15 +279,15 @@ function populate() {
                     icon.addEventListener('click', function() { makeEditable(this.parentNode, renameSession) });
                 }
 
-                document.getElementById('sessions-column').appendChild(newDiv);
+                document.getElementById('sessions').appendChild(newDiv);
             }
 
             let newDiv = document.createElement('div');
             newDiv.className = 'session session_new no-select';
             newDiv.id = "session-button-new";
-            newDiv.innerHTML = '<p>+ New...</p>';
+            newDiv.innerHTML = '<p>+</p>';
             newDiv.addEventListener('click', function() { setSession("."); });
-            document.getElementById('sessions-column').appendChild(newDiv);
+            document.getElementById('sessions').appendChild(newDiv);
 
             // Model info
 
@@ -262,9 +300,7 @@ function populate() {
             tf_fixed_prompt.value = data.fixed_prompt;
             addTextboxEvents(tf_fixed_prompt, sendFixedPromptSettings);
 
-            let cb_keep_fixed_prompt = document.querySelector("#cb_keep_fixed_prompt input")
-            cb_keep_fixed_prompt.checked = data.keep_fixed_prompt;
-            cb_keep_fixed_prompt.addEventListener('change', sendFixedPromptSettings);
+            setCheckbox('cb_keep_fixed_prompt', data.keep_fixed_prompt);
 
             // Generator settings
 
@@ -279,8 +315,7 @@ function populate() {
             setSlider("sl_maxtokens", data.max_response_tokens);
             setSlider("sl_chunksize", data.chunk_size);
 
-            let cb_gen_endnewline = document.querySelector("#cb_gen_endnewline input")
-            cb_gen_endnewline.checked = data.break_on_newline;
+            setCheckbox('cb_gen_endnewline', data.break_on_newline);
 
             // Repetition penalty
 
@@ -292,6 +327,13 @@ function populate() {
 
             participants = data.participants;
             updateParticipants();
+
+            // Formatting
+            setCheckbox('cb_use_italic', data.format_use_italic);
+            setCheckbox('cb_use_bold', data.format_use_bold);
+            document.querySelector('#clr_session_color input').value = data.session_color;
+            document.documentElement.style.setProperty('--chat-back-color-1', hexToRgb(data.session_color));
+            formatter.updateTagSearcher();
 
             // Chat data
 
@@ -319,7 +361,7 @@ function populate() {
 
         })
         .catch((error) => {
-          console.error('Error:', error);
+          console.error('Error: ', error, '\n', error.stack);
         });
 }
 
@@ -335,10 +377,26 @@ function editChatBlock(div, value) {
 
 function deleteChatBlock(uuid, div) {
 
+    let nextChild = div.nextElementSibling;
+    while (nextChild) {
+        nextChild.remove();
+        nextChild = div.nextElementSibling;
+    }
     div.remove();
     send("/api/delete_block", { uuid: uuid }, null, null);
+}
 
-    $("#user-input").focus();
+function regenChatBlock(uuid, div) {
+
+    let nextChild = div.nextElementSibling;
+    while (nextChild) {
+        nextChild.remove();
+        nextChild = div.nextElementSibling;
+    }
+    div.previousElementSibling.remove();
+    div.remove();
+
+    handleOutput("/api/regen_block", { uuid: uuid });
 }
 
 // Delete session
@@ -347,7 +405,6 @@ function deleteSession(session_name, div) {
 
     div.parentNode.remove();
     send("/api/delete_session", { session: session_name }, null, null);
-
 }
 
 // Rename session
@@ -357,7 +414,6 @@ function renameSession(div, value) {
     send("/api/rename_session", { new_name: value.trim() }, null, function() {
         div.firstElementChild.textContent = textbox_initial;
     } );
-
 }
 
 // Fixed prompt settings
@@ -402,7 +458,8 @@ function updateParticipants() {
             let remDiv = document.createElement('div');
             remDiv.id = "remove_participant_" + i;
             remDiv.className = 'custom-textbox-rlabel no-select';
-            remDiv.innerHTML = "✕ Remove";
+            remDiv.innerHTML = "✕";
+            remDiv.title = 'Remove';
             remDiv.addEventListener('click', function() { removeParticipant(remDiv.id); });
             newDiv.appendChild(remDiv);
         }
@@ -658,6 +715,45 @@ function setSession(name) {
 
 // Handle text input
 
+function handleOutput(url, data)
+{
+    let timeout = new Promise((resolve, reject) => {
+        let id = setTimeout(() => {
+            clearTimeout(id);
+            reject('No response from server')
+        }, 10000)
+    })
+
+    // Fetch request
+
+    let fetchRequest = fetch(url, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data)
+    });
+
+    // Pass input to server and setup response reader
+
+    Promise.race([fetchRequest, timeout])
+        .then(response => {
+            if (response.ok) {
+                return response.body;
+            } else {
+                appendErrorMessage("Network response was not ok");
+                throw new Error("Network response was not ok.");
+            }
+        })
+        .then(body => {
+            processStream(body);
+        })
+        .catch(error => {
+            appendErrorMessage("Error: " + error);
+            console.error('Error:', error);
+        });
+}
+
 $(document).ready(function() {
     $("#chat-input-form").on('submit', function(e) {
 
@@ -669,45 +765,15 @@ $(document).ready(function() {
         $("#user-input").prop("disabled", true);
         $("#user-input").attr('placeholder', '...');
 
-        // Timeout
-
-        let timeout = new Promise((resolve, reject) => {
-            let id = setTimeout(() => {
-                clearTimeout(id);
-                reject('No response from server')
-            }, 10000)
-        })
-
-        // Fetch request
-
-        let fetchRequest = fetch("/api/userinput", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ user_input: userInput })
-        });
-
-        // Pass input to server and setup response reader
-
-        Promise.race([fetchRequest, timeout])
-            .then(response => {
-                if (response.ok) {
-                    return response.body;
-                } else {
-                    appendErrorMessage("Network response was not ok");
-                    throw new Error("Network response was not ok.");
-                }
-            })
-            .then(body => {
-                processStream(body);
-            })
-            .catch(error => {
-                appendErrorMessage("Error: " + error);
-                console.error('Error:', error);
-            });
-
+        handleOutput("/api/userinput", { user_input: userInput});
     });
+});
+
+$("#user-send").click(() => $("#chat-input-form").submit());
+$("#user-continue").click(() => handleOutput("/api/continue_gen", {}));
+$("#user-regen-last").click(function(){
+    var div = document.getElementById("chatbox").lastElementChild;
+    regenChatBlock(div.dataset.uuid, div);
 });
 
 // Read stream
@@ -725,7 +791,6 @@ function processStream(stream) {
             // console.log("Stream complete");
             $("#user-input").prop("disabled", false);
             $("#user-input").attr('placeholder', 'Type here...');
-            $("#user-input").focus();
             return;
         }
 
@@ -748,19 +813,85 @@ function processStream(stream) {
     });
 }
 
+
+var formatter = new (function()
+{
+    let tagSearcher = this.tagSearcher = { 'br': /\n/ };
+    
+    let useItalicToggle = $('#cb_use_italic input');
+    let useBoldToggle = $('#cb_use_bold input');
+    Object.defineProperty(this, 'useItalic', { get(){ return ; } });
+    Object.defineProperty(this, 'useBold', { get(){ return useBoldToggle.prop('checked'); } });
+
+    let updateTagSearcher = this.updateTagSearcher = function()
+    {
+        if (!useItalicToggle.prop('checked'))
+            delete tagSearcher['i'];
+        else
+            tagSearcher['i'] = /(\\?\*){1}/;
+        if (!useBoldToggle.prop('checked'))
+            delete tagSearcher['b'];
+        else
+            tagSearcher['b'] = /(\\?\*){2}/;
+    }
+    let updateFormatting = function()
+    {
+        updateTagSearcher();
+        $('#chatbox .text').each(function()
+        {
+            let node = $(this);
+            node.text(' ');
+            appendWithLineBreaks(this.lastChild, this.parentNode.dataset.text);
+        });
+    }
+    useItalicToggle.on('change', updateFormatting);
+    useBoldToggle.on('change', updateFormatting);
+})();
+
 function appendWithLineBreaks(currentNode, text)
 {
-    var textChunks = text.split("\n");
-    for (var i = 0; i < textChunks.length - 1; i++) {
-        currentNode.textContent += textChunks[i];
-        let br = document.createElement('br');
-        currentNode.parentNode.appendChild(br);
-        newNode = document.createTextNode('');
-        currentNode.parentNode.appendChild(newNode);
-        currentNode = newNode;
+    var parent = currentNode.parentNode;
+    var html = parent.innerHTML;
+    
+    let italicOpen = false, boldOpen = false;
+    while (true)
+    {
+        let searchResults = [];
+        Object.keys(formatter.tagSearcher).forEach((key) =>
+        {
+            let match = formatter.tagSearcher[key].exec(text);
+            if (match) {
+                searchResults.push({
+                    tag: key,
+                    start: match.index,
+                    end: match.index + match[0].length
+                });
+            }
+        });
+          
+        searchResults.sort((a, b) => a.start - b.start);
+        let nearestResult = searchResults[0];
+        if (nearestResult === undefined) break;
+        
+        html += document.createTextNode(text.substring(0, nearestResult.start)).textContent;
+        switch(nearestResult.tag)
+        {
+            case 'br': html += '<br>'; break;
+            case 'i': 
+                html += italicOpen ? '</i>' : '<i>';
+                italicOpen = !italicOpen;
+                break;
+            case 'b': 
+                html += boldOpen ? '</b>' : '<b>';
+                boldOpen = !boldOpen;
+                break;
+        }
+        text = text.substring(nearestResult.end);
     }
-    currentNode.textContent += textChunks[textChunks.length - 1];
-    return currentNode;
+    
+    parent.innerHTML = html;
+    if (text.length > 0) parent.appendChild(document.createTextNode(text));
+    return parent.lastChild;
 }
 
 function rewindWithLineBreaks(currentNode, chars)
@@ -803,6 +934,7 @@ function newChatBlock(header, text, idx, uuid)
 
     var div = document.getElementById("chatbox").lastElementChild;
     div.dataset.uuid = uuid;
+    div.dataset.text = text;
 
     var icon = addIcon(div, "pencil-icon");
     icon.addEventListener('click', function() { makeEditable(this.parentNode, editChatBlock, true, xmode) });
@@ -810,10 +942,19 @@ function newChatBlock(header, text, idx, uuid)
     icon = addIcon(div, "delete-icon", 34);
     icon.addEventListener('click', function() { deleteChatBlock(uuid, div) });
 
+    var isUser = header != null && header.includes(document.getElementById("tb_participant_0").value);
+    var textNode = $(".text:last");
+    if (!isUser)
+    {
+        icon = addIcon(div, "regen-icon", 68);
+        icon.addEventListener('click', function() { regenChatBlock(uuid, div) });
+    }
+    div.style.background = 'var(--chat-back-color-' + (isUser ? 0 : 1) + ')';
+
     currentNode = document.createTextNode('');
-    $(".text:last").append(currentNode);
-    currentNode = appendWithLineBreaks(currentNode, text);
-    $(".text:last").parent().css('background-color', chat_colors[idx]);
+    textNode.append(currentNode);
+    if (text.length > 0)
+        currentNode = appendWithLineBreaks(currentNode, text);
 
     return currentNode;
 }
@@ -853,7 +994,8 @@ function processItem(data) {
         case "append": {
             let bottom = isAtBottom();
             text = data.text;
-            currentNode = appendWithLineBreaks(currentNode, text);
+            currentNode.parentNode.parentNode.dataset.text += text;
+            currentNode = appendWithLineBreaks(currentNode, text, true);
             if (bottom) scrollToBottom();
             break;
         }
@@ -948,4 +1090,33 @@ function checkScroll() {
     else $gradient_bot.show();
 
     updateGradientPosition();
+}
+
+var sessionsColumn = $('#sessions-column');
+$('#toggle-session-column').click(() => {
+    sessionsColumn.toggleClass('hidden');
+    $('#toggle-session-column').text(sessionsColumn.hasClass('hidden') ? '▶' : '◀');
+});
+
+var controlColumn = $('#control-column');
+$('#toggle-control-column').click(() => {
+    controlColumn.toggleClass('hidden');
+    $('#toggle-control-column').text(controlColumn.hasClass('hidden') ? '◀' : '▶');
+});
+
+$('#clr_session_color input').on('change', function()
+{
+    document.documentElement.style.setProperty('--chat-back-color-1', hexToRgb(this.value));
+    sendGenSettings();
+});
+
+function hexToRgb(hex, opacity = 0.3) {
+    // Expand shorthand form (e.g. "03F") to full form (e.g. "0033FF")
+    var shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
+    hex = hex.replace(shorthandRegex, function(m, r, g, b) {
+      return r + r + g + g + b + b;
+    });
+  
+    var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? `rgba(${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}, ${opacity})` : '';
 }

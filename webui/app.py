@@ -15,6 +15,7 @@ from waitress import serve
 
 app = Flask(__name__)
 app.static_folder = 'static'
+app.config['TEMPLATES_AUTO_RELOAD'] = True
 generate_lock = Lock()
 session: Session
 
@@ -45,7 +46,7 @@ def api_edit_block():
 @app.route("/api/delete_block", methods=['POST'])
 def api_delete_block():
     global session
-    data = request.get_json()
+    data = request.get_json()['uuid']
     session.api_delete_block(data)
     return json.dumps({"result": "ok"}) + "\n"
 
@@ -116,6 +117,21 @@ def api_userinput():
 
     with generate_lock:
         result = Response(stream_with_context(session.respond_multi(user_input)), mimetype = 'application/json')
+        return result
+    
+@app.route("/api/continue_gen", methods=['POST'])
+def api_continue_gen():
+    with generate_lock:
+        result = Response(stream_with_context(session.respond_multi('')), mimetype = 'application/json')
+        return result
+    
+@app.route("/api/regen_block", methods=['POST'])
+def api_regen():
+    global session
+    uuid = request.get_json()['uuid'];
+
+    with generate_lock:
+        result = Response(stream_with_context(session.regen_at(uuid)), mimetype = 'application/json')
         return result
 
 @app.route("/api/append_block", methods=['POST'])
