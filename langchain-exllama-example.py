@@ -21,20 +21,24 @@ class Exllama(LLM):
     generator: ExLlamaGenerator = None#: :meta private:
     tokenizer: ExLlamaTokenizer = None#: :meta private:
 
+    ##Generator parameters
     disallowed_tokens: Optional[List[str]] = Field(None, description="List of tokens to disallow during generation.")
     stop_sequences: Optional[List[str]] = Field("", description="Sequences that immediately will stop the generator.")
-    max_tokens: Optional[int] = Field(200, description="The maximum number of generated tokens.")
     temperature: Optional[float] = Field(0.95, description="Temperature for sampling diversity.")
     top_k: Optional[int] = Field(40, description="Consider the most probable top_k samples, 0 to disable top_k sampling.")
     top_p: Optional[float] = Field(0.65, description="Consider tokens up to a cumulative probabiltiy of top_p, 0.0 to disable top_p sampling.")
     min_p: Optional[float] = Field(0.0, description="Do not consider tokens with probability less than this.")
     typical: Optional[float] = Field(0.0, description="Locally typical sampling threshold, 0.0 to disable typical sampling.")
-    repetition_penalty_max: Optional[float] = Field(1.15, description="Repetition penalty for most recent tokens.")
-    repetition_penalty_sustain: Optional[int] = Field(256, description="No. most recent tokens to repeat penalty for, -1 to apply to whole context.")
-    repetition_penalty_decay: Optional[int] = Field(128, description="Gradually decrease penalty over this many tokens.")
+    token_repetition_penalty_max: Optional[float] = Field(1.15, description="Repetition penalty for most recent tokens.")
+    token_repetition_penalty_sustain: Optional[int] = Field(256, description="No. most recent tokens to repeat penalty for, -1 to apply to whole context.")
+    token_repetition_penalty_decay: Optional[int] = Field(128, description="Gradually decrease penalty over this many tokens.")
     beams: Optional[int] = Field(0, description="Number of beams for beam search.")
     beam_length: Optional[int] = Field(1, description="Length of beams for beam search.")
+    
+    ##Config overrides
+    max_seq_len: Optional[int] = Field(2048, decription="The maximum sequence length.")
     compress_pos_emb: Optional[int] = Field(1, description="Amount of compression to apply to the positional embedding.")
+    fused_attn: Optional[bool] = Field(False, description="Use fused attention?")
     
     streaming: bool = True
     """Whether to stream the results, token by token."""
@@ -58,25 +62,43 @@ class Exllama(LLM):
             "top_p",
             "min_p",
             "typical",
-            "repetition_penalty_max",
-            "repetition_penalty_sustain",
-            "repetition_penalty_decay",
+            "token_repetition_penalty_max",
+            "token_repetition_penalty_sustain",
+            "token_repetition_penalty_decay",
             "beams",
             "beam_length",
-            "max_tokens",
-            "stop_sequences",
-            "compress_pos_emb"
+        ]
+        
+        config_param_names = [
+            "max_seq_len",
+            "compress_pos_emb",
+            "fused_attn",
         ]
         
         model_params = {k: values.get(k) for k in model_param_names}
+        config_params = {k: values.get(k) for k in config_param_names}
         
+        for key, value in config_params.items():
+            if hasattr(config, key):
+                setattr(config, key, value)
+                print(f"{key} {value}")
+            else:
+                raise AttributeError(f"{key} does not exist in config")
+            
         model = ExLlama(config)
         exllama_cache = ExLlamaCache(model)
         generator = ExLlamaGenerator(model, tokenizer, exllama_cache)
 
         for key, value in model_params.items():
-            setattr(generator.settings, key, value)
-            
+            if hasattr(generator.settings, key):
+                setattr(generator.settings, key, value)
+                print(f"{key} {value}")
+            else:
+                raise AttributeError(f"{key} does not exist in generator settings")
+        
+        setattr(generator.settings, "stop_sequences", values["stop_sequences"])
+        print(f"stop_sequences {values['stop_sequences']}")
+        
         generator.disallow_tokens((values.get("disallowed_tokens")))
         values["client"] = model
         values["generator"] = generator
@@ -109,7 +131,7 @@ class Exllama(LLM):
                 combined_text_output += token
             return combined_text_output
         else:
-            return self.generator.generate_simple(prompt=prompt, max_new_tokens=self.max_tokens)
+            return self.generator.generate_simple(prompt=prompt, max_new_tokens=self.max_seq_len)
     
     from enum import Enum
 
@@ -155,7 +177,7 @@ class Exllama(LLM):
         cursor_head = response_start
         
         token_count = 0
-        while(token_count < (self.max_tokens - 4)): #Slight extra padding space as we seem to occassionally get a few more than 1-2 tokens
+        while(token_count < (self.max_seq_len - 4)): #Slight extra padding space as we seem to occassionally get a few more than 1-2 tokens
             #Fetch a token
             token = token_getter()
             
@@ -244,11 +266,11 @@ llm = Exllama(streaming = True,
               top_k = 50, 
               top_p = 0.9, 
               typical = 0.7,
-              max_tokens = 1024, 
-              beams = 1, 
-              beam_length = 40, 
+              #beams = 1, 
+              #beam_length = 40, 
               stop_sequences=["Human:", "User:", "AI:"],
               callbacks=[handler],
+              max_seq_len = 2048,
               compress_pos_emb = 1,
               )
 
