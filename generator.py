@@ -4,6 +4,8 @@ from lora import ExLlamaLora
 import torch
 import torch.nn.functional as F
 
+DEFAULT_MAX_CHUNK = 2048
+
 class ExLlamaGenerator:
 
     class Settings:
@@ -59,11 +61,27 @@ class ExLlamaGenerator:
         return cuda_ext.ext_rep_penalty_mask_cpu(self.model.config.vocab_size, self.sequence, penalty_max, sustain, decay)
 
 
+    def batched_sample(self, logits, temperature, top_k, top_p, min_p, typical, num = 1):
+
+        if logits.shape[0] == 1: return self.sample(logits, temperature, top_k, top_p, min_p, typical, num)
+
+        samples = []
+        scores = []
+        for i in range(logits.shape[0]):
+            t, s = self.sample(logits[i, :, :], temperature, top_k, top_p, min_p, typical)
+            samples.append(t)
+            scores.append(s)
+
+        return torch.cat(samples, dim = 0), torch.cat(scores, dim = 0)
+
+
     def sample(self, logits, temperature, top_k, top_p, min_p, typical, num = 1):
 
         # torch.manual_seed(42)
 
-        logits = logits[0, -1, :]
+        if logits.dim() == 3: logits = logits[0, -1, :]
+        elif logits.dim() == 2: logits = logits[-1, :]
+        else: raise ValueError("Bad logits dimension")
 
         # Disallow tokens
 
@@ -144,7 +162,7 @@ class ExLlamaGenerator:
         self.disallowed_tokens = tokens
 
 
-    def gen_begin(self, in_tokens):
+    def gen_begin(self, in_tokens, max_chunk = DEFAULT_MAX_CHUNK):
 
         self.end_beam_search()
 
@@ -153,7 +171,11 @@ class ExLlamaGenerator:
         self.cache.current_seq_len = 0
 
         if in_tokens.shape[-1] > 1:
-            self.model.forward(self.sequence[:, :-1], self.cache, preprocess_only = True, lora = self.lora)
+            a = 0
+            while a < self.sequence.shape[-1] - 1:
+                b = min(a + max_chunk, self.sequence.shape[-1] - 1)
+                self.model.forward(self.sequence[:, a:b], self.cache, preprocess_only = True, lora = self.lora)
+                a = b
 
 
     def gen_begin_empty(self):
@@ -164,11 +186,11 @@ class ExLlamaGenerator:
         self.cache.current_seq_len = 0
 
 
-    def gen_begin_reuse(self, in_tokens):
+    def gen_begin_reuse(self, in_tokens, max_chunk = DEFAULT_MAX_CHUNK):
 
         self.end_beam_search()
         if self.sequence is None or self.cache.current_seq_len == 0:
-            self.gen_begin(in_tokens)
+            self.gen_begin(in_tokens, max_chunk)
             return 0
 
         # if in_tokens.shape[-1] < self.sequence.shape[-1]:
@@ -179,7 +201,7 @@ class ExLlamaGenerator:
             reuse += 1
 
         if reuse < 2:
-            self.gen_begin(in_tokens)
+            self.gen_begin(in_tokens, max_chunk)
             return 0
 
         # print (f"Reusing cache: {reuse} tokens")
@@ -192,10 +214,10 @@ class ExLlamaGenerator:
         return reuse
 
 
-    def gen_feed_tokens(self, in_tokens):
+    def gen_feed_tokens(self, in_tokens, max_chunk = DEFAULT_MAX_CHUNK):
 
         if self.sequence is None:
-            self.gen_begin(in_tokens)
+            self.gen_begin(in_tokens, max_chunk)
             return
 
         self.end_beam_search()
@@ -206,7 +228,12 @@ class ExLlamaGenerator:
             self.sequence = in_tokens.clone()
         else:
             self.sequence = torch.cat((self.sequence, in_tokens), dim = 1)
-        self.model.forward(self.sequence[:, start:-1], self.cache, preprocess_only = True, lora = self.lora)
+
+        a = start
+        while a < self.sequence.shape[-1] - 1:
+            b = min(a + max_chunk, self.sequence.shape[-1] - 1)
+            self.model.forward(self.sequence[:, a:b], self.cache, preprocess_only = True, lora = self.lora)
+            a = b
 
         self.sequence_actual = self.sequence
 
@@ -274,7 +301,7 @@ class ExLlamaGenerator:
         return self.sequence_actual.shape[-1]
 
 
-    # Generate some number of tokens and append to
+    # Simple generator function
 
     def generate_simple(self, prompt, max_new_tokens = 128):
 
@@ -283,17 +310,22 @@ class ExLlamaGenerator:
         ids = self.tokenizer.encode(prompt)
         self.gen_begin(ids)
 
+        max_new_tokens = min(max_new_tokens, self.model.config.max_seq_len - ids.shape[1])
+
+        eos = torch.zeros((ids.shape[0],), dtype = torch.bool)
         for i in range(max_new_tokens):
             token = self.gen_single_token()
-            if token.item() == self.tokenizer.eos_token_id: break
+            for j in range(token.shape[0]):
+                if token[j, 0].item() == self.tokenizer.eos_token_id: eos[j] = True
+            if eos.all(): break
 
-        text = self.tokenizer.decode(self.sequence[0])
+        text = self.tokenizer.decode(self.sequence[0] if self.sequence.shape[0] == 1 else self.sequence)
         return text
 
 
     # Generate a single token with the current settings, append to sequence
 
-    def gen_single_token(self, constraints = None, lora = None):
+    def gen_single_token(self, constraints = None):
 
         self.end_beam_search()
 
@@ -301,12 +333,14 @@ class ExLlamaGenerator:
 
         if self.sequence is not None:
 
-            rep_mask = self.make_rep_mask(self.settings.token_repetition_penalty_max,
-                                          self.settings.token_repetition_penalty_sustain,
-                                          self.settings.token_repetition_penalty_decay)
-
             logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora)
-            logits /= rep_mask
+
+            cuda_ext.ext_apply_rep_penalty_mask_cpu(self.sequence,
+                                                    self.settings.token_repetition_penalty_max,
+                                                    self.settings.token_repetition_penalty_sustain,
+                                                    self.settings.token_repetition_penalty_decay,
+                                                    logits)
+
             logits[:, :, self.tokenizer.bos_token_id] = -10000.0
 
             if constraints is not None:
@@ -314,12 +348,12 @@ class ExLlamaGenerator:
                 for c in constraints: logits[:, :, c] += 10000.0
                 logits[:, :, :] -= 10000.0
 
-            token, _ = self.sample(logits,
-                                   self.settings.temperature,
-                                   self.settings.top_k,
-                                   self.settings.top_p,
-                                   self.settings.min_p + 0.01 if constraints is not None else 0.0,
-                                   self.settings.typical)
+            token, _ = self.batched_sample(logits,
+                                           self.settings.temperature,
+                                           self.settings.top_k,
+                                           self.settings.top_p,
+                                           self.settings.min_p + 0.01 if constraints is not None else 0.0,
+                                           self.settings.typical)
 
         else:
 
@@ -478,13 +512,14 @@ class ExLlamaGenerator:
 
                 # Initial tokens for initial beams
 
-                rep_mask = self.make_rep_mask(self.settings.token_repetition_penalty_max,
-                                              self.settings.token_repetition_penalty_sustain,
-                                              self.settings.token_repetition_penalty_decay)
-
                 # self.cache.debug()
                 logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora)
-                logits /= rep_mask
+
+                cuda_ext.ext_apply_rep_penalty_mask_cpu(self.sequence,
+                                                        self.settings.token_repetition_penalty_max,
+                                                        self.settings.token_repetition_penalty_sustain,
+                                                        self.settings.token_repetition_penalty_decay,
+                                                        logits)
 
                 tokens, probs = self.sample(logits,
                                             self.settings.temperature,
@@ -512,13 +547,14 @@ class ExLlamaGenerator:
 
                     beam.to_sequence()
 
-                    rep_mask = self.make_rep_mask(self.settings.token_repetition_penalty_max,
-                                                  self.settings.token_repetition_penalty_sustain,
-                                                  self.settings.token_repetition_penalty_decay)
-
                     # self.cache.debug()
                     logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora)
-                    logits /= rep_mask
+
+                    cuda_ext.ext_apply_rep_penalty_mask_cpu(self.sequence,
+                                                            self.settings.token_repetition_penalty_max,
+                                                            self.settings.token_repetition_penalty_sustain,
+                                                            self.settings.token_repetition_penalty_decay,
+                                                            logits)
 
                     tokens, probs = self.sample(logits,
                                                 self.settings.temperature,

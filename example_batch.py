@@ -14,6 +14,15 @@ model_config_path = os.path.join(model_directory, "config.json")
 st_pattern = os.path.join(model_directory, "*.safetensors")
 model_path = glob.glob(st_pattern)[0]
 
+# Batched prompts
+
+prompts = [
+    "Once upon a time,",
+    "I don't like to",
+    "A turbo encabulator is a",
+    "In the words of Mark Twain,"
+]
+
 # Create config, model, tokenizer and generator
 
 config = ExLlamaConfig(model_config_path)               # create config from config.json
@@ -22,7 +31,7 @@ config.model_path = model_path                          # supply path to model w
 model = ExLlama(config)                                 # create ExLlama instance and load the weights
 tokenizer = ExLlamaTokenizer(tokenizer_path)            # create tokenizer from tokenizer model file
 
-cache = ExLlamaCache(model)                             # create cache for inference
+cache = ExLlamaCache(model, batch_size = len(prompts))  # create cache for inference
 generator = ExLlamaGenerator(model, tokenizer, cache)   # create generator
 
 # Configure generator
@@ -35,11 +44,13 @@ generator.settings.top_p = 0.65
 generator.settings.top_k = 100
 generator.settings.typical = 0.5
 
-# Produce a simple generation
+# Generate, batched
 
-prompt = "Once upon a time,"
-print (prompt, end = "")
+for line in prompts:
+    print(line)
 
-output = generator.generate_simple(prompt, max_new_tokens = 200)
+output = generator.generate_simple(prompts, max_new_tokens = 200)
 
-print(output[len(prompt):])
+for line in output:
+    print("---")
+    print(line)

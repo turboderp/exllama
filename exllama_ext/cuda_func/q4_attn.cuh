@@ -24,6 +24,7 @@ void q4_attn_cuda
     Q4Matrix* v_proj,
     half* sin,
     half* cos,
+    const int bsz,
     const int q_len,
     const int dim,
     const int head_dim,

@@ -30,14 +30,15 @@ if windows:
     
     import subprocess
     try:
-        subprocess.check_output(["where", "cl"])
+        subprocess.check_output(["where", "/Q", "cl"])
     except subprocess.CalledProcessError as e:
         cl_path = find_msvc()
         if cl_path:
-            print("Injected compiler path:", cl_path)
+            if verbose:
+                print("Injected compiler path:", cl_path)
             os.environ["path"] += ";" + cl_path
         else:
-            print("Unable to find cl.exe; compilation will probably fail.")
+            print("Unable to find cl.exe; compilation will probably fail.", file=sys.stderr)
 
 exllama_ext = load(
     name = extension_name,
@@ -56,7 +57,7 @@ exllama_ext = load(
     ],
     extra_include_paths = [os.path.join(library_dir, "exllama_ext")],
     verbose = verbose,
-    extra_ldflags = ["cublas.lib"] if windows else [],
+    extra_ldflags = (["cublas.lib"] + ([f"/LIBPATH:{os.path.join(sys.base_prefix, 'libs')}"] if sys.base_prefix != sys.prefix else [])) if windows else [],
     extra_cuda_cflags = ["-lineinfo"] + (["-U__HIP_NO_HALF_CONVERSIONS__", "-O3"] if torch.version.hip else []),
     extra_cflags = ["-O3"]
     # extra_cflags = ["-ftime-report", "-DTORCH_USE_CUDA_DSA"]
@@ -73,6 +74,7 @@ from exllama_ext import half_matmul_cublas
 from exllama_ext import rms_norm
 from exllama_ext import rope_
 from exllama_ext import rep_penalty
+from exllama_ext import apply_rep_penalty
 
 
 # Dummy tensor to pass instead of g_idx since there is no way to pass "None" to a C++ extension
@@ -157,3 +159,9 @@ def ext_rep_penalty_mask_cpu(vocab_size, sequence, penalty_max, sustain, decay):
     rep_mask = torch.empty(vocab_size, dtype = torch.float32)
     rep_penalty(sequence, rep_mask, penalty_max, sustain, decay)
     return rep_mask
+
+
+def ext_apply_rep_penalty_mask_cpu(sequence, penalty_max, sustain, decay, logits):
+
+    apply_rep_penalty(sequence, penalty_max, sustain, decay, logits)
+

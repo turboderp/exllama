@@ -12,6 +12,7 @@ incompatibilities with older cards.
 
 ## Dependencies
 
+* Python 3.9 or newer
 * `torch` tested on 2.0.1 and 2.1.0 (nightly) with cu118
 * `safetensors` 0.3.1
 * `sentencepiece`
@@ -44,7 +45,7 @@ Compute Platform version).
 
 Install dependencies, clone repo and run benchmark:
 
-    pip install safetensors sentencepiece ninja
+    pip install -r requirements.txt
 
     git clone https://github.com/turboderp/exllama
     cd exllama
@@ -69,7 +70,7 @@ multibot mode:
 
 To run it:
 
-    pip install flask waitress
+    pip install -r requirements-web.txt
 
     python webui/app.py -d <path_to_model_files>
 
@@ -96,7 +97,13 @@ docker compose build
 It is also possible to manually build the image:
 
 ```
-docker build -t exllama-web
+docker build -t exllama-web .
+```
+
+NOTE: by default, the service inside the docker container is run by a non-root user. Hence, the ownership of bind-mounted directories (`/data/model` and `/data/exllama_sessions` in the default `docker-compose.yml` file) is changed to this non-root user in the container entrypoint (`entrypoint.sh`). To disable this, set `RUN_UID=0` in the `.env` file if using `docker compose`, or the following command if you manually build the image:
+
+```
+docker build -t exllama-web --build-arg RUN_UID=0 .
 ```
 
 ### Run
@@ -114,7 +121,7 @@ The configuration can be viewed in `docker-compose.yml` and changed by creating 
 Run manually: 
 
 ```
-docker run --gpus all -p 5000:5000 -v <path_to_model_files>:/app/model/ --rm -it exllama-web --host 0.0.0.0:5000
+docker run --gpus all -p 5000:5000 -v <path_to_model_dir>:/data/model/ -v <path_to_session_dir>:/data/exllama_sessions --rm -it exllama-web --host 0.0.0.0:5000
 ```
 
 

@@ -23,13 +23,14 @@ __global__ void rope_cuda_kernel
     half* __restrict__ x,
     const half* __restrict__ sin,
     const half* __restrict__ cos,
-    int rows,
+    int rows_per_batch,
     int head_dim,
     int num_heads,
     int past_len
 )
 {
-    MatrixView_half_rw x_(x, rows, head_dim);
+    // These heights aren't used so it's okay if they're wrong.
+    MatrixView_half_rw x_(x, rows_per_batch, head_dim);
     MatrixView_half sin_(sin, MAX_POS_EMBEDDINGS, head_dim);
     MatrixView_half cos_(cos, MAX_POS_EMBEDDINGS, head_dim);
 
@@ -37,7 +38,9 @@ __global__ void rope_cuda_kernel
 
     int column = (blockIdx.x * THREADS_X + threadIdx.x); if constexpr (use_half2) column *= 2;
     int row = blockIdx.y * THREADS_Y + threadIdx.y;
-    if (row >= rows) return;
+    if (row >= rows_per_batch) return;
+    int batch_offset = blockIdx.z * rows_per_batch;
+    int row_offset = batch_offset + row;
 
     // Get sin and cos
 
@@ -54,14 +57,14 @@ __global__ void rope_cuda_kernel
 
         // Apply embedding to row
 
-        half2 item2_l = x_.item_half2(row, column);
-        half2 item2_r = x_.item_half2(row, column + half_dim);
+        half2 item2_l = x_.item_half2(row_offset, column);
+        half2 item2_r = x_.item_half2(row_offset, column + half_dim);
         half2 item2_ls = __hmul2(item2_r, sin2_l);
         half2 item2_rs = __hmul2(item2_l, sin2_r);
         item2_l = __hfma2(item2_l, cos2_l, item2_ls);
         item2_r = __hfma2(item2_r, cos2_r, item2_rs);
-        x_.set_half2(row, column, item2_l);
-        x_.set_half2(row, column + half_dim, item2_r);
+        x_.set_half2(row_offset, column, item2_l);
+        x_.set_half2(row_offset, column + half_dim, item2_r);
     }
     else
     {
@@ -73,14 +76,14 @@ __global__ void rope_cuda_kernel
 
         // Apply embedding to row
 
-        half item_l = x_.item(row, column);
-        half item_r = x_.item(row, column + half_dim);
+        half item_l = x_.item(row_offset, column);
+        half item_r = x_.item(row_offset, column + half_dim);
         half item_ls = __hmul(item_r, sin_l);
         half item_rs = __hmul(item_l, sin_r);
         item_l = __hfma(item_l, cos_l, item_ls);
         item_r = __hfma(item_r, cos_r, item_rs);
-        x_.set(row, column, item_l);
-        x_.set(row, column + half_dim, item_r);
+        x_.set(row_offset, column, item_l);
+        x_.set(row_offset, column + half_dim, item_r);
     }
 }
 
@@ -100,7 +103,8 @@ void rope_cuda
     half* x,
     const half* sin,
     const half* cos,
-    const int rows,
+    const int bsz,
+    const int rows_per_batch,
     const int head_dim,
     const int num_heads,
     const int past_len,
@@ -112,10 +116,10 @@ void rope_cuda
     dim3 blocks
     (
         (head_dim + THREADS_X - 1) / THREADS_X / 2 / (tuningParams->rope_no_half2 ? 1 : 2),
-        (rows + THREADS_Y - 1) / THREADS_Y,
-        1
+        (rows_per_batch + THREADS_Y - 1) / THREADS_Y,
+        int(bsz)
     );
 
     fp_rope_cuda_kernel kernel = rope_cuda_kernel_pick(tuningParams);
-    kernel<<<blocks, threads, 0, alt_stream>>>(x, sin, cos, rows, head_dim, num_heads, past_len);
+    kernel<<<blocks, threads, 0, alt_stream>>>(x, sin, cos, rows_per_batch, head_dim, num_heads, past_len);
 }
