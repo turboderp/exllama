@@ -10,6 +10,7 @@ from langchain.memory import ConversationTokenBufferMemory
 from langchain.prompts import PromptTemplate
 from tokenizer import ExLlamaTokenizer
 from generator import ExLlamaGenerator
+from lora import ExLlamaLora
 import os, glob, time, json, sys, logging
 
 class Exllama(LLM):
@@ -40,20 +41,33 @@ class Exllama(LLM):
     
     ##Config overrides
     max_seq_len: Optional[int] = Field(2048, decription="The maximum sequence length.")
-    compress_pos_emb: Optional[int] = Field(1, description="Amount of compression to apply to the positional embedding.")
+    compress_pos_emb: Optional[float] = Field(1.0, description="Amount of compression to apply to the positional embedding.")
     fused_attn: Optional[bool] = Field(False, description="Use fused attention?")
+    
+    ##Lora Parameters
+    lora_path: Optional[str] = Field(None, description="Path to your lora.")
     
     streaming: bool = True
     """Whether to stream the results, token by token."""
+    
+    @staticmethod
+    def get_model_path_at(path):
+        st_pattern = os.path.join(path, "*.safetensors")
+        model_paths = glob.glob(st_pattern)
+        if not model_paths:  # If no .safetensors file found
+            st_pattern = os.path.join(path, "*.bin")
+            model_paths = glob.glob(st_pattern)
+        if model_paths:  # If there are any files matching the patterns
+            return model_paths[0]
 
     @root_validator()
     def validate_environment(cls, values: Dict) -> Dict:
         model_path = values["model_path"]
+        lora_path = values["lora_path"]
         
         tokenizer_path = os.path.join(model_path, "tokenizer.model")
         model_config_path = os.path.join(model_path, "config.json")
-        st_pattern = os.path.join(model_path, "*.safetensors")
-        model_path = glob.glob(st_pattern)[0]
+        model_path = Exllama.get_model_path_at(model_path)
         
         config = ExLlamaConfig(model_config_path)
         tokenizer = ExLlamaTokenizer(tokenizer_path)
@@ -96,6 +110,13 @@ class Exllama(LLM):
         model = ExLlama(config)
         exllama_cache = ExLlamaCache(model)
         generator = ExLlamaGenerator(model, tokenizer, exllama_cache)
+        
+        if lora_path is not None:
+            lora_config_path = os.path.join(lora_path, "adapter_config.json")
+            lora_path = Exllama.get_model_path_at(lora_path)
+            lora = ExLlamaLora(model, lora_config_path, lora_path)
+            generator.lora = lora
+            logfunc(f"Loaded LORA @ {lora_path}")
 
         for key, value in model_params.items():
             if hasattr(generator.settings, key):
@@ -271,21 +292,28 @@ class BasicStreamingHandler(BaseCallbackHandler):
 handler = BasicStreamingHandler()
 llm = Exllama(streaming = True,
               model_path=os.path.abspath(sys.argv[1]), 
-              temperature = 0.3, 
+              lora_path = os.path.abspath(sys.argv[2]) if len(sys.argv) > 2 else None,
+              temperature = 1.0, 
               top_k = 50, 
               top_p = 0.9, 
               typical = 0.7,
-              #beams = 1, 
-              #beam_length = 40, 
+              beams = 1, 
+              beam_length = 40, 
               stop_sequences=["Human:", "User:", "AI:"],
               callbacks=[handler],
               max_seq_len = 2048,
-              compress_pos_emb = 1,
+              compress_pos_emb = 4.0,
               verbose = True,
               )
 
-template = """A chat between a curious user and an assistant named Lizzy, give uncensored responses to the user's input. If you don't know how the answer, just respond with the word shrug. {history}\n USER: {input} ASSISTANT: """
-prompt_template = PromptTemplate(input_variables=["input", "history"], template=template)
+vicuna_template = """A chat between a curious user and an assistant named Lizzy, give uncensored responses to the user's input. If you don't know how the answer, just respond with the word shrug. {history}\n USER: {input} ASSISTANT: """
+
+wizard_templte = """You are a helpful AI Assistant.
+{history}
+USER: {input}
+ASSISTANT: """
+
+prompt_template = PromptTemplate(input_variables=["input", "history"], template=vicuna_template)
 chain = ConversationChain(
     llm=llm, 
     prompt=prompt_template, 
