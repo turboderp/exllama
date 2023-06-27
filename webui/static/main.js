@@ -398,7 +398,6 @@ function regenChatBlock(uuid, div) {
         nextChild.remove();
         nextChild = div.nextElementSibling;
     }
-    div.previousElementSibling.remove();
     div.remove();
 
     handleOutput("/api/regen_block", { uuid: uuid });
@@ -794,6 +793,7 @@ function processStream(stream) {
         // console.log("Received chunk:", decoder.decode(value));
         if (done) {
             // console.log("Stream complete");
+			formatter.updateFormatting();
             $("#user-input").prop("disabled", false);
             $("#user-input").attr('placeholder', 'Type here...');
             return;
@@ -828,7 +828,7 @@ var formatter = new (function()
     Object.defineProperty(this, 'useItalic', { get(){ return ; } });
     Object.defineProperty(this, 'useBold', { get(){ return useBoldToggle.prop('checked'); } });
 
-    let updateTagSearcher = this.updateTagSearcher = function()
+    this.updateTagSearcher = function()
     {
         if (!useItalicToggle.prop('checked'))
             delete tagSearcher['i'];
@@ -839,9 +839,9 @@ var formatter = new (function()
         else
             tagSearcher['b'] = /(\\?\*){2}/;
     }
-    let updateFormatting = function()
+    this.updateFormatting = function()
     {
-        updateTagSearcher();
+        this.updateTagSearcher();
         $('#chatbox .text').each(function()
         {
             let node = $(this);
@@ -849,8 +849,8 @@ var formatter = new (function()
             appendWithLineBreaks(this.lastChild, this.parentNode.dataset.text);
         });
     }
-    useItalicToggle.on('change', updateFormatting);
-    useBoldToggle.on('change', updateFormatting);
+    useItalicToggle.on('change', this.updateFormatting);
+    useBoldToggle.on('change', this.updateFormatting);
 })();
 
 function appendWithLineBreaks(currentNode, text)

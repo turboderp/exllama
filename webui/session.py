@@ -717,4 +717,4 @@ class Session:
 
     def regen_at(self, uuid):
         self.api_delete_block(uuid)
-        return self.respond_multi(self.history.pop().text)
+        return self.respond_multi('')
