@@ -947,14 +947,14 @@ function newChatBlock(header, text, idx, uuid)
     icon = addIcon(div, "delete-icon", 34);
     icon.addEventListener('click', function() { deleteChatBlock(uuid, div) });
 
-    var isUser = header != null && header.includes(document.getElementById("tb_participant_0").value);
+    var isUser = idx == 0;
     var textNode = $(".text:last");
     if (!isUser)
     {
         icon = addIcon(div, "regen-icon", 68);
         icon.addEventListener('click', function() { regenChatBlock(uuid, div) });
     }
-    div.style.background = 'var(--chat-back-color-' + (isUser ? 0 : 1) + ')';
+    div.style.background = 'var(--chat-back-color-' + idx + ')';
 
     currentNode = document.createTextNode('');
     textNode.append(currentNode);
