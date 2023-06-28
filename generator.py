@@ -4,8 +4,6 @@ from lora import ExLlamaLora
 import torch
 import torch.nn.functional as F
 
-DEFAULT_MAX_CHUNK = 2048
-
 class ExLlamaGenerator:
 
     class Settings:
@@ -162,7 +160,7 @@ class ExLlamaGenerator:
         self.disallowed_tokens = tokens
 
 
-    def gen_begin(self, in_tokens, max_chunk = DEFAULT_MAX_CHUNK):
+    def gen_begin(self, in_tokens):
 
         self.end_beam_search()
 
@@ -170,12 +168,7 @@ class ExLlamaGenerator:
         self.sequence_actual = in_tokens.clone()
         self.cache.current_seq_len = 0
 
-        if in_tokens.shape[-1] > 1:
-            a = 0
-            while a < self.sequence.shape[-1] - 1:
-                b = min(a + max_chunk, self.sequence.shape[-1] - 1)
-                self.model.forward(self.sequence[:, a:b], self.cache, preprocess_only = True, lora = self.lora)
-                a = b
+        self.model.forward(self.sequence[:, :-1], self.cache, preprocess_only = True, lora = self.lora)
 
 
     def gen_begin_empty(self):
@@ -186,11 +179,11 @@ class ExLlamaGenerator:
         self.cache.current_seq_len = 0
 
 
-    def gen_begin_reuse(self, in_tokens, max_chunk = DEFAULT_MAX_CHUNK):
+    def gen_begin_reuse(self, in_tokens):
 
         self.end_beam_search()
         if self.sequence is None or self.cache.current_seq_len == 0:
-            self.gen_begin(in_tokens, max_chunk)
+            self.gen_begin(in_tokens)
             return 0
 
         # if in_tokens.shape[-1] < self.sequence.shape[-1]:
@@ -201,7 +194,7 @@ class ExLlamaGenerator:
             reuse += 1
 
         if reuse < 2:
-            self.gen_begin(in_tokens, max_chunk)
+            self.gen_begin(in_tokens)
             return 0
 
         # print (f"Reusing cache: {reuse} tokens")
@@ -214,10 +207,10 @@ class ExLlamaGenerator:
         return reuse
 
 
-    def gen_feed_tokens(self, in_tokens, max_chunk = DEFAULT_MAX_CHUNK):
+    def gen_feed_tokens(self, in_tokens):
 
         if self.sequence is None:
-            self.gen_begin(in_tokens, max_chunk)
+            self.gen_begin(in_tokens)
             return
 
         self.end_beam_search()
@@ -229,11 +222,8 @@ class ExLlamaGenerator:
         else:
             self.sequence = torch.cat((self.sequence, in_tokens), dim = 1)
 
-        a = start
-        while a < self.sequence.shape[-1] - 1:
-            b = min(a + max_chunk, self.sequence.shape[-1] - 1)
-            self.model.forward(self.sequence[:, a:b], self.cache, preprocess_only = True, lora = self.lora)
-            a = b
+        if start < self.sequence.shape[-1] - 1:
+            self.model.forward(self.sequence[:, start : -1], self.cache, preprocess_only = True, lora = self.lora)
 
         self.sequence_actual = self.sequence
 
