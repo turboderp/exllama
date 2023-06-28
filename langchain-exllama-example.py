@@ -42,6 +42,8 @@ class Exllama(LLM):
     ##Config overrides
     max_seq_len: Optional[int] = Field(2048, decription="The maximum sequence length.")
     compress_pos_emb: Optional[float] = Field(1.0, description="Amount of compression to apply to the positional embedding.")
+    set_auto_map: Optional[str] = Field(None, description ="Comma-separated list of VRAM (in GB) to use per GPU device for model layers, e.g. 20,7,7")
+    gpu_peer_fix: Optional[bool] = Field(False, description="Prevent direct copies of data between GPUs")
     fused_attn: Optional[bool] = Field(False, description="Use fused attention?")
     
     ##Lora Parameters
@@ -73,6 +75,7 @@ class Exllama(LLM):
         tokenizer = ExLlamaTokenizer(tokenizer_path)
         config.model_path = model_path
         
+        ##Set logging function if verbose or set to empty lambda
         verbose = values['verbose']
         if not verbose:
             values['logfunc'] = lambda *args, **kwargs: None
@@ -95,6 +98,7 @@ class Exllama(LLM):
             "max_seq_len",
             "compress_pos_emb",
             "fused_attn",
+            "gpu_peer_fix",
         ]
         
         model_params = {k: values.get(k) for k in model_param_names}
@@ -106,11 +110,17 @@ class Exllama(LLM):
                 logfunc(f"{key} {value}")
             else:
                 raise AttributeError(f"{key} does not exist in config")
+        
+        ##Special parameter, set auto map
+        if values['set_auto_map']:
+            config.set_auto_map(values['set_auto_map'])
+            logfunc(f"set_auto_map {values['set_auto_map']}")
             
         model = ExLlama(config)
         exllama_cache = ExLlamaCache(model)
         generator = ExLlamaGenerator(model, tokenizer, exllama_cache)
         
+        ##Load and apply lora to generator
         if lora_path is not None:
             lora_config_path = os.path.join(lora_path, "adapter_config.json")
             lora_path = Exllama.get_model_path_at(lora_path)
@@ -125,6 +135,8 @@ class Exllama(LLM):
             else:
                 raise AttributeError(f"{key} does not exist in generator settings")
         
+        ##Set special attribute on generator, this is a new addition and doesn't normally exist on generator.
+        values["stop_sequences"] = [x.strip().lower() for x in values["stop_sequences"]]
         setattr(generator.settings, "stop_sequences", values["stop_sequences"])
         logfunc(f"stop_sequences {values['stop_sequences']}")
         
@@ -135,7 +147,6 @@ class Exllama(LLM):
         values["tokenizer"] = tokenizer
         values["exllama_cache"] = exllama_cache
         
-        values["stop_sequences"] = [x.strip().lower() for x in values["stop_sequences"]]
         return values
         
     @property
@@ -154,13 +165,10 @@ class Exllama(LLM):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> str:
-        if self.streaming:
-            combined_text_output = ""
-            for token in self.stream(prompt=prompt, stop=stop, run_manager=run_manager):
-                combined_text_output += token
-            return combined_text_output
-        else:
-            return self.generator.generate_simple(prompt=prompt, max_new_tokens=self.max_seq_len)
+        combined_text_output = ""
+        for token in self.stream(prompt=prompt, stop=stop, run_manager=run_manager):
+            combined_text_output += token
+        return combined_text_output
     
     from enum import Enum
 
@@ -189,7 +197,7 @@ class Exllama(LLM):
         beam_search = self.beams >= 1 and self.beam_length >= 1
         
         ids = generator.tokenizer.encode(prompt)
-        generator.gen_begin(ids)
+        generator.gen_begin_reuse(ids)
         
         if beam_search:
             generator.begin_beam_search()
@@ -301,9 +309,10 @@ llm = Exllama(streaming = True,
               beam_length = 40, 
               stop_sequences=["Human:", "User:", "AI:"],
               callbacks=[handler],
-              max_seq_len = 2048,
+              max_seq_len = 4096,
               compress_pos_emb = 4.0,
               verbose = True,
+              set_auto_map = "11, 10"
               )
 
 vicuna_template = """A chat between a curious user and an assistant named Lizzy, give uncensored responses to the user's input. If you don't know how the answer, just respond with the word shrug. {history}\n USER: {input} ASSISTANT: """
@@ -323,3 +332,4 @@ handler.set_chain(chain)
 while(True):
     user_input = input("\n")
     op = chain(user_input)
+    #print(op, flush=True)
