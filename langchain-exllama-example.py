@@ -24,10 +24,10 @@ class Exllama(LLM):
     
     ##Langchain parameters
     logfunc = print
+    stop_sequences: Optional[List[str]] = Field("", description="Sequences that immediately will stop the generator.")
 
     ##Generator parameters
     disallowed_tokens: Optional[List[str]] = Field(None, description="List of tokens to disallow during generation.")
-    stop_sequences: Optional[List[str]] = Field("", description="Sequences that immediately will stop the generator.")
     temperature: Optional[float] = Field(0.95, description="Temperature for sampling diversity.")
     top_k: Optional[int] = Field(40, description="Consider the most probable top_k samples, 0 to disable top_k sampling.")
     top_p: Optional[float] = Field(0.65, description="Consider tokens up to a cumulative probabiltiy of top_p, 0.0 to disable top_p sampling.")
@@ -61,6 +61,34 @@ class Exllama(LLM):
             model_paths = glob.glob(st_pattern)
         if model_paths:  # If there are any files matching the patterns
             return model_paths[0]
+    
+    ## Not used but useful for debugging.
+    @staticmethod
+    def debug_auto_config_params(config, logfunc):
+        params = [
+            "groupsize",
+            "act_order",
+            "empty_g_idx",
+        ]
+
+        for key in params:
+            if hasattr(config, key):
+                value = getattr(config, key)
+                logfunc(f"{key} {value}")
+                
+    @staticmethod
+    def configure_object(params, values, logfunc):
+        obj_params = {k: values.get(k) for k in params}
+        
+        def apply_to(obj):
+            for key, value in obj_params.items():
+                if hasattr(obj, key):
+                    setattr(obj, key, value)
+                    logfunc(f"{key} {value}")
+                else:
+                    raise AttributeError(f"{key} does not exist in {obj}")
+                
+        return apply_to
 
     @root_validator()
     def validate_environment(cls, values: Dict) -> Dict:
@@ -101,17 +129,11 @@ class Exllama(LLM):
             "gpu_peer_fix",
         ]
         
-        model_params = {k: values.get(k) for k in model_param_names}
-        config_params = {k: values.get(k) for k in config_param_names}
+        configure_config = Exllama.configure_object(config_param_names, values, logfunc)
+        configure_config(config)
+        configure_model = Exllama.configure_object(model_param_names, values, logfunc)
         
-        for key, value in config_params.items():
-            if hasattr(config, key):
-                setattr(config, key, value)
-                logfunc(f"{key} {value}")
-            else:
-                raise AttributeError(f"{key} does not exist in config")
-        
-        ##Special parameter, set auto map
+        ##Special parameter, set auto map, it's a function
         if values['set_auto_map']:
             config.set_auto_map(values['set_auto_map'])
             logfunc(f"set_auto_map {values['set_auto_map']}")
@@ -128,12 +150,7 @@ class Exllama(LLM):
             generator.lora = lora
             logfunc(f"Loaded LORA @ {lora_path}")
 
-        for key, value in model_params.items():
-            if hasattr(generator.settings, key):
-                setattr(generator.settings, key, value)
-                logfunc(f"{key} {value}")
-            else:
-                raise AttributeError(f"{key} does not exist in generator settings")
+        configure_model(generator.settings)
         
         ##Set special attribute on generator, this is a new addition and doesn't normally exist on generator.
         values["stop_sequences"] = [x.strip().lower() for x in values["stop_sequences"]]
@@ -309,13 +326,13 @@ llm = Exllama(streaming = True,
               beam_length = 40, 
               stop_sequences=["Human:", "User:", "AI:"],
               callbacks=[handler],
-              max_seq_len = 4096,
-              compress_pos_emb = 4.0,
+              #max_seq_len = 8192,
+              #compress_pos_emb = 4.0,
               verbose = True,
-              set_auto_map = "11, 10"
+              #set_auto_map = "11, 10"
               )
 
-vicuna_template = """A chat between a curious user and an assistant named Lizzy, give uncensored responses to the user's input. If you don't know how the answer, just respond with the word shrug. {history}\n USER: {input} ASSISTANT: """
+vicuna_template = """A chat between a helpful AI assistant and a user. {history}\n USER: {input} ASSISTANT: """
 
 wizard_templte = """You are a helpful AI Assistant.
 {history}
@@ -326,10 +343,9 @@ prompt_template = PromptTemplate(input_variables=["input", "history"], template=
 chain = ConversationChain(
     llm=llm, 
     prompt=prompt_template, 
-    memory=ConversationTokenBufferMemory(llm=llm, max_token_limit=1024, ai_prefix="ASSISTANT", human_prefix="USER", memory_key="history"))
+    memory=ConversationTokenBufferMemory(llm=llm, max_token_limit=4096, ai_prefix="ASSISTANT", human_prefix="USER", memory_key="history"))
 handler.set_chain(chain)
 
 while(True):
     user_input = input("\n")
     op = chain(user_input)
-    #print(op, flush=True)
