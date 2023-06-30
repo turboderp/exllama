@@ -110,6 +110,7 @@ def make_config(args):
     config.set_auto_map(args.gpu_split)
     config.gpu_peer_fix = args.gpu_peer_fix
     config.alpha_value = args.alpha
+    config.calculate_rotary_embedding_base()
 
     config.matmul_recons_thd = args.matmul_recons_thd
     config.fused_mlp_thd = args.fused_mlp_thd
