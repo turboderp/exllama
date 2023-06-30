@@ -72,13 +72,10 @@ class ExLlamaConfig:
         self.max_input_len = 2048  # Maximum length of input IDs in a single forward pass. Sequences longer than this will be processed in multiple steps
         self.max_attention_size = 2048**2  # Sequences will be processed in chunks to keep the size of the attention weights matrix <= this
         self.compress_pos_emb = 1.0  # Increase to compress positional embeddings applied to sequence
-        self.alpha_value = 1.0 # Similar to RoPE, higher is more perplex but more ctx
+        self.alpha_value = 1.0 # Alpha value for NTK RoPE scaling. For now, the value has to be set manually, since from the parameters, the setting doesn't seem to apply.
         self.gpu_peer_fix = False # Apparently Torch can have problems transferring tensors directly one GPU to another sometimes. Enable this to expliticly move tensors via system RAM instead, where needed
         self.auto_map = None  # List of floats with memory allocation in GB, per CUDA device, overrides device_map
-
         self.rotary_embedding_base = self.rotary_embedding_base * self.alpha_value ** (self.head_dim / (self.head_dim-2))
-
-
         # Tuning
 
         self.matmul_recons_thd = 8
