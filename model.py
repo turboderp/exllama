@@ -75,7 +75,6 @@ class ExLlamaConfig:
         self.alpha_value = 1.0 # Alpha value for NTK RoPE scaling. Similar to compress_pos_emb, higher values increaste ctx but add Perplexity.
         self.gpu_peer_fix = False # Apparently Torch can have problems transferring tensors directly one GPU to another sometimes. Enable this to expliticly move tensors via system RAM instead, where needed
         self.auto_map = None  # List of floats with memory allocation in GB, per CUDA device, overrides device_map
-        self.rotary_embedding_base = self.rotary_embedding_base * self.alpha_value ** (self.head_dim / (self.head_dim-2))
         # Tuning
 
         self.matmul_recons_thd = 8
