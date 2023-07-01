@@ -13,6 +13,7 @@ def add_args(parser):
     parser.add_argument("-gs", "--gpu_split", type = str, help = "Comma-separated list of VRAM (in GB) to use per GPU device for model layers, e.g. -gs 20,7,7")
     parser.add_argument("-l", "--length", type = int, help = "Maximum sequence length", default = 2048)
     parser.add_argument("-cpe", "--compress_pos_emb", type = float, help = "Compression factor for positional embeddings", default = 1.0)
+    parser.add_argument("-a", "--alpha", type = float, help = "alpha for context size extension via embedding extension", default = 1.0)
 
     parser.add_argument("-gpfix", "--gpu_peer_fix", action = "store_true", help = "Prevent direct copies of data between GPUs")
 
@@ -79,6 +80,9 @@ def print_options(args, extra_options = None):
     if args.compress_pos_emb != 1.0:
         print(f" -- RoPE compression factor: {args.compress_pos_emb}")
 
+    if args.alpha != 1.0:
+        print(f" -- RoPE alpha factor: {args.alpha}")
+
     print(f" -- Tuning:")
     print(f" -- --matmul_recons_thd: {args.matmul_recons_thd}" + (" (disabled)" if args.matmul_recons_thd == 0 else ""))
     print(f" -- --fused_mlp_thd: {args.fused_mlp_thd}" + (" (disabled)" if args.fused_mlp_thd == 0 else ""))
@@ -105,6 +109,8 @@ def make_config(args):
     config.compress_pos_emb = args.compress_pos_emb
     config.set_auto_map(args.gpu_split)
     config.gpu_peer_fix = args.gpu_peer_fix
+    config.alpha_value = args.alpha
+    config.calculate_rotary_embedding_base()
 
     config.matmul_recons_thd = args.matmul_recons_thd
     config.fused_mlp_thd = args.fused_mlp_thd
