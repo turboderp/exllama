@@ -1,6 +1,6 @@
 ## Working models
 
-As of **2023-05-24**, the following GPTQ models on HuggingFace all appear to be working:
+As of **2023-05-24**, the following GPTQ models on Hugging Face all appear to be working:
 
 - Neko-Institute-of-Science/LLaMA-7B-4bit-128g
 - Neko-Institute-of-Science/LLaMA-13B-4bit-128g
