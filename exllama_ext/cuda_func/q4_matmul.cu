@@ -242,13 +242,14 @@ void q4_matmul_recons_cuda
     }
 
     w->reconstruct(buffers->temp_dq);
-
+#if __CUDA_ARCH__ < 700
+    const float alpha = 1.0f;
+    const float beta = no_zero ? 1.0f : 0.0f;
+    cublasSgemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, width, height, dim, &alpha, buffers->temp_dq, CUDA_R_16F, width,
+                x_mapped, CUDA_R_16F, dim, &beta, out, CUDA_R_16F, width);
+#else
     const half alpha = __float2half(1.0f);
     const half beta = no_zero ? __float2half(1.0f) : __float2half(0.0f);
     cublasHgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, width, height, dim, &alpha, buffers->temp_dq, width, x_mapped, dim, &beta, out, width);
-
-//     const float alpha = 1.0f;
-//     const float beta = no_zero ? 1.0f : 0.0f;
-//     cublasSgemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, width, height, dim, &alpha, buffers->temp_dq, CUDA_R_16F, width,
-//                 x_mapped, CUDA_R_16F, dim, &beta, out, CUDA_R_16F, width);
+#endif
 }
