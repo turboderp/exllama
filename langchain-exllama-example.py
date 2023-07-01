@@ -25,6 +25,7 @@ class Exllama(LLM):
     ##Langchain parameters
     logfunc = print
     stop_sequences: Optional[List[str]] = Field("", description="Sequences that immediately will stop the generator.")
+    streaming: Optional[bool] = Field(True, description="Whether to stream the results, token by token.")
 
     ##Generator parameters
     disallowed_tokens: Optional[List[str]] = Field(None, description="List of tokens to disallow during generation.")
@@ -41,54 +42,39 @@ class Exllama(LLM):
     
     ##Config overrides
     max_seq_len: Optional[int] = Field(2048, decription="Reduce to save memory. Can also be increased, ideally while also using compress_pos_emn and a compatible model/LoRA")
-    max_input_len: Optional[int] = Field(2048, description="Maximum length of input IDs in a single forward pass. Sequences longer than this will be processed in multiple steps")
-    max_attention_size: Optional[int] = Field(2048**2, description="Sequences will be processed in chunks to keep the size of the attention weights matrix <= this")
     compress_pos_emb: Optional[float] = Field(1.0, description="Amount of compression to apply to the positional embedding.")
     set_auto_map: Optional[str] = Field(None, description ="Comma-separated list of VRAM (in GB) to use per GPU device for model layers, e.g. 20,7,7")
-    gpu_peer_fix: Optional[bool] = Field(False, description="Prevent direct copies of data between GPUs")
-    fused_attn: Optional[bool] = Field(False, description="Use fused attention?")
+    gpu_peer_fix: Optional[bool] = Field(None, description="Prevent direct copies of data between GPUs")
+    alpha_value: Optional[float] = Field(1.0, description="Rope context extension alpha")
     
     ##Tuning
-    matmul_recons_thd: Optional[int] = Field(8)
-    fused_mlp_thd: Optional[int] = Field(2)
-    sdp_thd: Optional[int] = Field(8)
-    fused_attn: Optional[bool] = Field(True)
-    matmul_fused_remap: Optional[bool] = Field(False)
-    rmsnorm_no_half2: Optional[bool] = Field(False)
-    rope_no_half2: Optional[bool] = Field(False)
-    matmul_no_half2: Optional[bool] = Field(False)
-    silu_no_half2: Optional[bool] = Field(False)
-    concurrent_streams: Optional[bool] = Field(False)
+    matmul_recons_thd: Optional[int] = Field(None)
+    fused_mlp_thd: Optional[int] = Field(None)
+    sdp_thd: Optional[int] = Field(None)
+    fused_attn: Optional[bool] = Field(None)
+    matmul_fused_remap: Optional[bool] = Field(None)
+    rmsnorm_no_half2: Optional[bool] = Field(None)
+    rope_no_half2: Optional[bool] = Field(None)
+    matmul_no_half2: Optional[bool] = Field(None)
+    silu_no_half2: Optional[bool] = Field(None)
+    concurrent_streams: Optional[bool] = Field(None)
 
     ##Lora Parameters
     lora_path: Optional[str] = Field(None, description="Path to your lora.")
     
-    streaming: bool = True
-    """Whether to stream the results, token by token."""
-    
     @staticmethod
     def get_model_path_at(path):
-        st_pattern = os.path.join(path, "*.safetensors")
-        model_paths = glob.glob(st_pattern)
-        if not model_paths:  # If no .safetensors file found
-            st_pattern = os.path.join(path, "*.bin")
-            model_paths = glob.glob(st_pattern)
-        if model_paths:  # If there are any files matching the patterns
+        patterns = ["*.safetensors", "*.bin", "*.pt"]
+        model_paths = []
+        for pattern in patterns:
+            full_pattern = os.path.join(path, pattern)
+            model_paths = glob.glob(full_pattern)
+            if model_paths:  # If there are any files matching the current pattern
+                break  # Exit the loop as soon as we find a matching file
+        if model_paths:  # If there are any files matching any of the patterns
             return model_paths[0]
-    
-    ## Not used but useful for debugging.
-    @staticmethod
-    def debug_auto_config_params(config, logfunc):
-        params = [
-            "groupsize",
-            "act_order",
-            "empty_g_idx",
-        ]
-
-        for key in params:
-            if hasattr(config, key):
-                value = getattr(config, key)
-                logfunc(f"{key} {value}")
+        else:
+            return None  # Return None if no matching files were found
                 
     @staticmethod
     def configure_object(params, values, logfunc):
@@ -96,11 +82,12 @@ class Exllama(LLM):
         
         def apply_to(obj):
             for key, value in obj_params.items():
-                if hasattr(obj, key):
-                    setattr(obj, key, value)
-                    logfunc(f"{key} {value}")
-                else:
-                    raise AttributeError(f"{key} does not exist in {obj}")
+                if value:
+                    if hasattr(obj, key):
+                        setattr(obj, key, value)
+                        logfunc(f"{key} {value}")
+                    else:
+                        raise AttributeError(f"{key} does not exist in {obj}")
                 
         return apply_to
 
@@ -138,31 +125,28 @@ class Exllama(LLM):
         
         config_param_names = [
             "max_seq_len",
-            "max_input_len",
-            "max_attention_size",
             "compress_pos_emb",
-            "fused_attn",
             "gpu_peer_fix",
+            "alpha_value"
         ]
         
         tuning_parameters = [
             "matmul_recons_thd",
             "fused_mlp_thd",
             "sdp_thd",
-            "fused_attn",
             "matmul_fused_remap",
             "rmsnorm_no_half2",
             "rope_no_half2",
             "matmul_no_half2",
             "silu_no_half2",
             "concurrent_streams",
+            "fused_attn",
         ]
         
         configure_config = Exllama.configure_object(config_param_names, values, logfunc)
         configure_config(config)
         configure_tuning = Exllama.configure_object(tuning_parameters, values, logfunc)
         configure_tuning(config)
-        config.set_tuning_params()
         configure_model = Exllama.configure_object(model_param_names, values, logfunc)
         
         ##Special parameter, set auto map, it's a function
@@ -174,6 +158,8 @@ class Exllama(LLM):
         exllama_cache = ExLlamaCache(model)
         generator = ExLlamaGenerator(model, tokenizer, exllama_cache)
         
+        configure_model(generator.settings)
+        
         ##Load and apply lora to generator
         if lora_path is not None:
             lora_config_path = os.path.join(lora_path, "adapter_config.json")
@@ -182,8 +168,6 @@ class Exllama(LLM):
             generator.lora = lora
             logfunc(f"Loaded LORA @ {lora_path}")
 
-        configure_model(generator.settings)
-        
         ##Set special attribute on generator, this is a new addition and doesn't normally exist on generator.
         values["stop_sequences"] = [x.strip().lower() for x in values["stop_sequences"]]
         setattr(generator.settings, "stop_sequences", values["stop_sequences"])
@@ -350,32 +334,30 @@ handler = BasicStreamingHandler()
 llm = Exllama(streaming = True,
               model_path=os.path.abspath(sys.argv[1]), 
               lora_path = os.path.abspath(sys.argv[2]) if len(sys.argv) > 2 else None,
-              temperature = 1.0, 
-              top_k = 50, 
-              top_p = 0.9, 
-              typical = 0.7,
+              temperature = 0.7,
               beams = 1, 
               beam_length = 40, 
               stop_sequences=["Human:", "User:", "AI:"],
               callbacks=[handler],
+              #fused_attn = False,
               #max_seq_len = 8192,
               #compress_pos_emb = 4.0,
               verbose = True,
+              #alpha_value = 4.0,
               #set_auto_map = "11, 10"
               )
 
-vicuna_template = """A chat between a helpful AI assistant and a user. {history}\n USER: {input} ASSISTANT: """
+vicuna_template = """A chat between a helpful AI assistant and a user. {history} HUMAN: {input} ASSISTANT: """
 
-wizard_templte = """You are a helpful AI Assistant.
-{history}
-USER: {input}
+wizard_templte = """You are a helpful AI Assistant. {history}
+HUMAN: {input}
 ASSISTANT: """
 
 prompt_template = PromptTemplate(input_variables=["input", "history"], template=vicuna_template)
 chain = ConversationChain(
     llm=llm, 
     prompt=prompt_template, 
-    memory=ConversationTokenBufferMemory(llm=llm, max_token_limit=4096, ai_prefix="ASSISTANT", human_prefix="USER", memory_key="history"))
+    memory=ConversationTokenBufferMemory(llm=llm, max_token_limit=4096, ai_prefix="ASSISTANT", human_prefix="HUMAN", memory_key="history"))
 handler.set_chain(chain)
 
 while(True):
