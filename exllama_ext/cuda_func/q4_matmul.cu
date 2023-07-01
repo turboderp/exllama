@@ -242,7 +242,7 @@ void q4_matmul_recons_cuda
     }
 
     w->reconstruct(buffers->temp_dq);
-#if __CUDA_ARCH__ < 700
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 700
     const float alpha = 1.0f;
     const float beta = no_zero ? 1.0f : 0.0f;
     cublasSgemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, width, height, dim, &alpha, buffers->temp_dq, CUDA_R_16F, width,
