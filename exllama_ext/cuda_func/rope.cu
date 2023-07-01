@@ -34,9 +34,10 @@ __global__ void rope_cuda_kernel
     MatrixView_half sin_(sin, MAX_POS_EMBEDDINGS, head_dim);
     MatrixView_half cos_(cos, MAX_POS_EMBEDDINGS, head_dim);
 
-    // Assume head_dim is a power of two (it's always 128 for Llama)
-
     int column = (blockIdx.x * THREADS_X + threadIdx.x); if constexpr (use_half2) column *= 2;
+    int half_dim = head_dim / 2;
+    if (column >= half_dim) return;
+
     int row = blockIdx.y * THREADS_Y + threadIdx.y;
     if (row >= rows_per_batch) return;
     int batch_offset = blockIdx.z * rows_per_batch;
@@ -45,7 +46,6 @@ __global__ void rope_cuda_kernel
     // Get sin and cos
 
     int sincos_row = past_len + row / num_heads;
-    int half_dim = head_dim / 2;
 
     if constexpr (use_half2)
     {

@@ -15,6 +15,8 @@ __global__ void column_remap_kernel
 {
     int x_column = SHUF_BLOCKSIZE_X * blockIdx.x + threadIdx.x;
     int x_row = SHUF_BLOCKSIZE_Y * blockIdx.y;
+    if (x_column >= x_width) return;
+    //if (x_row >= x_height) return;
 
     int x_stride = x_width;
     int x_idx = x_row * x_stride + x_column;

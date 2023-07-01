@@ -196,7 +196,7 @@ void rms_norm_cuda
 
     dim3 blocks
     (
-        (dim + THREADS_X - 1) / THREADS_X / BLOCKSIZE_X,
+        ((dim + THREADS_X - 1) / THREADS_X + THREADS_X - 1) / BLOCKSIZE_X,
         (rows + THREADS_Y - 1) / THREADS_Y,
         1
     );

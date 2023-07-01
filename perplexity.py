@@ -33,14 +33,16 @@ class Perplexity:
 
 
     def _next_logits(self, input_ids, apply_lora, last_id_only = True):
-        n_logits = []
-        a = 0
-        while a < input_ids.shape[-1]:
-            b = min(input_ids.shape[-1], a + 2048)  # TODO: Should this be a config parameter?
-            n_logits.append(self.model.forward(input_ids[:, a:b], self.cache, last_id_only, lora = apply_lora))
-            a = b
+        # n_logits = []
+        # a = 0
+        # while a < input_ids.shape[-1]:
+        #     b = min(input_ids.shape[-1], a + 2048)  # TODO: Should this be a config parameter?
+        #     n_logits.append(self.model.forward(input_ids[:, a:b], self.cache, last_id_only, lora = apply_lora))
+        #     a = b
+        #
+        # return torch.cat(n_logits, dim = 1)
 
-        return torch.cat(n_logits, dim = 1)
+        return self.model.forward(input_ids, self.cache, last_id_only, lora = apply_lora)
 
 
     def _tokenize(self, text):

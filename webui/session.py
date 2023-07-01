@@ -613,6 +613,7 @@ class Session:
         else:
             begin_time = time.time()
             reused = generator.gen_begin_reuse(context)
+            torch.cuda.synchronize()  # Just to measure correct prompt processing speed
             end_time = time.time()
             elapsed = end_time - begin_time
             new_tokens = context.shape[-1] - reused
