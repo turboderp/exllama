@@ -1,5 +1,7 @@
 
 echo "-------------------------------------------------------------------------------------------------------------"
+python test_benchmark_inference.py -p -d /mnt/str/models/_test_models/iambestfeed_open_llama_3b_4bit_128g -cs
+echo "-------------------------------------------------------------------------------------------------------------"
 python test_benchmark_inference.py -p -d /mnt/str/models/llama-7b-4bit-128g -cs
 echo "-------------------------------------------------------------------------------------------------------------"
 python test_benchmark_inference.py -p -d /mnt/str/models/llama-13b-4bit-128g -cs
