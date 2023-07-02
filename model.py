@@ -852,7 +852,7 @@ class ExLlama:
                              input_mask)
 
             if not _preprocess_only:
-                result = r if result is None else torch.cat((result, r), dim = -1)
+                result = r if result is None else torch.cat((result, r), dim = 1)
 
             chunk_begin = chunk_end
             remaining_q_len -= chunk_size
