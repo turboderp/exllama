@@ -18,6 +18,7 @@ public:
     int device;
 
     half* temp_state;           // [max_hidden_rows * intermediate_size]
+    int temp_state_size;
     half* temp_mlp;             // [hidden_dim * intermediate_size]
     float* temp_zeros_float;    // [max_hidden_rows]
     half* temp_dq;              // size of largest quant tensor * 8
@@ -36,6 +37,7 @@ public:
     (
         int _device,
         half* _temp_state,
+        int _temp_state_size,
         half* _temp_mlp,
         float* _temp_zeros_float,
         half* _temp_dq,
@@ -52,6 +54,7 @@ void prepare_buffers_cuda
 (
     int _device,
     half* _temp_state,
+    int _temp_state_size,
     half* _temp_mlp,
     float* _temp_zeros_float,
     half* _temp_dq,

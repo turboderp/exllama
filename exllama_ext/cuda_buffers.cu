@@ -10,6 +10,7 @@ CudaBuffers::CudaBuffers
 (
     int _device,
     half* _temp_state,
+    int _temp_state_size,
     half* _temp_mlp,
     float* _temp_zeros_float,
     half* _temp_dq,
@@ -17,6 +18,7 @@ CudaBuffers::CudaBuffers
 ) :
     device(_device),
     temp_state(_temp_state),
+    temp_state_size(_temp_state_size),
     temp_mlp(_temp_mlp),
     temp_zeros_float(_temp_zeros_float),
     temp_dq(_temp_dq),
@@ -65,6 +67,7 @@ void prepare_buffers_cuda
 (
     int _device,
     half* _temp_state,
+    int _temp_state_size,
     half* _temp_mlp,
     float* _temp_zeros_float,
     half* _temp_dq,
@@ -75,6 +78,7 @@ void prepare_buffers_cuda
     (
         _device,
         _temp_state,
+        _temp_state_size,
         _temp_mlp,
         _temp_zeros_float,
         _temp_dq,
