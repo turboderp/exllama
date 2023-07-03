@@ -815,6 +815,9 @@ class ExLlama:
 
         q_len = input_ids.shape[-1]
         remaining_q_len = q_len
+        bsz = input_ids.shape[0]
+        # The buffers can only fit max_input_len tokens, so with larger batch sizes we reduce our work size correspondingly.
+        effective_max_input_len = self.config.max_input_len // bsz
 
         # Split forward pass
 
@@ -825,7 +828,7 @@ class ExLlama:
 
             # Limit chunk_size to max_input_len
 
-            chunk_size = min(remaining_q_len, self.config.max_input_len)
+            chunk_size = min(remaining_q_len, effective_max_input_len)
 
             # Limit chunk_size to keep size of attention operation <= max_attention_size
 
