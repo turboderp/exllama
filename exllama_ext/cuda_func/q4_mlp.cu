@@ -127,6 +127,7 @@ void q4_mlp_cuda
     // temp_x = rms_layernorm(x)
 
     half* temp_x = buffers->temp_state + height * dim;  // TOOD: ..
+    TORCH_CHECK(buffers->temp_state_size >= 2 * height * dim, "temp_state buffer too small");
     rms_norm_cuda(tuningParams, x, rms_norm_weight, temp_x, epsilon, height, dim, device_index);
 
     // temp_mlp[0] = temp_x @ gate

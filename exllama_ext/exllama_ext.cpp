@@ -55,6 +55,7 @@ void check_cuda(cudaError_t ret)
 #define TORCH_CHECK_SHAPES(__x, __dim_x, __y, __dim_y, __scale_y) TORCH_CHECK((__x).size(__dim_x) == (__y).size(__dim_y) * __scale_y, #__x " and " #__y " have incompatible shapes")
 #define TORCH_CHECK_SHAPES_OPT(__x, __dim_x, __y, __dim_y, __scale_y) TORCH_CHECK((__x).device().is_meta() || (__x).size(__dim_x) == (__y).size(__dim_y) * __scale_y, #__x " and " #__y " have incompatible shapes")
 #define TORCH_CHECK_SHAPE_MOD(__x, __dim_x, __mod) TORCH_CHECK((__x).size(__dim_x) % __mod == 0, #__x ".shape[" STRINGIFY(__dim_x) "] must be a multiple of " STRINGIFY(__mod))
+#define TORCH_CHECK_BUFFER_SIZE(__buffer, __minimum_size) TORCH_CHECK((__buffer).numel() >= __minimum_size, #__buffer " is too small")
 
 #define TORCH_CHECK_DEVICE_INDEX(__index) \
 do { \
@@ -141,6 +142,8 @@ void prepare_buffers
     (
         device_index,
         (half*) temp_state.data_ptr(),
+        // buffer size used for sanity checks
+        temp_state.numel(),
         (half*) temp_mlp.data_ptr(),
         (float*) temp_zeros_float.data_ptr(),
         (half*) temp_dq.data_ptr(),
@@ -336,6 +339,8 @@ void column_remap
 
     int height = x.size(0);
     int width = x.size(1);
+
+    TORCH_CHECK_BUFFER_SIZE(x_new, height * width);
 
     const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
 
