@@ -128,16 +128,17 @@ docker run --gpus all -p 5000:5000 -v <path_to_model_dir>:/data/model/ -v <path_
 ## Results so far
 
 ### New implementation
-| Model    | Size | grpsz | act             | Seq. len.            | VRAM      | Prompt     | Best    | Worst   | Ppl  |
-|----------|------|-------|-----------------|----------------------|-----------|------------|---------|---------|------|
-| Llama    | 7B   | 128   | no              | 2,048 t              | 5,194 MB  | 13,918 t/s | 173 t/s | 140 t/s | 6.45 |
-| Llama    | 13B  | 128   | no              | 2,048 t              | 9,127 MB  | 7,507 t/s  | 102 t/s | 86 t/s  | 5.60 |
-| Llama    | 33B  | 128   | no              | 2,048 t              | 20,795 MB | 2,959 t/s  | 47 t/s  | 40 t/s  | 4.60 |
-| Llama    | 33B  | 128   | yes             | 2,048 t              | 20,795 MB | 2,784 t/s  | 45 t/s  | 37 t/s  | 4.55 |
-| Llama    | 33B  | 32    | yes             | 1,550 t <sup>1</sup> | 21,486 MB | 2,636 t/s  | 41 t/s  | 37 t/s  | 4.52 |
-| Koala    | 13B  | 128   | yes             | 2,048 t              | 9,127 MB  | 5,529 t/s  | 93 t/s  | 79 t/s  | 6.73 |
-| WizardLM | 33B  | -     | no <sup>2</sup> | 2,048 t              | 20,199 MB | 2,313 t/s  | 47 t/s  | 40 t/s  | 5.75 |
-
+| Model      | Size  | grpsz | act             | Seq. len.            | VRAM      | Prompt     | Best    | Worst   | Ppl  |
+|------------|-------|-------|-----------------|----------------------|-----------|------------|---------|---------|------|
+| Llama      | 7B    | 128   | no              | 2,048 t              | 5,194 MB  | 13,918 t/s | 173 t/s | 140 t/s | 6.45 |
+| Llama      | 13B   | 128   | no              | 2,048 t              | 9,127 MB  | 7,507 t/s  | 102 t/s | 86 t/s  | 5.60 |
+| Llama      | 33B   | 128   | no              | 2,048 t              | 20,795 MB | 2,959 t/s  | 47 t/s  | 40 t/s  | 4.60 |
+| Llama      | 33B   | 128   | yes             | 2,048 t              | 20,795 MB | 2,784 t/s  | 45 t/s  | 37 t/s  | 4.55 |
+| Llama      | 33B   | 32    | yes             | 1,550 t <sup>1</sup> | 21,486 MB | 2,636 t/s  | 41 t/s  | 37 t/s  | 4.52 |
+| Koala      | 13B   | 128   | yes             | 2,048 t              | 9,127 MB  | 5,529 t/s  | 93 t/s  | 79 t/s  | 6.73 |
+| WizardLM   | 33B   | -     | no <sup>2</sup> | 2,048 t              | 20,199 MB | 2,313 t/s  | 47 t/s  | 40 t/s  | 5.75 |
+| OpenLlama  | 3B    | 128   | yes             | 2,048 t              | 3,128 MB  | 16,419 t/s | 226 t/s | 170 t/s | 7.81 |
+ 
 <sup>1</sup> Can not achieve full sequence length without OoM (yet)  
 <sup>2</sup> Not quite sure if this is act-order or not. Weights have no group index, at least   
 

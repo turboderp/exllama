@@ -72,11 +72,14 @@ __global__ void make_sequential_kernel
     int w2_stride = w_width >> 1;
 
     int w2_column = UNSHUF_BLOCKSIZE_X * blockIdx.x + threadIdx.x;
+    if (w2_column >= w2_stride) return;
+
     int w_new2_row = blockIdx.y;
 
     int x_map_idx = w_new2_row << 3;
 
     uint64_t dst = 0;
+
 
     #pragma unroll
     for (int i = 0; i < 8; i++)
@@ -142,7 +145,12 @@ void Q4Matrix::make_sequential(const uint32_t* cpu_g_idx)
     // Rearrange rows in w
 
     dim3 threads(UNSHUF_BLOCKSIZE_X, 1, 1);
-    dim3 blocks(width / UNSHUF_BLOCKSIZE_X / 2, height / 8, 1);
+    dim3 blocks
+    (
+        (width + UNSHUF_BLOCKSIZE_X * 2 - 1) / (UNSHUF_BLOCKSIZE_X * 2),
+        height / 8,
+        1
+    );
 
     make_sequential_kernel<<<blocks, threads>>>(cuda_qweight, cuda_new_qweight, cuda_x_map, height / 8, width);
 

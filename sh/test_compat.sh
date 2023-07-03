@@ -1,3 +1,4 @@
+echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/iambestfeed_open_llama_3b_4bit_128g
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/Neko-Institute-of-Science_LLaMA-7B-4bit-128g    -gs 1,20
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/Neko-Institute-of-Science_LLaMA-13B-4bit-128g   -gs 3,20
 echo "---------" && python test_benchmark_inference.py -v -l 1024 -d /mnt/str/models/_test_models/Neko-Institute-of-Science_LLaMA-30B-4bit-32g
