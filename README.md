@@ -43,12 +43,12 @@ Compute Platform version).
 
 ## How to
 
-Install dependencies, clone repo and run benchmark:
-
-    pip install -r requirements.txt
+Clone repo, install dependencies, and run benchmark:
 
     git clone https://github.com/turboderp/exllama
     cd exllama
+
+    pip install -r requirements.txt
 
     python test_benchmark_inference.py -d <path_to_model_files> -p -ppl
 
