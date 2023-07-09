@@ -518,6 +518,7 @@ void q4_attn_2
 {
     TORCH_CHECK_DTYPE(x, kHalf);
     TORCH_CHECK_DTYPE(attn_output, kHalf);
+    const at::cuda::OptionalCUDAGuard device_guard(x.device());
 
     int height = x.size(0);
 
