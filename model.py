@@ -12,6 +12,7 @@ from safetensors import safe_open
 import cuda_ext
 import json
 import math
+import gc
 from enum import Enum
 
 class ParsedEnum(Enum):
@@ -50,7 +51,6 @@ class ExLlamaConfig:
         self.intermediate_size = read_config["intermediate_size"]
         self.num_attention_heads = read_config["num_attention_heads"]
         self.num_hidden_layers = read_config["num_hidden_layers"]
-        self.num_attention_heads = read_config["num_attention_heads"]
         self.rms_norm_eps = read_config["rms_norm_eps"]
         self.vocab_size = read_config["vocab_size"]
 
@@ -75,6 +75,7 @@ class ExLlamaConfig:
         self.alpha_value = 1.0 # Alpha value for NTK RoPE scaling. Similar to compress_pos_emb, higher values increaste ctx but add Perplexity.
         self.gpu_peer_fix = False # Apparently Torch can have problems transferring tensors directly one GPU to another sometimes. Enable this to expliticly move tensors via system RAM instead, where needed
         self.auto_map = None  # List of floats with memory allocation in GB, per CUDA device, overrides device_map
+
         # Tuning
 
         self.matmul_recons_thd = 8
@@ -409,7 +410,7 @@ class ExLlamaAttention:
             attn_weights = torch.matmul(query_states, key_states.transpose(2, 3))
             attn_weights /= math.sqrt(self.config.head_dim)
             if buffer.attn_mask is not None: attn_weights = attn_weights + buffer.attn_mask
-            attn_weights = nn.functional.softmax(attn_weights, dim = -1, dtype = torch.float16).to(query_states.dtype)
+            attn_weights = nn.functional.softmax(attn_weights, dim = -1, dtype = torch.float16)
             attn_output = torch.matmul(attn_weights, value_states)
             attn_output = attn_output.transpose(1, 2)
 
@@ -577,7 +578,12 @@ class ExLlamaDeviceMap:
         return sorted(list(set(self.layers)))
 
 
-    def map(self, key, loading = False):
+    def get_all_devs(self):
+
+        return sorted(list(set(self.layers + [self.lm_head, self.norm, self.embed_tokens])))
+
+
+    def map(self, key):
 
         if key.startswith("lm_head."): return self.lm_head
         if key.startswith("model.embed_tokens."): return self.embed_tokens
@@ -629,6 +635,14 @@ def _move_tensor(tensor, new_device, name, config):
             tensor = tensor.to("cpu")
     return tensor.to(new_device)
 
+def _layer_dtype_size(key):
+    if key.endswith(".weight"): return 2
+    if key.endswith(".qweight"): return 4
+    if key.endswith(".qzeros"): return 4
+    if key.endswith(".scales"): return 2
+    if key.endswith(".g_idx"): return 0
+    raise ValueError("Unrecognized layer: " + key)
+
 
 class ExLlama:
 
@@ -643,7 +657,7 @@ class ExLlama:
         # Load model weights
 
         tensors = {}
-        with safe_open(self.config.model_path, framework="pt", device="cpu") as f:
+        with safe_open(self.config.model_path, framework = "pt", device = "cpu") as f:
 
             # Begin auto mapping if enabled
 
@@ -662,16 +676,22 @@ class ExLlama:
                     if _skip_key(key): continue
 
                     if key.startswith("model.layers.0."):
-                        tensor = f.get_tensor(key)
-                        decoder_size += tensor.numel() * tensor.element_size()
+                        tensor_slice = f.get_slice(key)
+                        shape = tensor_slice.get_shape()
+                        decoder_size += math.prod(shape) * _layer_dtype_size(key)
+                        del tensor_slice
 
                     if key.startswith("model.norm."):
-                        tensor = f.get_tensor(key)
-                        norm_size += tensor.numel() * tensor.element_size()
+                        tensor_slice = f.get_slice(key)
+                        shape = tensor_slice.get_shape()
+                        norm_size += math.prod(shape) * _layer_dtype_size(key)
+                        del tensor_slice
 
                     if key.startswith("lm_head."):
-                        tensor = f.get_tensor(key)
-                        head_size += tensor.numel() * tensor.element_size()
+                        tensor_slice = f.get_slice(key)
+                        shape = tensor_slice.get_shape()
+                        head_size += math.prod(shape) * _layer_dtype_size(key)
+                        del tensor_slice
 
                 # Assign layers automatically
 
@@ -701,29 +721,47 @@ class ExLlama:
                     device_usage += this_layer_size
                     layer_index_device += 1
 
-            # Load tensors, move to device(s)
+        # Read tensor list from file
 
-            max_dq_buffer_size = 0
-
+        load_keys = []
+        with safe_open(self.config.model_path, framework = "pt", device = "cpu") as f:
             for key in f.keys():
+                load_keys.append(key)
 
-                if _skip_key(key): continue
+        # Load up to 1 GB of tensors at a time, closing and reopening the file in between each chunk
 
-                device = self.config.device_map.map(key, loading = True)
-                tensor = f.get_tensor(key)
+        max_dq_buffer_size = 0
+        f = None
+        st_mem = 0
+        MAX_ST_MEM = 1024**3
 
-                if key.endswith(".scales"): tensor = tensor.half()
-                if key == "lm_head.weight": tensor = tensor.float() if device == "cpu" else tensor.half()
-                if key == "model.norm.weight": tensor = tensor.half()
-                if key.endswith(".embed_tokens.weight"): tensor = tensor.half()
-                if key.endswith(".input_layernorm.weight"): tensor = tensor.half()
-                if key.endswith(".post_attention_layernorm.weight"): tensor = tensor.half()
+        for key in load_keys:
 
-                tensor = tensor.to(device, non_blocking = True)
+            if _skip_key(key): continue
+            device = self.config.device_map.map(key)
 
-                if key.endswith(".qweight"): max_dq_buffer_size = max(max_dq_buffer_size, tensor.numel() * 8)
+            if f is None or st_mem > MAX_ST_MEM:
+                if f is not None: del f
+                f = safe_open(self.config.model_path, framework = "pt", device = "cpu")
+                st_mem = 0
 
-                tensors[key] = tensor
+            tensor = f.get_tensor(key)
+            size = tensor.numel() * tensor.element_size()
+            st_mem += size
+
+            if key.endswith(".scales"): tensor = tensor.half()
+            if key == "lm_head.weight": tensor = tensor.float() if device == "cpu" else tensor.half()
+            if key == "model.norm.weight": tensor = tensor.half()
+            if key.endswith(".embed_tokens.weight"): tensor = tensor.half()
+            if key.endswith(".input_layernorm.weight"): tensor = tensor.half()
+            if key.endswith(".post_attention_layernorm.weight"): tensor = tensor.half()
+
+            tensor = tensor.to(device, non_blocking = True)
+            if key.endswith(".qweight"): max_dq_buffer_size = max(max_dq_buffer_size, tensor.numel() * 8)
+
+            tensors[key] = tensor
+
+        del f
 
         # Head
 
