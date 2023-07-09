@@ -114,7 +114,7 @@ class ExLlamaLora:
 
             # Move to target device
 
-            device = self.config.device_map.map(target_key, loading = True)
+            device = self.config.device_map.map(target_key)
             tensor = tensor.to(device, non_blocking = True)
 
             # Store adapter tensor
