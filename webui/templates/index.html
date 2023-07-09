@@ -20,10 +20,20 @@
                 </symbol>
             </defs>
         </svg>
+        <svg style="display: none;">
+            <defs>
+                <symbol id="regen-icon" viewBox="0 0 512 512">
+                    <path d="M48.5 224H40c-13.3 0-24-10.7-24-24V72c0-9.7 5.8-18.5 14.8-22.2s19.3-1.7 26.2 5.2L98.6 96.6c87.6-86.5 228.7-86.2 315.8 1c87.5 87.5 87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3c-62.2-62.2-162.7-62.5-225.3-1L185 183c6.9 6.9 8.9 17.2 5.2 26.2s-12.5 14.8-22.2 14.8H48.5z"/>
+                </symbol>
+            </defs>
+        </svg>
 
         <div id="chat-container">
             <div id="sessions-column">
-                <!-- Sessions go here. -->
+                <button id="toggle-session-column" class="toggle-column-size-button right-aligned">◀</button>
+                <div id="sessions">
+                    <!-- Sessions go here. -->
+                </div>
             </div>
             <div id="chat-column">
                 <div id="chatbox">
@@ -31,51 +41,64 @@
                 </div>
                 <div id="chat-gradient-bot"></div>
                 <div id="chat-gradient-top"></div>
-                <div id="chat-input-form">
-                    <textarea id="user-input" placeholder="Type here..." rows="1"></textarea>
-                </div>
             </div>
             <div id="control-column">
+                <button id="toggle-control-column" class="toggle-column-size-button">▶</button>
+                <div id="controls">
 
-                <div class="controls-frame">
-                    <div class="header no-select">Model<span class="arrow">▼</span></div>
-                    <div class="contents" id="model_info" style="display: none;">
-                        <textarea class="textfield_info" id="tf_model_info" spellcheck="false" disabled="true"></textarea>
+                    <div class="controls-frame">
+                        <div class="header no-select">Model<span class="arrow">▼</span></div>
+                        <div class="contents" id="model_info" style="display: none;">
+                            <textarea class="textfield info" id="tf_model_info" spellcheck="false" disabled="true"></textarea>
+                        </div>
                     </div>
-                </div>
 
-                <div class="controls-frame">
-                    <div class="header no-select">Fixed prompt<span class="arrow">▼</span></div>
-                    <div class="contents" style="display: none;">
-                        <textarea class="textfield" id="tf_fixed_prompt" rows="10" spellcheck="false"></textarea>
-                        <label class="custom-checkbox no-select" id="cb_keep_fixed_prompt"><input type="checkbox" hidden /><span class="checkbox-container"></span><span class="label-text">Keep in context</span></label>
+                    <div class="controls-frame">
+                        <div class="header no-select">Fixed prompt<span class="arrow">▼</span></div>
+                        <div class="contents" style="display: none;">
+                            <textarea class="textfield" id="tf_fixed_prompt" rows="10" spellcheck="false"></textarea>
+                        </div>
+                        <div class="contents"  style="display: none;" id="context-settings"></div>
                     </div>
-                </div>
 
-                <div class="controls-frame">
-                    <div class="header no-select">Participants<span class="arrow">▲</span></div>
-                    <div class="contents" id="participants">
+                    <div class="controls-frame">
+                        <div class="header no-select">Participants<span class="arrow">▲</span></div>
+                        <div class="contents" id="participants">
+                        </div>
                     </div>
-                </div>
 
-                <div class="controls-frame">
-                    <div class="header no-select">Sampler<span class="arrow">▲</span></div>
-                    <div class="contents" id="gen_settings"></div>
-                </div>
-
-                <div class="controls-frame">
-                    <div class="header no-select">Stop condition<span class="arrow">▲</span></div>
-                    <div class="contents" id="stop_settings"></div>
-                    <div class="contents">
-                        <label class="custom-checkbox no-select" id="cb_gen_endnewline"><input type="checkbox" hidden /><span class="checkbox-container"></span><span class="label-text">End on newline</span></label>
+                    <div class="controls-frame">
+                        <div class="header no-select">Sampler<span class="arrow">▲</span></div>
+                        <div class="contents" id="gen_settings"></div>
                     </div>
-                </div>
 
-                <div class="controls-frame">
-                    <div class="header no-select">Repetition penalty<span class="arrow">▲</span></div>
-                    <div class="contents" id="repp_settings"></div>
-                </div>
+                    <div class="controls-frame">
+                        <div class="header no-select">Stop condition<span class="arrow">▲</span></div>
+                        <div class="contents" id="stop_settings"></div>
+                    </div>
 
+                    <div class="controls-frame">
+                        <div class="header no-select">Repetition penalty<span class="arrow">▲</span></div>
+                        <div class="contents" id="repp_settings"></div>
+                    </div>
+
+                    <div class="controls-frame">
+                        <div class="header no-select">Formatting<span class="arrow">▲</span></div>
+                        <div class="contents" id="format_settings"></div>
+                        <div class="contents">
+                            <label class="custom-checkbox no-select" id="clr_session_color"><input type="color"/><span class="label-text">Session color</span></label>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+        <div id="chat-input-form">
+            <textarea id="user-input" placeholder="Type here..." rows="1"></textarea>
+            <div class="buttons">
+                <button id="user-send">Send</button>
+                <button id="user-continue">Continue generation</button>
+                <button id="user-regen-last">Regenerate last</button>
             </div>
         </div>
         <script src="{{ url_for('static', filename='main.js') }}"></script>

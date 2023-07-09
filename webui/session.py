@@ -22,6 +22,10 @@ generator: ExLlamaGenerator
 
 sessions_dir: str
 
+def get_generator():
+    global generator
+    return generator
+
 def _sessions_dir(filename = None):
     global sessions_dir
 
@@ -183,6 +187,9 @@ class Session:
 
         self.max_response_tokens = saved.get("max_response_tokens", 512)
         self.chunk_size = saved.get("chunk_size", 128)
+        self.format_use_italic = saved.get("format_use_italic", False)
+        self.format_use_bold = saved.get("format_use_bold", False)
+        self.session_color = saved.get("session_color", '#383848')
 
         # Save new session
 
@@ -205,6 +212,9 @@ class Session:
                     "break_on_newline": self.break_on_newline,
                     "max_response_tokens": self.max_response_tokens,
                     "chunk_size": self.chunk_size,
+                    "format_use_italic": self.format_use_italic,
+                    "format_use_bold": self.format_use_bold,
+                    "session_color": self.session_color,
                     "token_repetition_penalty_max": generator.settings.token_repetition_penalty_max,
                     "token_repetition_penalty_sustain": generator.settings.token_repetition_penalty_sustain,
                     "token_repetition_penalty_decay": generator.settings.token_repetition_penalty_decay}
@@ -295,6 +305,9 @@ class Session:
                "break_on_newline": self.break_on_newline,
                "max_response_tokens": self.max_response_tokens,
                "chunk_size": self.chunk_size,
+               "format_use_italic": self.format_use_italic,
+               "format_use_bold": self.format_use_bold,
+               "session_color": self.session_color,
                "token_repetition_penalty_max": generator.settings.token_repetition_penalty_max,
                "token_repetition_penalty_sustain": generator.settings.token_repetition_penalty_sustain,
                "token_repetition_penalty_decay": generator.settings.token_repetition_penalty_decay,
@@ -311,16 +324,15 @@ class Session:
         return json_object + "\n"
 
 
-    def api_delete_block(self, data):
+    def api_delete_block(self, block_id):
 
-        block_id = data["uuid"]
         idx = -1
         for i in range(len(self.history)):
             if self.history[i].uuid == block_id:
                 idx = i
         if idx == -1: return
 
-        self.history.pop(idx)
+        self.history = self.history[0:idx]
         self.first_history_idx = 0
         self.save()
 
@@ -379,6 +391,9 @@ class Session:
         generator.settings.token_repetition_penalty_max = data["token_repetition_penalty_max"]
         generator.settings.token_repetition_penalty_sustain = data["token_repetition_penalty_sustain"]
         generator.settings.token_repetition_penalty_decay = data["token_repetition_penalty_decay"]
+        self.format_use_italic = data["format_use_italic"]
+        self.format_use_bold = data["format_use_bold"]
+        self.session_color = data["session_color"]
 
         self.save()
 
@@ -701,4 +716,6 @@ class Session:
 
         self.save()
 
-
+    def regen_at(self, uuid):
+        self.api_delete_block(uuid)
+        return self.respond_multi('')
