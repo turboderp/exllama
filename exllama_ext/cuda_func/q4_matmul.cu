@@ -131,7 +131,7 @@ __global__ void q4_matmul_kernel
 
     if constexpr (use_half2)
     {
-        half result = __hadd(acc.x, acc.y);
+        half result = __hadd(__low2half(acc), __high2half(acc));
         atomicAdd(out_.item_ptr(x_row, w_column), result);
     }
     else
