@@ -6,12 +6,13 @@ from langchain.callbacks import StdOutCallbackHandler
 from typing import Any, Dict, Generator, List, Optional
 from pydantic import Field, root_validator
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
-from langchain.memory import ConversationTokenBufferMemory
+from langchain.memory import ConversationBufferWindowMemory
 from langchain.prompts import PromptTemplate
 from tokenizer import ExLlamaTokenizer
 from generator import ExLlamaGenerator
 from lora import ExLlamaLora
 import os, glob, time, json, sys, logging
+from langchain.callbacks.base import BaseCallbackHandler
 
 class Exllama(LLM):
     client: Any  #: :meta private:
@@ -300,8 +301,6 @@ class Exllama(LLM):
         
         return
                 
-from langchain.callbacks.base import BaseCallbackHandler
-import time
 class BasicStreamingHandler(BaseCallbackHandler):
     def on_llm_start(
         self,
@@ -397,7 +396,7 @@ if __name__ == "__main__":
     chain = ConversationChain(
         llm=llm, 
         prompt=prompt_template, 
-        memory=ConversationTokenBufferMemory(llm=llm, max_token_limit=2048, ai_prefix="ASSISTANT", human_prefix="HUMAN", memory_key="history"))
+        memory=ConversationBufferWindowMemory(llm=llm, k=2, max_token_limit=2048, ai_prefix="ASSISTANT", human_prefix="HUMAN", memory_key="history"))
     handler.set_chain(chain)
 
     while(True):
