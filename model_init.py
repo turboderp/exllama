@@ -1,7 +1,6 @@
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
 from tokenizer import ExLlamaTokenizer
 import argparse, sys, os, glob
-from torch import version as torch_version
 
 def add_args(parser):
 
@@ -28,13 +27,12 @@ def add_args(parser):
     parser.add_argument("-mmnh2", "--matmul_no_half2", action = "store_true", help = "Don't use half2 in Q4 matmul kernel")
     parser.add_argument("-snh2", "--silu_no_half2", action = "store_true", help = "Don't use half2 in SiLU kernel")
     parser.add_argument("-nh2", "--no_half2", action = "store_true", help = "(All of the above) disable half2 in all kernela")
-    parser.add_argument("-fh2", "--force_half2", action = "store_true", help = "Force enable half2 even if unsupported")
     parser.add_argument("-cs", "--concurrent_streams", action = "store_true", help = "Use concurrent CUDA streams")
 
 
 def post_parse(args):
 
-    if args.no_half2 or torch_version.hip and not args.force_half2:
+    if args.no_half2:
         args.rmsnorm_no_half2 = True
         args.rope_no_half2 = True
         args.matmul_no_half2 = True

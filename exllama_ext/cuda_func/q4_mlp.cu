@@ -13,6 +13,7 @@ const int THREADS_X = 32;
 const int THREADS_Y = 4;
 // const int MAX_DIMENSION = 8192;
 
+
 __device__ __forceinline__ half silu(half x)
 {
     half one = __float2half(1.0f);
