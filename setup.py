@@ -73,7 +73,7 @@ setup(
     license="MIT",
     url="https://github.com/turboderp/exllama",
     description="Memory efficient implementation of llama inference.",
-    python_requires=">=3.8",
+    python_requires=">=3.9",
     install_requires=requirements,
     dependency_links=dependency_links,
     packages=[package_target_dir],
