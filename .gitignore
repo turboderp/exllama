@@ -1,3 +1,5 @@
+exllama_sessions
+models
 exllama_lib
 *.egg-info
 __pycache__/*
