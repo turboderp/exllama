@@ -7,8 +7,11 @@ Disclaimer: The project is coming along, but it's still a work in progress!
 
 ## Hardware requirements
 
-I am developing on an RTX 4090 and an RTX 3090-Ti. Both cards support the CUDA kernels, but there might be
-incompatibilities with older cards.
+I am developing on an RTX 4090 and an RTX 3090-Ti. 30-series and later NVIDIA GPUs should be well supported, but
+anything Pascal or older with poor FP16 support isn't going to perform well. 
+[AutoGPTQ](https://github.com/PanQiWei/AutoGPTQ) or [GPTQ-for-LLaMa](https://github.com/qwopqwop200/GPTQ-for-LLaMa)
+are better options at the moment for older GPUs. ROCm is also theoretically supported (via HIP) though I currently 
+have no AMD devices to test or optimize on.
 
 ## Dependencies
 
@@ -60,11 +63,15 @@ Chatbot example:
 
     python example_chatbot.py -d <path_to_model_files> -un "Jeff" -p prompt_chatbort.txt
 
+## Python module
+
+jllllll currently maintains an installable Python module [here](https://github.com/jllllll/exllama) which may be more
+suitable for integrating ExLlama with other projects
+
 ## Web UI
 
-I made a simple web UI for it. Like the rest of the project, it's a work in progress. Don't look at the JavaScript,
-it was mostly written by ChatGPT and it will haunt your dreams. But it sort of works, and it's kinda fun, especially
-multibot mode:
+I also made a simple web UI for it. Don't look at the JavaScript, it was mostly written by ChatGPT and it will haunt
+your dreams. But it sort of works, and it's kinda fun, especially multibot mode:
 
 ![_screenshot.jpg](doc/_screenshot.jpg)
 
@@ -74,13 +81,14 @@ To run it:
 
     python webui/app.py -d <path_to_model_files>
 
-Note that sessions are stored in `~/exllama_sessions/`. You can change the location of the sessions storage with `-sd`
-if you want.
+Note that sessions are stored in `~/exllama_sessions/` by default. You can change that location with `-sd` if you want.
 
 ## Docker
+
 For security benefits and easier deployment, it is also possible to run the web UI in an isolated docker container. Note: the docker image currently only supports NVIDIA GPUs.
 
 ### Requirements
+
 - [Docker](https://docs.docker.com/engine/install/)
 - [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
 
@@ -128,19 +136,18 @@ docker run --gpus all -p 5000:5000 -v <path_to_model_dir>:/data/model/ -v <path_
 ## Results so far
 
 ### New implementation
-| Model      | Size  | grpsz | act             | Seq. len.            | VRAM      | Prompt     | Best    | Worst   | Ppl  |
-|------------|-------|-------|-----------------|----------------------|-----------|------------|---------|---------|------|
-| Llama      | 7B    | 128   | no              | 2,048 t              | 5,194 MB  | 13,918 t/s | 173 t/s | 140 t/s | 6.45 |
-| Llama      | 13B   | 128   | no              | 2,048 t              | 9,127 MB  | 7,507 t/s  | 102 t/s | 86 t/s  | 5.60 |
-| Llama      | 33B   | 128   | no              | 2,048 t              | 20,795 MB | 2,959 t/s  | 47 t/s  | 40 t/s  | 4.60 |
-| Llama      | 33B   | 128   | yes             | 2,048 t              | 20,795 MB | 2,784 t/s  | 45 t/s  | 37 t/s  | 4.55 |
-| Llama      | 33B   | 32    | yes             | 1,550 t <sup>1</sup> | 21,486 MB | 2,636 t/s  | 41 t/s  | 37 t/s  | 4.52 |
-| Koala      | 13B   | 128   | yes             | 2,048 t              | 9,127 MB  | 5,529 t/s  | 93 t/s  | 79 t/s  | 6.73 |
-| WizardLM   | 33B   | -     | no <sup>2</sup> | 2,048 t              | 20,199 MB | 2,313 t/s  | 47 t/s  | 40 t/s  | 5.75 |
-| OpenLlama  | 3B    | 128   | yes             | 2,048 t              | 3,128 MB  | 16,419 t/s | 226 t/s | 170 t/s | 7.81 |
+| Model      | Size  | grpsz | act | Seq. len.            | VRAM      | Prompt     | Best    | Worst   | Ppl  |
+|------------|-------|-------|-----|----------------------|-----------|------------|---------|---------|------|
+| Llama      | 7B    | 128   | no  | 2,048 t              | 5,194 MB  | 13,918 t/s | 173 t/s | 140 t/s | 6.45 |
+| Llama      | 13B   | 128   | no  | 2,048 t              | 9,127 MB  | 7,507 t/s  | 102 t/s | 86 t/s  | 5.60 |
+| Llama      | 33B   | 128   | no  | 2,048 t              | 20,795 MB | 2,959 t/s  | 47 t/s  | 40 t/s  | 4.60 |
+| Llama      | 33B   | 128   | yes | 2,048 t              | 20,795 MB | 2,784 t/s  | 45 t/s  | 37 t/s  | 4.55 |
+| Llama      | 33B   | 32    | yes | 1,550 t <sup>1</sup> | 21,486 MB | 2,636 t/s  | 41 t/s  | 37 t/s  | 4.52 |
+| Koala      | 13B   | 128   | yes | 2,048 t              | 9,127 MB  | 5,529 t/s  | 93 t/s  | 79 t/s  | 6.73 |
+| WizardLM   | 33B   | -     | yes | 2,048 t              | 20,199 MB | 2,313 t/s  | 47 t/s  | 40 t/s  | 5.75 |
+| OpenLlama  | 3B    | 128   | yes | 2,048 t              | 3,128 MB  | 16,419 t/s | 226 t/s | 170 t/s | 7.81 |
  
-<sup>1</sup> Can not achieve full sequence length without OoM (yet)  
-<sup>2</sup> Not quite sure if this is act-order or not. Weights have no group index, at least   
+<sup>1</sup> Can not achieve full sequence length without OoM  
 
 All tests done on stock RTX 4090 / 12900K, running with a desktop environment, with a few other apps also using VRAM.
 
@@ -154,12 +161,12 @@ probably aiming for 20 GB on a 24 GB GPU to ensure there is room for a desktop e
 internals.
 
 Perplexity is measured only to verify that the models are working. The dataset used is a particular, small sample from
-WikiText, so scores are not necessarily comparable to other Llama benchmarks.
+WikiText, so scores are not comparable to other Llama benchmarks and only useful for comparing the different Llama
+models to one another.
 
 ### Dual GPU results
 
-Since many seem to be interested in running 65B models, I can confirm that this works with two 24 GB GPUs. The
-following benchmarks are from a 4090 + 3090-Ti with `-gs 17.2,24`:
+The following benchmarks are from a 4090 + 3090-Ti with `-gs 17.2,24`:
 
 | Model   | Size | groupsize | act | Seq. len.      | VRAM      | Prompt    | Best   | Worst   | Ppl   |
 |---------|------|-----------|-----|----------------|-----------|-----------|--------|---------|-------|
@@ -168,20 +175,8 @@ following benchmarks are from a 4090 + 3090-Ti with `-gs 17.2,24`:
 | Llama-2 | 70B  | 128       | yes | 2,048 t        | 40,680 MB | 914 t/s   | 17 t/s | 14 t/s  | 4.15  |
 | Llama-2 | 70B  | 32        | yes | 2,048 t        | 36,815 MB | 874 t/s   | 15 t/s | 12 t/s  | 4.10  |
 
-
-### Testing long sequences
-
-The following tests were all done on **33B/65B, 4bit 128g** with various settings, just to test the max sequence length
-and get a sense of what can be achieved with different or multiple GPUs right now. Llama goes incoherent generating 
-past 2048 tokens anyway, but with some fine-tuning, who knows? Note that these tests were run a while ago and the
-speeds are no longer current.
-
-|                        | Size | Seq. len. | VRAM                 | Long seq. | Ind.   | 
-|------------------------|------|-----------|----------------------|-----------|--------|
-| 4090/24GB              | 33B  | 2,516 t   | 22,145 MB            | 1140 t/s  | 28 t/s |
-| 4090/24GB + 3070Ti/8GB | 33B  | 3,932 t   | 22,055 MB + 7,377 MB | 840 t/s   | 22 t/s |
-| A6000/48GB (headless)  | 33B  | 9,032 t   | 46,863 MB            | 645 t/s   | 12 t/s |
-| A100/80GB (headless)   | 65B  | 9,520 t   | 79,009 MB            | 650 t/s   | 9 t/s  |
+Note that perplexity scores may not be strictly apples-to-apples between Llama and Llama 2 due to their different
+pretraining datasets.
 
 ## Todo
 
@@ -189,8 +184,7 @@ Moved the todo list [here](doc/TODO.md).
 
 ## Compatibility
 
-I downloaded a whole bunch of GPTQ models to test compatibility. [Here](doc/model_compatibility.md) is the list of models
-confirmed to be working right now.
+[Here](doc/model_compatibility.md) is a list of models confirmed to be working right now.
 
 ## Recent updates
 
