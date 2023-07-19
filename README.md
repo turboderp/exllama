@@ -161,10 +161,12 @@ WikiText, so scores are not necessarily comparable to other Llama benchmarks.
 Since many seem to be interested in running 65B models, I can confirm that this works with two 24 GB GPUs. The
 following benchmarks are from a 4090 + 3090-Ti with `-gs 17.2,24`:
 
-| Model    | Size | groupsize | act | Seq. len.            | VRAM      | Prompt    | Best   | Worst  | Ppl  |
-|----------|------|-----------|-----|----------------------|-----------|-----------|--------|--------|------|
-| Llama    | 65B  | 128       | yes | 2,048 t              | 39,804 MB | 1,109 t/s | 20 t/s | 18 t/s | 4.20 |
-| Llama    | 65B  | 32        | yes | 2,048 t              | 43,424 MB | 1,037 t/s | 17 t/s | 16 t/s | 4.11 |
+| Model   | Size | groupsize | act | Seq. len.      | VRAM      | Prompt    | Best   | Worst   | Ppl   |
+|---------|------|-----------|-----|----------------|-----------|-----------|--------|---------|-------|
+| Llama   | 65B  | 128       | yes | 2,048 t        | 39,804 MB | 1,109 t/s | 20 t/s | 18 t/s  | 4.20  |
+| Llama   | 65B  | 32        | yes | 2,048 t        | 43,424 MB | 1,037 t/s | 17 t/s | 16 t/s  | 4.11  |
+| Llama-2 | 70B  | 128       | yes | 2,048 t        | 40,680 MB | 1,037 t/s | 17 t/s | 14 t/s  | 4.15  |
+| Llama-2 | 70B  | 32        | yes | 2,048 t        | 36,815 MB | 1,037 t/s | 15 t/s | 12 t/s  | 4.10  |
 
 
 ### Testing long sequences
@@ -192,28 +194,6 @@ confirmed to be working right now.
 
 ## Recent updates
 
-**2023-06-02**: Web UI is now in a fairly working state. Expect it to be a little scuffed in places. There will be a
-rewrite at some point to make the client-side code less seizure-inducing. It has multibot mode, chat rewind and editing
-features, sessions, and more. I'm going to build it out with support for instruct prompting and such, in time.
-
-**2023-06-04**: Refactored a whole bunch to move more of the work into the extension, setting up for more tuning
-options to come soon and eventually auto tuning. Also optimized a little, for about a 5% speedup.
-
-**2023-06-06**: Some minor optimizations. Also it should now compile the extension more easily and run more seamlessly
-on Windows.
-
-**2023-06-09**: Fused most of the self-attention step. More to come. Slight speedup already, but more importantly went
-from 69% actual CPU utilization to 37%. This should do a lot to address the bottleneck on CPUs with lower 
-single-threaded performance.
-
-**2023-06-10**: Docker support now! And some minor optimizations. Cleaned up the project a bit.
-
-**2023-06-11**: Added some concurrency a couple of places. It's only beneficial on the 4090, on small models where the
-cores are somewhat underutilized and the L2 cache can keep up. For the 3090 it's detrimental to performance, so it's
-disabled by default. YMMV. Use `-cs` to try it out.
-
-**2023-06-17**: Fixed a nasty bug in the fused attention that was causing slightly incorrect cache states on 13B and
-33B models. You definitely want to update.
-
-**2023-06-18**: LoRA support now. Still needs a lot of testing and some optimization, and currently you can't stack
-multiple LoRAs during the same inference. There's also no support in the web UI yet.
+**2023-07-19**: Added support for grouped-query attention and Llama-2 70b. There's still a bit of optimization to do,
+since it slows down considerably on very long sequences despite GQA having the potential to be faster. Also could use
+some more thorough testing.

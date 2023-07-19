@@ -14,7 +14,7 @@ const int THREADS_X = 32;
 const int THREADS_Y = 1;
 const int THREADS_Z = 4;
 const int BLOCKSIZE_X = 2; // 2*half == 1*uint32_t
-const int BLOCKSIZE_Z = 4; // num_heads must be divisible by BLOCKSIZE_Z
+const int BLOCKSIZE_Z = 4; // num_heads must be divisible by BLOCKSIZE_Z  TODO: Check that this is the case when Llama2-34b releases
 
 __global__ void update_cache_kernel
 (
@@ -23,21 +23,21 @@ __global__ void update_cache_kernel
     half* __restrict__ key_cache,
     half* __restrict__ value_cache,
     const int head_dim,
-    const int num_heads,
+    const int num_kv_heads,
     const int q_len,
     const int max_seq_len,
     const int past_len
 )
 {
-    //int state_shape[]  = {              num_heads,                  q_len, head_dim };
-    int state_stride[] = {               head_dim,   head_dim * num_heads,        1 };
-    int state_pos[]    = {                      0,                      0,        0 };
+    //int state_shape[]  = {              num_kv_heads,                     q_len, head_dim };
+    int state_stride[] = {                  head_dim,   head_dim * num_kv_heads,        1 };
+    int state_pos[]    = {                         0,                         0,        0 };
 
-    //int cache_shape[]  = {              num_heads,            max_seq_len, head_dim };
-    int cache_stride[] = { max_seq_len * head_dim,               head_dim,        1 };
-    int cache_pos[]    = {                      0,               past_len,        0 };
+    //int cache_shape[]  = {              num_kv_heads,               max_seq_len, head_dim };
+    int cache_stride[] = {    max_seq_len * head_dim,                  head_dim,        1 };
+    int cache_pos[]    = {                         0,                  past_len,        0 };
 
-    int size[]         = {              num_heads,                  q_len, head_dim };
+    int size[]         = {              num_kv_heads,                  q_len, head_dim };
 
     int x = (blockIdx.x * THREADS_X + threadIdx.x) * BLOCKSIZE_X; 
     int y = blockIdx.y * THREADS_Y + threadIdx.y;
@@ -92,6 +92,7 @@ void q4_attn_cuda
     const int dim,
     const int head_dim,
     const int num_heads,
+    const int num_kv_heads,
     const int past_len,
     half* key_cache,
     half* value_cache,
@@ -117,10 +118,11 @@ void q4_attn_cuda
     (
         ((head_dim + THREADS_X - 1) / THREADS_X + BLOCKSIZE_X - 1) / BLOCKSIZE_X,
         q_len,
-        ((num_heads + THREADS_Z - 1) / THREADS_Z + BLOCKSIZE_Z - 1) / BLOCKSIZE_Z
+        ((num_kv_heads + THREADS_Z - 1) / THREADS_Z + BLOCKSIZE_Z - 1) / BLOCKSIZE_Z
     );
 
     int _rows_per_batch = q_len * num_heads;
+    int _rows_per_batch_kv = q_len * num_kv_heads;
 
     CudaBuffers* buffers = get_buffers(device_index);
 
@@ -158,11 +160,11 @@ void q4_attn_cuda
         // Positional embeddings q, k
 
         rope_cuda(tuningParams, query_states, sin, cos, bsz, _rows_per_batch, head_dim, num_heads, past_len);
-        rope_cuda(tuningParams, key_states, sin, cos, bsz, _rows_per_batch, head_dim, num_heads, past_len);
+        rope_cuda(tuningParams, key_states, sin, cos, bsz, _rows_per_batch_kv, head_dim, num_kv_heads, past_len);
 
         // Update cache tensors with projected k, v
 
-        update_cache_kernel<<<blocks, threads>>>(key_states, value_states, key_cache, value_cache, head_dim, num_heads, q_len, max_seq_len, past_len);
+        update_cache_kernel<<<blocks, threads>>>(key_states, value_states, key_cache, value_cache, head_dim, num_kv_heads, q_len, max_seq_len, past_len);
     }
     else
     {
@@ -178,20 +180,20 @@ void q4_attn_cuda
         // str_1: project q, positions q, sync
 
         q4_matmul_cuda(tuningParams, temp_x, q_len, q_proj, query_states, q_a ? true : false, str_1);
-        rope_cuda(tuningParams, query_states, sin, cos,  bsz, _rows_per_batch, head_dim, num_heads, past_len, str_1);
+        rope_cuda(tuningParams, query_states, sin, cos,  bsz, _rows_per_batch, head_dim, num_kv_heads, past_len, str_1);
         cudaEventRecord(sync_1, str_1);
 
         // str_2: project k, positions k, sync
 
         q4_matmul_cuda(tuningParams, temp_x, q_len, k_proj, key_states, k_a ? true : false, str_2);
-        rope_cuda(tuningParams, key_states, sin, cos,  bsz, _rows_per_batch, head_dim, num_heads, past_len, str_2);
+        rope_cuda(tuningParams, key_states, sin, cos,  bsz, _rows_per_batch_kv, head_dim, num_kv_heads, past_len, str_2);
         cudaEventRecord(sync_2, str_2);
 
         // str_3: project v, wait for str_2, copy (k,v) to cache, sync
 
         q4_matmul_cuda(tuningParams, temp_x, q_len, v_proj, value_states, v_a ? true : false, buffers->alt_stream_3);
         cudaStreamWaitEvent(str_3, sync_2, 0);
-        update_cache_kernel<<<blocks, threads, 0, str_3>>>(key_states, value_states, key_cache, value_cache, head_dim, num_heads, q_len, max_seq_len, past_len);
+        update_cache_kernel<<<blocks, threads, 0, str_3>>>(key_states, value_states, key_cache, value_cache, head_dim, num_kv_heads, q_len, max_seq_len, past_len);
         cudaEventRecord(sync_3, str_3);
 
         // default: wait for str_1 and str_3
