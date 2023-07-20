@@ -404,8 +404,14 @@ class Session:
             else: self.history[idx].truncate = trunc
 
         def truncate(idx, trunc):
-            if idx == -1 and not self.fixed_prompt.empty: self.fixed_prompt.truncate += trunc
-            else: self.history[idx].truncate += trunc
+            if idx == -1 and not self.fixed_prompt.empty:
+                self.fixed_prompt.truncate += trunc
+                if self.fixed_prompt.truncate > 0:
+                    print("Warning: Fixed prompt is being truncated!")
+            else:
+                self.history[idx].truncate += trunc
+                if self.history[idx].truncate > 0:
+                    print(f"Warning: History entry {idx} is being truncated!")
 
         # def get_truncation(idx, trunc):
         #     if idx == -1 and not self.fixed_prompt.empty: return self.fixed_prompt.truncate
