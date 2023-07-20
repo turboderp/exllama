@@ -59,6 +59,7 @@ function sendGenSettings() {
 
     json.chunk_size = getTBNumber("sl_chunksize_tb");
     json.max_response_tokens = getTBNumber("sl_maxtokens_tb");
+    json.min_response_tokens = getTBNumber("sl_mintokens_tb");
     json.gen_endnewline = document.querySelector("#cb_gen_endnewline input").checked;
 
     json.token_repetition_penalty_max = getTBNumber("sl_repp_penalty_tb");
@@ -176,12 +177,15 @@ function createGenSettings() {
     stopDiv.innerHTML = "";
 
     stopDiv.appendChild(createSlider("Max tokens", "sl_maxtokens", 32, 1024, 65536, 0));
+    stopDiv.appendChild(createSlider("Min tokens", "sl_mintokens", 0, 512, 65536, 0));
     stopDiv.appendChild(createSlider("Chunk tokens", "sl_chunksize", 16, 1024, 65536, 0));
 
     prepSlider("sl_maxtokens");
+    prepSlider("sl_mintokens");
     prepSlider("sl_chunksize");
 
     setSlider("sl_maxtokens", 512);
+    setSlider("sl_mintokens", 0);
     setSlider("sl_chunksize", 128);
 
     document.getElementById("cb_gen_endnewline").addEventListener('change', sendGenSettings);
@@ -281,6 +285,7 @@ function populate() {
             // Stop conditions
 
             setSlider("sl_maxtokens", data.max_response_tokens);
+            setSlider("sl_mintokens", data.min_response_tokens);
             setSlider("sl_chunksize", data.chunk_size);
 
             let cb_gen_endnewline = document.querySelector("#cb_gen_endnewline input")

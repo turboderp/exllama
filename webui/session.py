@@ -1,6 +1,7 @@
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
 from tokenizer import ExLlamaTokenizer
 from generator import ExLlamaGenerator
+from collections import defaultdict
 import time
 import torch
 import os
@@ -143,6 +144,9 @@ class Session:
     keep_fixed_prompt: bool
     history: list[Node]
     break_on_newline: bool
+    min_response_tokens: int
+    participant_cache: dict
+    longest_participant: int
 
     # Running state
 
@@ -168,12 +172,15 @@ class Session:
 
         self.first_history_idx = 0
 
+        self.participant_cache = defaultdict(set)
+
         # Saved state
 
         self.unsaved = saved.get("unsaved", True)
         self.fixed_prompt = Node(saved.get("fixed_prompt", default_fixed_prompt))
         self.keep_fixed_prompt = saved.get("keep_fixed_prompt", True)
         self.participants = saved.get("participants", ["User", "Chatbort"])
+        self.longest_participant = len(max(self.participants, key=len))
 
         self.history = []
         loadhistory = saved.get("history", [])
@@ -190,6 +197,7 @@ class Session:
         generator.settings.token_repetition_penalty_decay = saved.get("token_repetition_penalty_decay", 512)
 
         self.max_response_tokens = saved.get("max_response_tokens", 512)
+        self.min_response_tokens = saved.get("min_response_tokens", 0)
         self.chunk_size = saved.get("chunk_size", 128)
 
         # Save new session
@@ -212,6 +220,7 @@ class Session:
                     "typical": generator.settings.typical,
                     "break_on_newline": self.break_on_newline,
                     "max_response_tokens": self.max_response_tokens,
+                    "min_response_tokens": self.min_response_tokens,
                     "chunk_size": self.chunk_size,
                     "token_repetition_penalty_max": generator.settings.token_repetition_penalty_max,
                     "token_repetition_penalty_sustain": generator.settings.token_repetition_penalty_sustain,
@@ -302,6 +311,7 @@ class Session:
                "typical": generator.settings.typical,
                "break_on_newline": self.break_on_newline,
                "max_response_tokens": self.max_response_tokens,
+               "min_response_tokens": self.min_response_tokens,
                "chunk_size": self.chunk_size,
                "token_repetition_penalty_max": generator.settings.token_repetition_penalty_max,
                "token_repetition_penalty_sustain": generator.settings.token_repetition_penalty_sustain,
@@ -367,6 +377,8 @@ class Session:
     def api_set_participants(self, data):
 
         self.participants = data["participants"]
+        participant_cache = defaultdict(set)
+        self.longest_participant = len(max(self.participants, key=len))
         self.save()
 
 
@@ -386,6 +398,7 @@ class Session:
         generator.settings.typical = data["typical"]
         self.break_on_newline = data["gen_endnewline"]
         self.max_response_tokens = data["max_response_tokens"]
+        self.min_response_tokens = data["min_response_tokens"]
         self.chunk_size = data["chunk_size"]
         generator.settings.token_repetition_penalty_max = data["token_repetition_penalty_max"]
         generator.settings.token_repetition_penalty_sustain = data["token_repetition_penalty_sustain"]
@@ -518,7 +531,11 @@ class Session:
         stop_condition = False
         held_text = ""
 
-        for i in range(self.max_response_tokens):
+        temp_ban_length = 0
+
+        for i in range(self.max_response_tokens * 2):
+            if num_res_tokens >= self.max_response_tokens:
+                break
 
             # Truncate the past if the next chunk might generate past max_seq_length
 
@@ -537,7 +554,7 @@ class Session:
                 generator.replace_last_token(tokenizer.newline_token_id)
 
             # Decode current line to get new characters added (decoding a single token gives incorrect results
-            # sometimes due to hoe SentencePiece works)
+            # sometimes due to how SentencePiece works)
 
             prev_res_line = res_line
             num_res_tokens += 1
@@ -555,7 +572,7 @@ class Session:
 
             hold_text = False
             for _, stop_string in stop_conditions:
-                if stop_string.lower().startswith((held_text + new_text).lower()): hold_text = True
+                if stop_string.strip().lower().startswith((held_text + new_text).strip().lower()): hold_text = True
 
             # Stream to client
 
@@ -569,6 +586,13 @@ class Session:
 
                 held_text += new_text
 
+            # Clear temporary token bans from the reply extender
+
+            if temp_ban_length:
+                temp_ban_length -= 1
+                if temp_ban_length == 0:
+                    generator.disallow_tokens(None)
+
             # Stop conditions
 
             if gen_token.item() == tokenizer.eos_token_id:
@@ -581,11 +605,46 @@ class Session:
 
             for stop_tokens, stop_string in stop_conditions:
                 if res_line.lower().endswith(stop_string.lower()):
-                    generator.gen_rewind(
-                        stop_tokens.shape[-1] - (1 if stop_tokens[0, 0].item() == tokenizer.newline_token_id else 0))
+                    if stop_string == "\n":
+                        if num_res_tokens >= self.min_response_tokens:
+                            stop_condition = True
+                            break
+                        else:
+                            continue
+
+                    # This usually works, but the LLM sometimes takes alternate routes to build up a character name,
+                    # which aren't even necessarily the same length as tokenizing the same text
+                    # rewind_len = stop_tokens.shape[-1] - (1 if stop_tokens[0, 0].item() == tokenizer.newline_token_id else 0)
+
+                    for rewind_len in range(self.longest_participant):
+                        if tokenizer.decode(generator.sequence_actual[0, -rewind_len:]).strip().lower() == stop_string.strip().lower():
+                            break
+
+                    popped = generator.sequence_actual[0, -rewind_len:]
+                    num_res_tokens -= rewind_len
+                    generator.gen_rewind(rewind_len)
+
                     res_line = res_line[:-len(stop_string)]
-                    stop_condition = True
-                    break
+                    held_text = ""
+
+                    if num_res_tokens > self.min_response_tokens:
+                        stop_condition = True
+                        break
+                    else:
+                        # print("blocked character switch")
+                        
+                        # cache the exact tokens used for trying to switch character
+                        self.participant_cache[stop_string].add(tuple(t.item() for t in popped))
+                        
+                        # ban the first token of all known character switches, for the next token gen only
+                        disallowed_set = set()
+                        for char, token_sets in self.participant_cache.items():
+                            for variant in token_sets:
+                                disallowed_set.add(variant[0])
+                        generator.disallow_tokens(list(disallowed_set))
+
+                        temp_ban_length = 1
+
             if stop_condition: break
 
         generator.end_beam_search()
@@ -621,13 +680,13 @@ class Session:
 
         if self.break_on_newline:
             stop_conditions.append((newline_token, "\n"))
-        else:
-            for part in self.participants:
-                txt = part + ":"
-                sc = tokenizer.encode(txt)
-                sc = torch.cat((newline_token, sc), dim=1)
-                stop_conditions.append((sc, "\n" + txt))
-                stop_conditions.append((sc, "\n " + txt))
+
+        for part in self.participants:
+            txt = part + ":"
+            sc = tokenizer.encode(txt)
+            sc = torch.cat((newline_token, sc), dim=1)
+            stop_conditions.append((sc, "\n" + txt))
+            stop_conditions.append((sc, "\n " + txt))
 
         # Clean up the input a bit
 
