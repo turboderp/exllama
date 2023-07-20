@@ -14,7 +14,7 @@ Passing in model, cache, tokenizer is a total hack because we don't want to have
 '''
 
 class Perplexity:
-    def __init__(self, method="default", model=None, cache=None, tokenizer=None):
+    def __init__(self, method="default", model = None, cache = None, tokenizer = None):
         # This needs to be loaded by calling .load()
         self.dataset_chunks = []
 
@@ -36,7 +36,7 @@ class Perplexity:
         # n_logits = []
         # a = 0
         # while a < input_ids.shape[-1]:
-        #     b = min(input_ids.shape[-1], a + 2048)  # TODO: Should this be a config parameter?
+        #     b = min(input_ids.shape[-1], a + 2048)
         #     n_logits.append(self.model.forward(input_ids[:, a:b], self.cache, last_id_only, lora = apply_lora))
         #     a = b
         #

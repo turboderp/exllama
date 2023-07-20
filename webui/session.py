@@ -82,7 +82,9 @@ class Node:
     empty: bool
     uuid: str
 
-    def num_tokens(self): return self.tokens.shape[-1]
+    truncate: int
+
+    def num_tokens(self): return self.tokens.shape[-1] - self.truncate
 
     def get_text(self):
 
@@ -91,8 +93,15 @@ class Node:
         if self.author is not None: return self.author + ": " + self.text + "\n"
         return self.text + "\n"
 
+    def tokens_trunc(self):
+
+        if self.truncate == 0: return self.tokens
+        else: return self.tokens[:, self.truncate:]
+
 
     def __init__(self, value, author = None, node_id = None):
+
+        self.truncate = 0
 
         if isinstance(value, str):
 
@@ -101,7 +110,6 @@ class Node:
             self.tokens = tokenizer.encode(self.get_text())
             self.empty = len(self.text) == 0
             self.uuid = node_id or str(uuid.uuid4())
-
 
         elif isinstance(value, dict):
 
@@ -334,7 +342,10 @@ class Session:
             if node.uuid == block_id:
                 node.replace_text(new_text)
                 self.save()
-                return
+                break
+
+        self.first_history_idx = 0
+        self.save()
 
 
     def api_append_block(self, data):
@@ -388,6 +399,19 @@ class Session:
             if idx == -1: return 0 if self.fixed_prompt.empty else self.fixed_prompt.num_tokens()
             return self.history[idx].num_tokens()
 
+        def set_truncation(idx, trunc):
+            if idx == -1 and not self.fixed_prompt.empty: self.fixed_prompt.truncate = trunc
+            else: self.history[idx].truncate = trunc
+
+        def truncate(idx, trunc):
+            if idx == -1 and not self.fixed_prompt.empty: self.fixed_prompt.truncate += trunc
+            else: self.history[idx].truncate += trunc
+
+        # def get_truncation(idx, trunc):
+        #     if idx == -1 and not self.fixed_prompt.empty: return self.fixed_prompt.truncate
+        #     return self.history[idx].truncate
+
+
         context_step_size = 256  # TODO: Config option
         max_context_tokens = model.config.max_seq_len - self.chunk_size - generator.settings.beam_length
         min_context_tokens = max_context_tokens - context_step_size * 2
@@ -401,24 +425,52 @@ class Session:
 
         if self.first_history_idx < min_history_idx: self.first_history_idx = min_history_idx
 
+        for i in range(self.first_history_idx + 1, len(self.history)):
+            set_truncation(i, 0)
+
         for i in range(self.first_history_idx, len(self.history)):
             current_context_tokens += num_tokens(i)
 
         while current_context_tokens > max_context_tokens:
             tokens_to_cut = context_step_size
-            while tokens_to_cut > 0 and self.first_history_idx < len(self.history) - 1:
+            while tokens_to_cut > 0:
                 tokens = num_tokens(self.first_history_idx)
-                tokens_to_cut -= tokens
-                current_context_tokens -= tokens
-                self.first_history_idx += 1
+                if tokens_to_cut >= tokens:
+                    tokens_to_cut -= tokens
+                    current_context_tokens -= tokens
+                    self.first_history_idx += 1
+                else:
+                    truncate(self.first_history_idx, tokens_to_cut)
+                    current_context_tokens -= tokens_to_cut
+                    tokens_to_cut = 0
 
-        while current_context_tokens < min_context_tokens and self.first_history_idx > min_history_idx:
-            tokens_to_add = context_step_size
-            while tokens_to_add > 0 and self.first_history_idx > min_history_idx:
-                self.first_history_idx -= 1
-                tokens = num_tokens(self.first_history_idx)
-                tokens_to_add -= tokens
-                current_context_tokens += tokens
+        # Not used
+        #
+        # while current_context_tokens < min_context_tokens and self.first_history_idx > min_history_idx:
+        #     tokens_to_add = context_step_size
+        #     while tokens_to_add > 0 and self.first_history_idx > min_history_idx:
+        #         tokens = get_truncation(self.first_history_idx)
+        #         if tokens > 0:
+        #             if tokens > tokens_to_add:
+        #                 truncate(self.first_history_idx, -tokens_to_add)
+        #                 current_context_tokens += tokens_to_add
+        #                 tokens_to_add = 0
+        #             else:
+        #                 current_context_tokens += tokens
+        #                 tokens_to_add -= tokens
+        #                 set_truncation(self.first_history_idx, 0)
+        #         else:
+        #             self.first_history_idx -= 1
+        #             set_truncation(self.first_history_idx, 0)
+        #             tokens = num_tokens(self.first_history_idx)
+        #             if tokens > tokens_to_add:
+        #                 set_truncation(self.first_history_idx, tokens - tokens_to_add)
+        #                 current_context_tokens += tokens_to_add
+        #                 tokens_to_add = 0
+        #             else:
+        #                 tokens_to_add -= tokens
+        #                 current_context_tokens += tokens
+
 
 
     def get_tokenized_context(self):
@@ -430,12 +482,12 @@ class Session:
         context = []
         text_context = ""
         if self.keep_fixed_prompt and not self.fixed_prompt.empty:
-            context.append(node(-1).tokens)
+            context.append(node(-1).tokens_trunc())
             text_context += node(-1).get_text()
 
         for i in range(self.first_history_idx, len(self.history)):
             if node(i) is not None:
-                context.append(node(i).tokens)
+                context.append(node(i).tokens_trunc())
                 text_context += node(i).get_text()
 
         full_context = torch.cat(context, dim = 1) if len(context) > 0 else None

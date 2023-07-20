@@ -1,6 +1,6 @@
 ## Working models
 
-As of **2023-07-02**, the following GPTQ models on HuggingFace all appear to be working:
+As of **2023-07-19**, the following GPTQ models on HuggingFace all appear to be working:
 
 - iambestfeed/open_llama_3b_4bit_128g
 - Neko-Institute-of-Science/LLaMA-7B-4bit-128g
@@ -9,6 +9,7 @@ As of **2023-07-02**, the following GPTQ models on HuggingFace all appear to be 
 - Neko-Institute-of-Science/LLaMA-30B-4bit-128g
 - Neko-Institute-of-Science/LLaMA-65B-4bit-32g
 - Neko-Institute-of-Science/LLaMA-65B-4bit-128g
+- Panchovix/LLaMA-2-70B-GPTQ-transformers4.32.0.dev0
 - reeducator/bluemoonrp-13b
 - reeducator/bluemoonrp-30b
 - TehVenom/Metharme-13b-4bit-GPTQ
@@ -17,8 +18,11 @@ As of **2023-07-02**, the following GPTQ models on HuggingFace all appear to be 
 - TheBloke/GPT4All-13B-snoozy-GPTQ
 - TheBloke/guanaco-33B-GPTQ
 - TheBloke/guanaco-65B-GPTQ
-- TheBloke/h2ogpt-oasst1-512-30B-GPTQ <sup>1</sup> 
+- TheBloke/h2ogpt-oasst1-512-30B-GPTQ
 - TheBloke/koala-13B-GPTQ-4bit-128g
+- TheBloke/Llama-2-13B-chat-GPTQ (128g)
+- TheBloke/Llama-2-13B-GPTQ (32g, 64g, 128g)
+- TheBloke/Llama-2-70B-GPTQ (32g, 128g)
 - TheBloke/Manticore-13B-GPTQ
 - TheBloke/medalpaca-13B-GPTQ-4bit
 - TheBloke/medalpaca-13B-GPTQ-4bit (compat version)
@@ -39,11 +43,6 @@ As of **2023-07-02**, the following GPTQ models on HuggingFace all appear to be 
 - Yhyu13/chimera-inst-chat-13b-gptq-4bit
 - Yhyu13/oasst-rlhf-2-llama-30b-7k-steps-gptq-4bit
 
-<sup>1</sup> This particular model, uniquely, shows somewhat worse perplexity when matmul is done by the custom CUDA 
-kernel rather than cuBLAS. Maybe it's extra sensitive to rounding errors for some reason? Either way, it does work.
-
 ## Non-working models
 
-As of **2023-07-02**, I have found no models that don't work.
-
-v1 models are still unsupported, as are pickle files.
+None as of **2023-07-19**.

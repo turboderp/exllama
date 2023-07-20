@@ -29,6 +29,7 @@ void q4_attn_cuda
     const int dim,
     const int head_dim,
     const int num_heads,
+    const int num_kv_heads,
     const int past_len,
     half* key_cache,
     half* value_cache,

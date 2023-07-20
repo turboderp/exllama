@@ -54,6 +54,13 @@ class ExLlamaConfig:
         self.rms_norm_eps = read_config["rms_norm_eps"]
         self.vocab_size = read_config["vocab_size"]
 
+        if "num_key_value_heads" in read_config:
+            self.num_key_value_heads = read_config["num_key_value_heads"]
+            self.num_key_value_groups = self.num_attention_heads // self.num_key_value_heads
+        else:
+            self.num_key_value_heads = self.num_attention_heads
+            self.num_key_value_groups = 1
+
         self.rotary_embedding_base = 10000  # Constant used for pretrained models, leave as is unless retraining
         self.head_dim = self.hidden_size // self.num_attention_heads
 
@@ -288,9 +295,21 @@ class ExLlamaAttention:
         self.index = index
 
         self.q_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".q_proj")
-        self.k_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".k_proj")
-        self.v_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_attention_heads * self.config.head_dim, False, tensors, key + ".v_proj")
+        self.k_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_key_value_heads * self.config.head_dim, False, tensors, key + ".k_proj")
+        self.v_proj = Ex4bitLinear(config, self.config.hidden_size, self.config.num_key_value_heads * self.config.head_dim, False, tensors, key + ".v_proj")
         self.o_proj = Ex4bitLinear(config, self.config.num_attention_heads * self.config.head_dim, self.config.hidden_size, False, tensors, key + ".o_proj")
+
+
+    def repeat_kv(self, hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
+
+        # TODO: This seems inefficient. It should be possible to broadcast in the attention matmul to avoid building
+        # temporary K/V tensors like this
+
+        batch, num_key_value_heads, slen, head_dim = hidden_states.shape
+        if n_rep == 1: return hidden_states
+
+        hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+        return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
     def fused(self, hidden_states, cache, buffer, input_layernorm, lora):
@@ -315,9 +334,9 @@ class ExLlamaAttention:
 
         # Project q, k, v, apply position embeddings to k and v, update cache
 
-        query_states = torch.empty((bsz, q_len, self.config.hidden_size), dtype = torch.float16, device = hidden_states.device)
-        key_states = torch.empty((bsz, q_len, self.config.hidden_size), dtype = torch.float16, device = hidden_states.device)
-        value_states = torch.empty((bsz, q_len, self.config.hidden_size), dtype = torch.float16, device = hidden_states.device)
+        query_states = torch.empty((bsz, q_len, self.config.num_attention_heads * self.config.head_dim), dtype = torch.float16, device = hidden_states.device)
+        key_states = torch.empty((bsz, q_len, self.config.num_key_value_heads * self.config.head_dim), dtype = torch.float16, device = hidden_states.device)
+        value_states = torch.empty((bsz, q_len, self.config.num_key_value_heads * self.config.head_dim), dtype = torch.float16, device = hidden_states.device)
 
         cuda_ext.exllama_ext.q4_attn(hidden_states,
                                      input_layernorm.weight,
@@ -333,6 +352,7 @@ class ExLlamaAttention:
                                      q_len,
                                      past_len,
                                      self.config.num_attention_heads,
+                                     self.config.num_key_value_heads,
                                      self.config.head_dim,
                                      cache.key_states[self.index],
                                      cache.value_states[self.index],
@@ -349,11 +369,16 @@ class ExLlamaAttention:
         key_states = cache.key_states[self.index].narrow(2, 0, past_len + q_len)
         value_states = cache.value_states[self.index].narrow(2, 0, past_len + q_len)
 
+        # Repeat K/V heads if num_key_value_headsn_kv_heads < n_heads
+
+        query_states.transpose_(1, 2)
+        key_states = self.repeat_kv(key_states, self.config.num_key_value_groups)
+        value_states = self.repeat_kv(value_states, self.config.num_key_value_groups)
+
         # Attention
         # TODO: Figure out if we can use cublasHgemmStridedBatched() to do this matmul without reshaping. Torch uses
         # gemmStridedBatchedEx() internally, so it should be possible.
 
-        query_states.transpose_(1, 2)
         key_states.transpose_(2, 3)
         attn_weights = torch.matmul(query_states, key_states)
         attn_weights /= math.sqrt(self.config.head_dim)
@@ -383,11 +408,11 @@ class ExLlamaAttention:
         key_states = self.k_proj.forward(hidden_states, lora)
 
         cuda_ext.exllama_ext.rope_(query_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
-        cuda_ext.exllama_ext.rope_(key_states, self.sin, self.cos, past_len, self.config.num_attention_heads, self.config.head_dim)
+        cuda_ext.exllama_ext.rope_(key_states, self.sin, self.cos, past_len, self.config.num_key_value_heads, self.config.head_dim)
 
         query_states = query_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
-        key_states = key_states.view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
-        value_states = self.v_proj.forward(hidden_states, lora).view(bsz, q_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
+        key_states = key_states.view(bsz, q_len, self.config.num_key_value_heads, self.config.head_dim).transpose(1, 2)
+        value_states = self.v_proj.forward(hidden_states, lora).view(bsz, q_len, self.config.num_key_value_heads, self.config.head_dim).transpose(1, 2)
 
         # Add keys and values to cache
 
@@ -400,6 +425,11 @@ class ExLlamaAttention:
 
         key_states = cache.key_states[self.index].narrow(2, 0, past_len + q_len)
         value_states = cache.value_states[self.index].narrow(2, 0, past_len + q_len)
+
+        # Repeat K/V heads if num_key_value_headsn_kv_heads < n_heads
+
+        key_states = self.repeat_kv(key_states, self.config.num_key_value_groups)
+        value_states = self.repeat_kv(value_states, self.config.num_key_value_groups)
 
         # Attention
 
@@ -508,8 +538,8 @@ class ExLlamaCache:
 
             if copy_from is None:
 
-                p_key_states = torch.zeros(self.batch_size, self.config.num_attention_heads, self.max_seq_len, self.config.head_dim, dtype = torch.float16, device = self.model.config.device_map.layers[i])
-                p_value_states = torch.zeros(self.batch_size, self.config.num_attention_heads, self.max_seq_len, self.config.head_dim, dtype = torch.float16, device = self.model.config.device_map.layers[i])
+                p_key_states = torch.zeros(self.batch_size, self.config.num_key_value_heads, self.max_seq_len, self.config.head_dim, dtype = torch.float16, device = self.model.config.device_map.layers[i])
+                p_value_states = torch.zeros(self.batch_size, self.config.num_key_value_heads, self.max_seq_len, self.config.head_dim, dtype = torch.float16, device = self.model.config.device_map.layers[i])
 
             else:
 
@@ -518,6 +548,13 @@ class ExLlamaCache:
 
             self.key_states.append(p_key_states)
             self.value_states.append(p_value_states)
+
+
+    def zero(self):
+
+        for i in range(self.config.num_hidden_layers):
+            self.key_states[i].zero_()
+            self.value_states[i].zero_()
 
 
     def clone(self):

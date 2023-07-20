@@ -129,6 +129,9 @@ model_init.print_stats(model)
 torch.cuda.reset_peak_memory_stats("cuda")
 mem("Model")
 
+cache = ExLlamaCache(model)
+mem("Cache")
+
 # Load LoRA
 
 lora = None
@@ -230,8 +233,10 @@ if args.validate:
 
     begin()
 
+    ppl.cache.zero()
     model.config.matmul_recons_thd = 1
     ppl.test(8, lora = lora, tag = " (reconstruct)")
+    ppl.cache.zero()
     model.config.matmul_recons_thd = 0
     ppl.test(8, lora = lora, tag = " (quant, token)", ppl_token = True)
 
