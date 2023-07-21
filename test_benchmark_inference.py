@@ -34,13 +34,14 @@ def begin():
 def next_logits(input_ids, apply_lora, last_id_only = True, input_mask = None):
     global model, cache
 
-    n_logits = None
-    a = 0
-    while a < input_ids.shape[-1]:
-        b = min(input_ids.shape[-1], a + 2048)
-        n_logits = model.forward(input_ids[:, a:b], cache, last_id_only, lora = apply_lora, input_mask = input_mask)
-        a = b
+    # n_logits = None
+    # a = 0
+    # while a < input_ids.shape[-1]:
+    #     b = min(input_ids.shape[-1], a + 2048)
+    #     n_logits = model.forward(input_ids[:, a:b], cache, last_id_only, lora = apply_lora, input_mask = input_mask)
+    #     a = b
 
+    n_logits = model.forward(input_ids, cache, last_id_only, lora=apply_lora, input_mask=input_mask)
     return n_logits
 
 
