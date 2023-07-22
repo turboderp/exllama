@@ -366,8 +366,8 @@ class ExLlamaAttention:
 
         # Get k, v with past
 
-        key_states = cache.key_states[self.index].narrow(2, 0, past_len + q_len)
-        value_states = cache.value_states[self.index].narrow(2, 0, past_len + q_len)
+        key_states = cache.key_states[self.index].narrow(2, 0, past_len + q_len).narrow(0, 0, bsz)
+        value_states = cache.value_states[self.index].narrow(2, 0, past_len + q_len).narrow(0, 0, bsz)
 
         # Repeat K/V heads if num_key_value_headsn_kv_heads < n_heads
 
@@ -416,15 +416,15 @@ class ExLlamaAttention:
 
         # Add keys and values to cache
 
-        new_keys = cache.key_states[self.index].narrow(2, past_len, q_len)
-        new_values = cache.value_states[self.index].narrow(2, past_len, q_len)
+        new_keys = cache.key_states[self.index].narrow(2, past_len, q_len).narrow(0, 0, bsz)
+        new_values = cache.value_states[self.index].narrow(2, past_len, q_len).narrow(0, 0, bsz)
         new_keys.copy_(key_states)
         new_values.copy_(value_states)
 
         # Key/value tensors with past
 
-        key_states = cache.key_states[self.index].narrow(2, 0, past_len + q_len)
-        value_states = cache.value_states[self.index].narrow(2, 0, past_len + q_len)
+        key_states = cache.key_states[self.index].narrow(2, 0, past_len + q_len).narrow(0, 0, bsz)
+        value_states = cache.value_states[self.index].narrow(2, 0, past_len + q_len).narrow(0, 0, bsz)
 
         # Repeat K/V heads if num_key_value_headsn_kv_heads < n_heads
 
