@@ -104,11 +104,14 @@ class ExLlamaLora:
 
             # Check that dtype is compatible, or convert
 
-            if tensor.dtype == torch.float16:
-                pass
+            if tensor.dtype == torch.bfloat16:
+                tensor = tensor.to(torch.float16)
 
             elif tensor.dtype == torch.float32:
                 tensor = tensor.to(torch.float16)
+
+            elif tensor.dtype == torch.float16:
+                pass
 
             else: raise ValueError(f" ## Error: unsupported tensor dtype in {self.lora_path}")
 
