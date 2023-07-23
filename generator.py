@@ -161,7 +161,7 @@ class ExLlamaGenerator:
         self.disallowed_tokens = tokens
 
 
-    def gen_begin(self, in_tokens):
+    def gen_begin(self, in_tokens, mask = None):
 
         self.end_beam_search()
 
@@ -169,7 +169,7 @@ class ExLlamaGenerator:
         self.sequence_actual = in_tokens.clone()
         self.cache.current_seq_len = 0
 
-        self.model.forward(self.sequence[:, :-1], self.cache, preprocess_only = True, lora = self.lora)
+        self.model.forward(self.sequence[:, :-1], self.cache, preprocess_only = True, lora = self.lora, input_mask = mask)
 
 
     def gen_begin_empty(self):
@@ -180,11 +180,11 @@ class ExLlamaGenerator:
         self.cache.current_seq_len = 0
 
 
-    def gen_begin_reuse(self, in_tokens):
+    def gen_begin_reuse(self, in_tokens, mask = None):
 
         self.end_beam_search()
         if self.sequence is None or self.cache.current_seq_len == 0:
-            self.gen_begin(in_tokens)
+            self.gen_begin(in_tokens, mask = mask)
             return 0
 
         # if in_tokens.shape[-1] < self.sequence.shape[-1]:
@@ -195,7 +195,7 @@ class ExLlamaGenerator:
             reuse += 1
 
         if reuse < 2:
-            self.gen_begin(in_tokens)
+            self.gen_begin(in_tokens, mask = mask)
             return 0
 
         # print (f"Reusing cache: {reuse} tokens")
@@ -204,14 +204,14 @@ class ExLlamaGenerator:
         self.sequence = self.sequence[:, :reuse]
         self.sequence_actual = self.sequence.clone()
 
-        if reuse < in_tokens.shape[-1]: self.gen_feed_tokens(in_tokens[:, reuse:])
+        if reuse < in_tokens.shape[-1]: self.gen_feed_tokens(in_tokens[:, reuse:], mask = mask)
         return reuse
 
 
-    def gen_feed_tokens(self, in_tokens):
+    def gen_feed_tokens(self, in_tokens, mask = None):
 
         if self.sequence is None:
-            self.gen_begin(in_tokens)
+            self.gen_begin(in_tokens, mask = mask)
             return
 
         self.end_beam_search()
@@ -224,7 +224,7 @@ class ExLlamaGenerator:
             self.sequence = torch.cat((self.sequence, in_tokens), dim = 1)
 
         if start < self.sequence.shape[-1] - 1:
-            self.model.forward(self.sequence[:, start : -1], self.cache, preprocess_only = True, lora = self.lora)
+            self.model.forward(self.sequence[:, start : -1], self.cache, preprocess_only = True, lora = self.lora, input_mask = mask)
 
         self.sequence_actual = self.sequence
 
@@ -246,15 +246,15 @@ class ExLlamaGenerator:
         self.sequence_actual = self.sequence
 
 
-    def gen_prune_right(self, tokens):
+    def gen_prune_right(self, tokens, mask = None):
 
         self.end_beam_search()
         if tokens > self.sequence.shape[-1] - 1: return
-        self.gen_begin(self.sequence[:, tokens:])
+        self.gen_begin(self.sequence[:, tokens:], mask = mask)
         self.sequence_actual = self.sequence
 
 
-    def gen_prune_to(self, min_tokens_to_keep, token_id):
+    def gen_prune_to(self, min_tokens_to_keep, token_id, mask = None):
 
         self.end_beam_search()
 
@@ -271,10 +271,10 @@ class ExLlamaGenerator:
 
             if not pruned: return
 
-        self.gen_begin(self.sequence)
+        self.gen_begin(self.sequence, mask = mask)
 
 
-    def gen_prune_left(self, num_tokens):
+    def gen_prune_left(self, num_tokens, mask = None):
 
         num_tokens = min(num_tokens, self.sequence_actual.shape[-1] - 1)
 
@@ -284,7 +284,7 @@ class ExLlamaGenerator:
             self.begin_beam_search()
         else:
             self.sequence = self.sequence[:, num_tokens:]
-            self.gen_begin(self.sequence)
+            self.gen_begin(self.sequence, mask = mask)
 
 
     def gen_num_tokens(self):
@@ -298,14 +298,14 @@ class ExLlamaGenerator:
 
         self.end_beam_search()
 
-        ids = self.tokenizer.encode(prompt)
-        self.gen_begin(ids)
+        ids, mask = self.tokenizer.encode(prompt, return_mask = True)
+        self.gen_begin(ids, mask = mask)
 
         max_new_tokens = min(max_new_tokens, self.model.config.max_seq_len - ids.shape[1])
 
         eos = torch.zeros((ids.shape[0],), dtype = torch.bool)
         for i in range(max_new_tokens):
-            token = self.gen_single_token()
+            token = self.gen_single_token(mask = mask)
             for j in range(token.shape[0]):
                 if token[j, 0].item() == self.tokenizer.eos_token_id: eos[j] = True
             if eos.all(): break
@@ -316,7 +316,7 @@ class ExLlamaGenerator:
 
     # Generate a single token with the current settings, append to sequence
 
-    def gen_single_token(self, constraints = None):
+    def gen_single_token(self, constraints = None, mask = None):
 
         self.end_beam_search()
 
@@ -324,7 +324,7 @@ class ExLlamaGenerator:
 
         if self.sequence is not None:
 
-            logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora)
+            logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora, input_mask = mask)
 
             cuda_ext.ext_apply_rep_penalty_mask_cpu(self.sequence,
                                                     self.settings.token_repetition_penalty_max,
