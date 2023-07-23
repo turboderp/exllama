@@ -14,9 +14,9 @@ class ExLlamaGenerator:
         min_p = 0.0                             # Do not consider tokens with probability less than this
         typical = 0.0                           # Locally typical sampling threshold, 0.0 to disable typical sampling
 
-        token_repetition_penalty_max = 1.15  # Repetition penalty for most recent tokens
+        token_repetition_penalty_max = 1.15     # Repetition penalty for most recent tokens
         token_repetition_penalty_sustain = 256  # No. most recent tokens to repeat penalty for, -1 to apply to whole context
-        token_repetition_penalty_decay = 128  # Gradually decrease penalty over this many tokens
+        token_repetition_penalty_decay = 128    # Gradually decrease penalty over this many tokens
 
         beams = 1
         beam_length = 1
@@ -31,6 +31,7 @@ class ExLlamaGenerator:
     in_beam_search: True
     disallowed_tokens: list[int] or None
     lora: ExLlamaLora or None
+
 
     def __init__(self, model, tokenizer, cache):
 

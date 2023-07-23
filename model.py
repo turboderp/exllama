@@ -845,6 +845,8 @@ class ExLlama:
 
         self.embed_tokens = nn.Embedding(self.config.vocab_size, self.config.hidden_size, self.config.pad_token_id, device = "meta")
         self.embed_tokens.weight = nn.Parameter(tensors["model.embed_tokens.weight"])
+        with torch.no_grad():
+            self.embed_tokens.weight[self.config.pad_token_id] = 0
 
         # Norm
 
@@ -927,9 +929,7 @@ class ExLlama:
         remaining_q_len = q_len
         bsz = input_ids.shape[0]
 
-        # TODO: Fix input masking for batched generation
-
-        assert input_mask is None or input_mask.shape == input_ids.shape
+        assert input_mask is None or (input_mask.shape[-1] >= input_ids.shape[-1] and input_mask.shape[-2] == input_ids.shape[-2])
 
         # The buffers can only fit max_input_len tokens, so with larger batch sizes we reduce our work size correspondingly.
 
@@ -1006,7 +1006,7 @@ class ExLlama:
 
             # if not self.config.use_flash_attn_2:
 
-            if seq_len > 1:
+            if seq_len > 1 or input_mask is not None:
 
                 attn_mask = torch.zeros(batch_size, 1, seq_len, past_len + seq_len, dtype = torch.float16, device = devs[0])
                 attn_mask_triu = torch.triu(torch.full((seq_len - 1, seq_len - 1), -65504.))
@@ -1014,6 +1014,7 @@ class ExLlama:
 
                 if input_mask is not None:
 
+                    input_mask = input_mask[:, :past_len + seq_len]
                     input_mask = _move_tensor(input_mask, devs[0], "input_mask", self.config)
                     input_mask = torch.where(input_mask, 0, -65504.).half()
                     input_mask = input_mask.unsqueeze(1).unsqueeze(2)
