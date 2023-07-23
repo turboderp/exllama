@@ -36,7 +36,7 @@ generator.settings.top_k = 40
 generator.settings.top_p = 0.65
 # generator.settings.typical = 0.5
 
-# CFG test
+# Prompts to mix
 
 f1 = \
 """[INST] <<SYS>>
@@ -61,22 +61,19 @@ def mixed_generation(prompts, alpha, max_new_tokens):
     ids, mask = tokenizer.encode(prompts, return_mask = True)
     generator.gen_begin(ids, mask = mask)
 
-    # CFG sampling loop
+    # Sampling loop
 
     for i in range(max_new_tokens):
 
         logits = model.forward(generator.sequence[:, -1:], cache, input_mask = mask)
         generator.apply_rep_penalty(logits)
 
-        logits_a = logits[0]
-        logits_b = logits[1]
-
-        logits_mixed = (1 - alpha) * logits_a + alpha * logits_b
+        logits_mixed = (1 - alpha) * logits[0] + alpha * logits[1]
 
         sampled_token, _ = generator.sample_current(logits_mixed)
-        batch_token = sampled_token.repeat(2, 1)
-
         if sampled_token.item() == tokenizer.eos_token_id: break
+
+        batch_token = sampled_token.repeat(2, 1)
         generator.gen_accept_token(batch_token)
 
     output = tokenizer.decode(generator.sequence[0])
