@@ -74,6 +74,20 @@ class ExLlamaGenerator:
         return torch.cat(samples, dim = 0), torch.cat(scores, dim = 0)
 
 
+    # Sample one token from logits with current settings
+
+    def sample_current(self, logits, num = 1):
+
+        return self.sample(logits,
+                           self.settings.temperature,
+                           self.settings.top_k,
+                           self.settings.top_p,
+                           self.settings.min_p,
+                           self.settings.typical)
+
+
+    # Sample one token from logits
+
     def sample(self, logits, temperature, top_k, top_p, min_p, typical, num = 1):
 
         # torch.manual_seed(42)
@@ -314,6 +328,17 @@ class ExLlamaGenerator:
         return text
 
 
+    # Apply repetition penalty with current  settings
+
+    def apply_rep_penalty(self, logits):
+
+        cuda_ext.ext_apply_rep_penalty_mask_cpu(self.sequence,
+                                                self.settings.token_repetition_penalty_max,
+                                                self.settings.token_repetition_penalty_sustain,
+                                                self.settings.token_repetition_penalty_decay,
+                                                logits)
+
+
     # Generate a single token with the current settings, append to sequence
 
     def gen_single_token(self, constraints = None, mask = None):
@@ -325,12 +350,7 @@ class ExLlamaGenerator:
         if self.sequence is not None:
 
             logits = self.model.forward(self.sequence[:, -1:], self.cache, lora = self.lora, input_mask = mask)
-
-            cuda_ext.ext_apply_rep_penalty_mask_cpu(self.sequence,
-                                                    self.settings.token_repetition_penalty_max,
-                                                    self.settings.token_repetition_penalty_sustain,
-                                                    self.settings.token_repetition_penalty_decay,
-                                                    logits)
+            self.apply_rep_penalty(logits)
 
             logits[:, :, self.tokenizer.bos_token_id] = -10000.0
 
