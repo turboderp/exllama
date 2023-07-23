@@ -927,11 +927,9 @@ class ExLlama:
         remaining_q_len = q_len
         bsz = input_ids.shape[0]
 
-        # Generate input mask if necessary
+        # TODO: Fix input masking for batched generation
 
-        if input_mask is None:
-
-            input_mask = input_ids != 0
+        assert input_mask is None or input_mask.shape == input_ids.shape
 
         # The buffers can only fit max_input_len tokens, so with larger batch sizes we reduce our work size correspondingly.
 
@@ -972,7 +970,7 @@ class ExLlama:
                              _preprocess_only,
                              lora,
                              output_device,
-                             input_mask[:, chunk_begin : chunk_end])
+                             input_mask)
 
             if not _preprocess_only:
                 result = r if result is None else torch.cat((result, r), dim = 1)
@@ -991,8 +989,6 @@ class ExLlama:
                  lora = None,
                  output_device = None,
                  input_mask = None):
-
-        assert input_mask is None or input_mask.shape == input_ids.shape
 
         # if torch.is_grad_enabled():
         #     raise ValueError("Forward pass called with gradients enabled. Back propagation is not supported yet.")
