@@ -927,6 +927,12 @@ class ExLlama:
         remaining_q_len = q_len
         bsz = input_ids.shape[0]
 
+        # Generate input mask if necessary
+
+        if input_mask is None:
+
+            input_mask = input_ids != 0
+
         # The buffers can only fit max_input_len tokens, so with larger batch sizes we reduce our work size correspondingly.
 
         effective_max_input_len = self.config.max_input_len // bsz
@@ -966,7 +972,7 @@ class ExLlama:
                              _preprocess_only,
                              lora,
                              output_device,
-                             input_mask)
+                             input_mask[:, chunk_begin : chunk_end])
 
             if not _preprocess_only:
                 result = r if result is None else torch.cat((result, r), dim = 1)
