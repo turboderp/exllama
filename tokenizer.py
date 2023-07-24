@@ -21,7 +21,7 @@ class ExLlamaTokenizer:
 
     # Encode string
 
-    def encode(self, text):
+    def encode(self, text, return_mask = False, max_seq_len = 2048):
 
         if isinstance(text, list):
 
@@ -30,20 +30,38 @@ class ExLlamaTokenizer:
             list_ids = self.tokenizer.EncodeAsIds(text)
             max_length = max([len(ids) for ids in list_ids])
 
+            needs_mask = False
             padded_ids = []
             for ids in list_ids:
+                if len(ids) != len(list_ids[0]): needs_mask = True
                 padding = torch.full((max_length - len(ids),), self.pad_token_id)
                 sequence = torch.tensor(ids)
                 padded_ids.append(torch.cat((padding, sequence), dim = 0).long())
 
-            return torch.stack(padded_ids, dim = 0)
+            stacked_ids = torch.stack(padded_ids, dim = 0)
+
+            if return_mask:
+                if needs_mask:
+                    mask_padding = torch.full((stacked_ids.shape[0], max_seq_len - stacked_ids.shape[1]), True, dtype = torch.bool, device = "cpu")
+                    mask = stacked_ids != 0
+                    mask = torch.cat((mask, mask_padding), dim = 1)
+                    return stacked_ids, mask
+                else:
+                    return stacked_ids, None
+            else:
+                return stacked_ids
 
         else:
 
             # text is a single string
 
             ids = self.tokenizer.EncodeAsIds(text)
-            return torch.tensor(ids).unsqueeze(0)
+            stacked_ids = torch.tensor(ids).unsqueeze(0)
+
+            if return_mask:
+                return stacked_ids, None
+            else:
+                return stacked_ids
 
     def decode(self, ids):
 

@@ -15,6 +15,11 @@ import math
 import gc
 from enum import Enum
 
+try:
+    from flash_attn import flash_attn_func
+except:
+    pass
+
 class ParsedEnum(Enum):
 
     def __str__(self):
@@ -85,6 +90,7 @@ class ExLlamaConfig:
 
         # Tuning
 
+        self.use_flash_attn_2 = False
         self.matmul_recons_thd = 8
         self.fused_mlp_thd = 2
         self.sdp_thd = 8
@@ -119,6 +125,7 @@ class ExLlamaConfig:
 
     def calculate_rotary_embedding_base(self):
         self.rotary_embedding_base = self.rotary_embedding_base * self.alpha_value ** (self.head_dim / (self.head_dim-2))
+
 
 # 4-bit linear layer implementation
 
@@ -379,12 +386,26 @@ class ExLlamaAttention:
         # TODO: Figure out if we can use cublasHgemmStridedBatched() to do this matmul without reshaping. Torch uses
         # gemmStridedBatchedEx() internally, so it should be possible.
 
-        key_states.transpose_(2, 3)
-        attn_weights = torch.matmul(query_states, key_states)
-        attn_weights /= math.sqrt(self.config.head_dim)
-        attn_weights = nn.functional.softmax(attn_weights, dim = -1, dtype = torch.float16)
-        attn_output = torch.matmul(attn_weights, value_states)
-        attn_output = attn_output.transpose(1, 2)
+        # -- Flash Attention 2.0
+
+        if self.config.use_flash_attn_2 and (past_len == 0 or q_len == 1):
+
+            key_states = key_states.transpose(1, 2)
+            value_states = value_states.transpose(1, 2)
+            query_states = query_states.transpose(1, 2)
+            attn_output = flash_attn_func(query_states, key_states, value_states, causal = (past_len == 0))
+
+        # -- HF Transformers regular attention, faster on shorter sequences, same VRAM usage
+
+        else:
+
+            key_states.transpose_(2, 3)
+            attn_weights = torch.matmul(query_states, key_states)
+            attn_weights /= math.sqrt(self.config.head_dim)
+            attn_weights = nn.functional.softmax(attn_weights, dim = -1, dtype = torch.float16)
+            attn_output = torch.matmul(attn_weights, value_states)
+            attn_output = attn_output.transpose(1, 2)
+
         attn_output = attn_output.reshape(bsz, q_len, self.config.hidden_size)
 
         # Output projection
@@ -426,16 +447,23 @@ class ExLlamaAttention:
         key_states = cache.key_states[self.index].narrow(2, 0, past_len + q_len).narrow(0, 0, bsz)
         value_states = cache.value_states[self.index].narrow(2, 0, past_len + q_len).narrow(0, 0, bsz)
 
-        # Repeat K/V heads if num_key_value_headsn_kv_heads < n_heads
-
-        key_states = self.repeat_kv(key_states, self.config.num_key_value_groups)
-        value_states = self.repeat_kv(value_states, self.config.num_key_value_groups)
-
         # Attention
+
+        # -- Flash Attention 2.0
+
+        if self.config.use_flash_attn_2 and (past_len == 0 or q_len == 1):
+
+            key_states = key_states.transpose(1, 2)
+            value_states = value_states.transpose(1, 2)
+            query_states = query_states.transpose(1, 2)
+            attn_output = flash_attn_func(query_states, key_states, value_states, causal = (past_len == 0))
 
         # -- HF Transformers regular attention, faster on shorter sequences, same VRAM usage
 
-        if self.config.sdp_thd == 0 or q_len < self.config.sdp_thd:
+        elif self.config.sdp_thd == 0 or q_len < self.config.sdp_thd:
+
+            key_states = self.repeat_kv(key_states, self.config.num_key_value_groups)
+            value_states = self.repeat_kv(value_states, self.config.num_key_value_groups)
 
             attn_weights = torch.matmul(query_states, key_states.transpose(2, 3))
             attn_weights /= math.sqrt(self.config.head_dim)
@@ -451,6 +479,13 @@ class ExLlamaAttention:
             # Torch's SDP attention has a built-in causal mask feature which we can use only when there is no past, i.e.
             # it can only apply a square attention mask. It saves quite a bit of VRAM but in practice Torch seems to use
             # the same amount of memory at peak anyway.
+            #
+            # TODO: Apparently flash attention is disabled when supplying an attention mask tensor. Figure out if this
+            # is true and maybe drop SDP altogether. If causal masking in flash-attn is updated eventually there should
+            # be no need for this anyway.
+
+            key_states = self.repeat_kv(key_states, self.config.num_key_value_groups)
+            value_states = self.repeat_kv(value_states, self.config.num_key_value_groups)
 
             if past_len > 0 or (bsz > 1 and buffer.attn_mask is not None):
                 attn_output = F.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask = buffer.attn_mask, is_causal = False)
@@ -810,6 +845,8 @@ class ExLlama:
 
         self.embed_tokens = nn.Embedding(self.config.vocab_size, self.config.hidden_size, self.config.pad_token_id, device = "meta")
         self.embed_tokens.weight = nn.Parameter(tensors["model.embed_tokens.weight"])
+        with torch.no_grad():
+            self.embed_tokens.weight[self.config.pad_token_id] = 0
 
         # Norm
 
@@ -891,10 +928,14 @@ class ExLlama:
         q_len = input_ids.shape[-1]
         remaining_q_len = q_len
         bsz = input_ids.shape[0]
+
+        assert input_mask is None or (input_mask.shape[-1] >= input_ids.shape[-1] and input_mask.shape[-2] == input_ids.shape[-2])
+
         # The buffers can only fit max_input_len tokens, so with larger batch sizes we reduce our work size correspondingly.
+
         effective_max_input_len = self.config.max_input_len // bsz
 
-        # Split forward pass
+        # Split sequence
 
         result = None
 
@@ -905,14 +946,16 @@ class ExLlama:
 
             chunk_size = min(remaining_q_len, effective_max_input_len)
 
-            # Limit chunk_size to keep size of attention operation <= max_attention_size
+            # Limit chunk_size to keep size of attention operation <= max_attention_size, unless using flash-attn
 
-            past_len = cache.current_seq_len
-            attn_size = (past_len + remaining_q_len) * remaining_q_len
-            max_a = self.config.max_attention_size
-            if attn_size > max_a:
-                cs = (math.sqrt(past_len ** 2 + 4 * max_a) - past_len) / 2
-                chunk_size = math.floor(cs)
+            if not self.config.use_flash_attn_2 or chunk_begin > 0:
+
+                past_len = cache.current_seq_len
+                attn_size = (past_len + remaining_q_len) * remaining_q_len
+                max_a = self.config.max_attention_size
+                if attn_size > max_a:
+                    cs = (math.sqrt(past_len ** 2 + 4 * max_a) - past_len) / 2
+                    chunk_size = math.floor(cs)
 
             # Process chunk
 
@@ -947,8 +990,6 @@ class ExLlama:
                  output_device = None,
                  input_mask = None):
 
-        assert input_mask is None or input_mask.shape == input_ids.shape
-
         # if torch.is_grad_enabled():
         #     raise ValueError("Forward pass called with gradients enabled. Back propagation is not supported yet.")
         with torch.no_grad():
@@ -963,7 +1004,9 @@ class ExLlama:
 
             devs = self.config.device_map.get_layers_devs()
 
-            if seq_len > 1:
+            # if not self.config.use_flash_attn_2:
+
+            if seq_len > 1 or input_mask is not None:
 
                 attn_mask = torch.zeros(batch_size, 1, seq_len, past_len + seq_len, dtype = torch.float16, device = devs[0])
                 attn_mask_triu = torch.triu(torch.full((seq_len - 1, seq_len - 1), -65504.))
@@ -971,6 +1014,7 @@ class ExLlama:
 
                 if input_mask is not None:
 
+                    input_mask = input_mask[:, :past_len + seq_len]
                     input_mask = _move_tensor(input_mask, devs[0], "input_mask", self.config)
                     input_mask = torch.where(input_mask, 0, -65504.).half()
                     input_mask = input_mask.unsqueeze(1).unsqueeze(2)
@@ -982,6 +1026,10 @@ class ExLlama:
                 # attn_mask = torch.zeros(batch_size, 1, seq_len, seq_len + past_len, dtype = torch.float16, device = devs[0])
 
             buffer.attn_mask = attn_mask
+
+            # else:
+            #
+            #     buffer.attn_mask = None
 
             # Embeddings
             # TODO: Allow passing input embeddings instead of IDs

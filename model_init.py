@@ -17,6 +17,8 @@ def add_args(parser):
 
     parser.add_argument("-gpfix", "--gpu_peer_fix", action = "store_true", help = "Prevent direct copies of data between GPUs")
 
+    parser.add_argument("-flash", "--flash_attn", nargs = '?', const = 'default', metavar = "METHOD", help = "Use Flash Attention with specified input length (must have Flash Attention 2.0 installed)")
+
     parser.add_argument("-mmrt", "--matmul_recons_thd", type = int, help = "No. rows at which to use reconstruction and cuBLAS for quant matmul. 0 = never, 1 = always", default = 8)
     parser.add_argument("-fmt", "--fused_mlp_thd", type = int, help = "Maximum no. of rows for which to use fused MLP. 0 = never", default = 2)
     parser.add_argument("-sdpt", "--sdp_thd", type = int, help = "No. rows at which to switch to scaled_dot_product_attention. 0 = never, 1 = always", default = 8)
@@ -84,9 +86,12 @@ def print_options(args, extra_options = None):
         print(f" -- RoPE alpha factor: {args.alpha}")
 
     print(f" -- Tuning:")
+
+    if args.flash_attn: print(f" -- --flash_attn")
+    else: print(f" -- --sdp_thd: {args.sdp_thd}" + (" (disabled)" if args.sdp_thd == 0 else ""))
+
     print(f" -- --matmul_recons_thd: {args.matmul_recons_thd}" + (" (disabled)" if args.matmul_recons_thd == 0 else ""))
     print(f" -- --fused_mlp_thd: {args.fused_mlp_thd}" + (" (disabled)" if args.fused_mlp_thd == 0 else ""))
-    print(f" -- --sdp_thd: {args.sdp_thd}" + (" (disabled)" if args.sdp_thd == 0 else ""))
     if args.matmul_fused_remap: print(f" -- --matmul_fused_remap")
     if args.no_fused_attn: print(f" -- --no_fused_attn")
     if args.rmsnorm_no_half2: print(f" -- --rmsnorm_no_half2")
@@ -111,6 +116,13 @@ def make_config(args):
     config.gpu_peer_fix = args.gpu_peer_fix
     config.alpha_value = args.alpha
     config.calculate_rotary_embedding_base()
+
+    if args.flash_attn:
+        config.use_flash_attn_2 = True
+        try:
+            config.max_input_len = int(args.flash_attn)
+        except ValueError:
+            pass
 
     config.matmul_recons_thd = args.matmul_recons_thd
     config.fused_mlp_thd = args.fused_mlp_thd
