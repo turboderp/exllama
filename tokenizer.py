@@ -18,13 +18,6 @@ class ExLlamaTokenizer:
         self.pad_token_id = 0  # self.tokenizer.pad_id()
         self.newline_token_id = 13
 
-
-        print(self.encode("hello world"))
-        print(self.encode("hello world", pad_bos=True, pad_eos=True))
-
-        print(self.encode(["hello world", "hello world", "hello world"], pad_bos=False, pad_eos=False))
-        print(self.encode(["hello world", "hello world", "hello world"], pad_bos=True, pad_eos=True))
-
     # Encode string
 
     def encode(self, text, return_mask = False, max_seq_len = 2048, pad_eos = False, pad_bos = False):
@@ -72,7 +65,7 @@ class ExLlamaTokenizer:
             ids = self.tokenizer.EncodeAsIds(text)
 
             # pad bos and eos
-            
+
             if pad_bos:
               ids = [self.bos_token_id] + ids
             if pad_eos:
