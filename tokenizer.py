@@ -20,7 +20,7 @@ class ExLlamaTokenizer:
 
     # Encode string
 
-    def encode(self, text, return_mask = False, max_seq_len = 2048, pad_eos = False, pad_bos = False):
+    def encode(self, text, return_mask = False, max_seq_len = 2048, add_bos = False, add_eos = False):
 
         if isinstance(text, list):
 
@@ -30,9 +30,9 @@ class ExLlamaTokenizer:
 
             # pad bos and eos
 
-            if pad_bos:
+            if add_bos:
                 for ids in list_ids: ids.insert(0, self.bos_token_id)
-            if pad_eos:
+            if add_eos:
                 for ids in list_ids: ids.append(self.eos_token_id)
 
             max_length = max([len(ids) for ids in list_ids])
