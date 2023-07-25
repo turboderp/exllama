@@ -66,9 +66,9 @@ class ExLlamaTokenizer:
 
             # pad bos and eos
 
-            if pad_bos:
+            if add_bos:
               ids = [self.bos_token_id] + ids
-            if pad_eos:
+            if add_eos:
               ids = ids + [self.eos_token_id]
 
             stacked_ids = torch.tensor(ids).unsqueeze(0)
