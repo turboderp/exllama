@@ -106,9 +106,11 @@ class ExLlamaTokenizer:
                 return stacked_ids
 
     def decode(self, ids, decode_special_characters=False):
+        
         special_ids = {id_: char for char, id_ in self.special_characters}  # create a lookup dictionary
 
         if ids.dim() > 1:
+            
             texts = []
             for i in range(ids.shape[0]):
                 seq = ids[i].tolist()
@@ -141,9 +143,11 @@ class ExLlamaTokenizer:
             return texts
 
         else:
+            
             ids = ids.tolist()
 
             if decode_special_characters:
+                
                 text_parts = []
                 normal_ids = []  # list of lists
                 current_normal_ids = []  # current list of normal IDs
@@ -163,15 +167,17 @@ class ExLlamaTokenizer:
                     text_parts.insert(2*idx, decoded_segment)
                 
                 text = "".join(text_parts)
-            
+
             return text
 
     def num_tokens(self, text, encode_special_characters = False):
-        ids = []
-
+        
         if encode_special_characters:
+            
             ids = self.encode(text, encode_special_characters = True)
             return ids.size(1)
+        
         else:
+            
             ids = self.tokenizer.Encode(text)
             return len(ids)
