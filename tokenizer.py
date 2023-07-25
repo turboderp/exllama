@@ -71,7 +71,6 @@ class ExLlamaTokenizer:
                     temp_text = []
                     for segment in split_text:
                         if isinstance(segment, str) and special_character in segment:
-                            print("found special character: " + special_character)
                             # for each special character, append the text before the special character, then append the special character ID, then the rest of the text
                             parts = segment.split(special_character)
                             new_parts = []
@@ -167,7 +166,12 @@ class ExLlamaTokenizer:
             
             return text
 
-    def num_tokens(self, text): # TODO
+    def num_tokens(self, text, encode_special_characters = False):
+        ids = []
 
-        ids = self.tokenizer.Encode(text)
-        return len(ids)
+        if encode_special_characters:
+            ids = self.encode(text, encode_special_characters = True)
+            return ids.size(1)
+        else:
+            ids = self.tokenizer.Encode(text)
+            return len(ids)
