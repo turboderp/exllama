@@ -18,8 +18,6 @@ class ExLlamaTokenizer:
         self.pad_token_id = 0  # self.tokenizer.pad_id()
         self.newline_token_id = 13
 
-        print(f"unknown token id: {self.unk_token_id}")
-
         self.special_characters = [(self.bos_token, self.bos_token_id), (self.eos_token, self.eos_token_id), (self.unk_token, self.unk_token_id)] # for tokenzier encoding
 
     # Encode string
