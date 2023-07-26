@@ -167,6 +167,10 @@ class ExLlamaTokenizer:
                     text_parts.insert(2*idx, decoded_segment)
                 
                 text = "".join(text_parts)
+            
+            else:
+              
+                text = self.tokenizer.Decode(ids)
 
             return text
 
