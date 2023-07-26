@@ -139,6 +139,7 @@ class ExLlamaTokenizer:
                 else:
                     if self.eos_token_id in seq:  # to not mess up special char decoding
                         seq = seq[:seq.index(self.eos_token_id)]
+                    texts.append(self.tokenizer.Decode(seq))
 
             return texts
 
@@ -173,6 +174,7 @@ class ExLlamaTokenizer:
                 text = self.tokenizer.Decode(ids)
 
             return text
+
 
     def num_tokens(self, text, encode_special_characters = False):
         
