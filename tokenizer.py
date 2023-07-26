@@ -18,16 +18,23 @@ class ExLlamaTokenizer:
         self.pad_token_id = 0  # self.tokenizer.pad_id()
         self.newline_token_id = 13
 
-
     # Encode string
 
-    def encode(self, text, return_mask = False, max_seq_len = 2048):
+    def encode(self, text, return_mask = False, max_seq_len = 2048, add_bos = False, add_eos = False):
 
         if isinstance(text, list):
 
             # text is a list of strings
 
             list_ids = self.tokenizer.EncodeAsIds(text)
+
+            # pad bos and eos
+
+            if add_bos:
+                for ids in list_ids: ids.insert(0, self.bos_token_id)
+            if add_eos:
+                for ids in list_ids: ids.append(self.eos_token_id)
+
             max_length = max([len(ids) for ids in list_ids])
 
             needs_mask = False
@@ -56,6 +63,14 @@ class ExLlamaTokenizer:
             # text is a single string
 
             ids = self.tokenizer.EncodeAsIds(text)
+
+            # pad bos and eos
+
+            if add_bos:
+                ids = [self.bos_token_id] + ids
+            if add_eos:
+                ids = ids + [self.eos_token_id]
+
             stacked_ids = torch.tensor(ids).unsqueeze(0)
 
             if return_mask:
