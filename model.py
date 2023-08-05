@@ -955,7 +955,7 @@ class ExLlama:
                 max_a = self.config.max_attention_size
                 if attn_size > max_a:
                     cs = (math.sqrt(past_len ** 2 + 4 * max_a) - past_len) / 2
-                    chunk_size = math.floor(cs)
+                    chunk_size = min(chunk_size, math.floor(cs))
 
             # Process chunk
 
