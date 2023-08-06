@@ -50,8 +50,8 @@ __global__ void rms_norm_row_product_kernel
         for (int k = 0; k < BLOCKSIZE_X / 2; k++)
         {
             half2 x2 = *x_ptr++;
-            float m0 = __half2float(x2.x);
-            float m1 = __half2float(x2.y);
+            float m0 = __low2float(x2);
+            float m1 = __high2float(x2);
             acc = fma(m0, m0, acc);
             acc = fma(m1, m1, acc);
         }
