@@ -65,6 +65,10 @@ if args.botfirst: print_opts.append("botfirst")
 
 model_init.print_options(args, print_opts)
 
+# Globals
+
+model_init.set_globals(args)
+
 # Load prompt file
 
 username = args.username

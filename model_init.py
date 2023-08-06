@@ -2,6 +2,7 @@ from model import ExLlama, ExLlamaCache, ExLlamaConfig
 from tokenizer import ExLlamaTokenizer
 import argparse, sys, os, glob
 from torch import version as torch_version
+from globals import set_affinity_str
 
 def add_args(parser):
 
@@ -32,6 +33,8 @@ def add_args(parser):
     parser.add_argument("-nh2", "--no_half2", action = "store_true", help = "(All of the above) disable half2 in all kernela")
     parser.add_argument("-fh2", "--force_half2", action = "store_true", help = "Force enable half2 even if unsupported")
     parser.add_argument("-cs", "--concurrent_streams", action = "store_true", help = "Use concurrent CUDA streams")
+
+    parser.add_argument("-aff", "--affinity", type = str, help = "Comma-separated list, sets processor core affinity. E.g.: -aff 0,1,2,3")
 
 
 def post_parse(args):
@@ -72,6 +75,7 @@ def print_options(args, extra_options = None):
     print_opts = []
     if args.gpu_split is not None: print_opts.append(f"gpu_split: {args.gpu_split}")
     if args.gpu_peer_fix: print_opts.append("gpu_peer_fix")
+    if args.affinity: print_opts.append(f" --affinity: {args.affinity}")
 
     if extra_options is not None: print_opts += extra_options
 
@@ -137,6 +141,13 @@ def make_config(args):
     config.concurrent_streams = args.concurrent_streams
 
     return config
+
+
+# Global state
+
+def set_globals(args):
+
+    if args.affinity: set_affinity_str(args.affinity)
 
 
 # Print stats after loading model
