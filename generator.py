@@ -308,22 +308,44 @@ class ExLlamaGenerator:
 
     # Simple generator function
 
-    def generate_simple(self, prompt, max_new_tokens = 128):
-
+    def generate_simple(self, prompt, max_new_tokens=128, stop=None):
         self.end_beam_search()
 
-        ids, mask = self.tokenizer.encode(prompt, return_mask = True, max_seq_len = self.model.config.max_seq_len)
-        self.gen_begin(ids, mask = mask)
+        ids, mask = self.tokenizer.encode(prompt, return_mask=True, max_seq_len=self.model.config.max_seq_len)
+        self.gen_begin(ids, mask=mask)
 
         max_new_tokens = min(max_new_tokens, self.model.config.max_seq_len - ids.shape[1])
 
-        eos = torch.zeros((ids.shape[0],), dtype = torch.bool)
+        stop_lens = []
+        stop_ids = set()
+        if not stop == None:
+            # Convert stop tokens to their respective IDs and store them in a set for faster lookup
+            temp_len_list = []
+            for s in stop:
+                stop_ids.add(s)
+                temp_len_list.append(len(s))
+            stop_lens = list(set(temp_len_list))
+            stop_lens.sort()
+        
+        eos = torch.zeros((ids.shape[0],), dtype=torch.bool)
         for i in range(max_new_tokens):
-            token = self.gen_single_token(mask = mask)
+            token = self.gen_single_token(mask=mask)
             for j in range(token.shape[0]):
-                if token[j, 0].item() == self.tokenizer.eos_token_id: eos[j] = True
-            if eos.all(): break
-
+                if token[j, 0].item() == self.tokenizer.eos_token_id:
+                    eos[j] = True
+            # Check if the generated token is in the stop_ids set
+            if len(stop_lens):
+                seq = self.sequence[0] if self.sequence.shape[0] == 1 else self.sequence
+                # must use string after decode
+                last_str = self.tokenizer.decode(seq[-min(len(seq), stop_lens[-1]*2):])
+                for l in stop_lens:
+                    compare_str = last_str[-min(len(last_str), l):]
+                    if compare_str in stop_ids:
+                        return self.tokenizer.decode(seq)[:-len(compare_str)]
+                    
+            if eos.all():
+                break
+        
         text = self.tokenizer.decode(self.sequence[0] if self.sequence.shape[0] == 1 else self.sequence)
         return text
 

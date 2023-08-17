@@ -2,7 +2,7 @@ from model import ExLlama, ExLlamaCache, ExLlamaConfig
 from flask import Flask, request
 from tokenizer import ExLlamaTokenizer
 from generator import ExLlamaGenerator
-import os, glob
+import os, glob, json
 
 # Directory containing config.json, tokenizer.model and safetensors file for the model
 model_directory = "/mnt/str/models/llama-7b-4bit/"
@@ -33,6 +33,9 @@ app = Flask(__name__)
 def inferContextP():
     print(request.form)
     prompt = request.form.get('prompt')
+    stop = request.form.get('stop')
+    if stop:
+        stop = json.loads(stop)
 
     generator.settings.token_repetition_penalty_max = 1.176
     generator.settings.token_repetition_penalty_sustain = config.max_seq_len
@@ -41,7 +44,7 @@ def inferContextP():
     generator.settings.top_k = 40
     generator.settings.typical = 0.0    # Disabled
 
-    outputs = generator.generate_simple(prompt, max_new_tokens = 200)
+    outputs = generator.generate_simple(prompt, max_new_tokens = 200, stop = stop)
     return outputs
 
 
@@ -51,6 +54,9 @@ def inferContextP():
 def inferContextC():
     print(request.form)
     prompt = request.form.get('prompt')
+    stop = request.form.get('stop')
+    if stop:
+        stop = json.loads(stop)
 
     generator.settings.token_repetition_penalty_max = 1.1
     generator.settings.token_repetition_penalty_sustain = config.max_seq_len
@@ -59,7 +65,7 @@ def inferContextC():
     generator.settings.top_k = 0        # Disabled
     generator.settings.typical = 0.0    # Disabled
 
-    outputs = generator.generate_simple(prompt, max_new_tokens = 200)
+    outputs = generator.generate_simple(prompt, max_new_tokens = 200, stop = stop)
     return outputs
 
 
@@ -69,6 +75,9 @@ def inferContextC():
 def inferContextS():
     print(request.form)
     prompt = request.form.get('prompt')
+    stop = request.form.get('stop')
+    if stop:
+        stop = json.loads(stop)
 
     generator.settings.token_repetition_penalty_max = 1.15
     generator.settings.token_repetition_penalty_sustain = config.max_seq_len
@@ -77,7 +86,7 @@ def inferContextS():
     generator.settings.top_k = 30
     generator.settings.typical = 0.0    # Disabled
 
-    outputs = generator.generate_simple(prompt, max_new_tokens = 200)
+    outputs = generator.generate_simple(prompt, max_new_tokens = 200, stop = stop)
     return outputs
 
 
