@@ -155,67 +155,6 @@ def oneshot_generation(prompt: str, stop_conditions: list, max_new_tokens: int, 
     return full_prompt + built_response, utilized_prompt + built_response, built_response
 
 
-    global model, cache, config, generator, tokenizer
-
-    # Global initialization
-
-    torch.set_grad_enabled(False)
-    torch.cuda._lazy_init()
-
-    # Parse arguments
-
-    parser = argparse.ArgumentParser(description = "Endpoint example")
-
-    model_init.add_args(parser)
-
-    parser.add_argument("-lora", "--lora", type = str, help = "Path to LoRA binary to use during benchmark")
-    parser.add_argument("-loracfg", "--lora_config", type = str, help = "Path to LoRA config to use during benchmark")
-    parser.add_argument("-ld", "--lora_dir", type = str, help = "Path to LoRA config and binary. to use during benchmark")
-
-    args = parser.parse_args()
-    model_init.post_parse(args)
-    model_init.get_model_files(args)
-
-    print_opts = []
-    model_init.print_options(args, print_opts)
-
-    # Paths
-
-    if args.lora_dir is not None:
-        args.lora_config = os.path.join(args.lora_dir, "adapter_config.json")
-        args.lora = os.path.join(args.lora_dir, "adapter_model.bin")
-
-    # Model globals
-
-    model_init.set_globals(args)
-
-    # Instantiate model and generator
-
-    config = model_init.make_config(args)
-
-    model = ExLlama(config)
-    cache = ExLlamaCache(model)
-    tokenizer = ExLlamaTokenizer(args.tokenizer)
-
-    model_init.print_stats(model)
-
-    # Load LoRA
-
-    lora = None
-    if args.lora:
-        print(f" -- LoRA config: {args.lora_config}")
-        print(f" -- Loading LoRA: {args.lora}")
-        if args.lora_config is None:
-            print(f" ## Error: please specify lora path to adapter_config.json")
-            sys.exit()
-        lora = ExLlamaLora(model, args.lora_config, args.lora)
-        if lora.bias_ignored:
-            print(f" !! Warning: LoRA zero bias ignored")
-
-    # Generator
-
-    generator = ExLlamaGenerator(model, tokenizer, cache)
-
 def get_num_tokens(text: str):
 
     return cached_tokenize(text).shape[-1]
