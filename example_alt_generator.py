@@ -16,7 +16,7 @@ model: ExLlama                  # Model, initialized with ExLlamaConfig
 cache: ExLlamaCache             # Cache for generation, tied to model
 generator: ExLlamaAltGenerator  # Generator
 tokenizer: ExLlamaTokenizer     # Tokenizer
-lora: ExLlamaLora               # (Optional) LoRA, remember to specify in generator settings
+lora: ExLlamaLora = None        # (Optional) LoRA, remember to specify in generator settings
 
 
 # Initialize model
