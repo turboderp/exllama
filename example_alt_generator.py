@@ -202,6 +202,6 @@ output = generator.begin_stream(prompt = prompt,
 
 while True:
     chunk, eos = generator.stream()
-    if eos: break
     print(chunk, end = "")
     sys.stdout.flush()
+    if eos: break
