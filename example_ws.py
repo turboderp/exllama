@@ -183,6 +183,7 @@ async def oneShotInfer(request, ws):
     gs.top_k = top_k
     gs.top_p = top_p
     gs.temperature = temp
+    gs.token_repetition_penalty_max = rep_pen
 
     full_ctx, util_ctx, response = oneshot_generation(prompt=fullContext, stop_conditions=sc, max_new_tokens=maxNew, gen_settings=gs)
 
@@ -201,17 +202,16 @@ async def streamInfer(request, ws):
     gs.top_k = top_k
     gs.top_p = top_p
     gs.temperature = temp
-    begin_stream(prompt, stopToken, 10, gs)
+    gs.token_repetition_penalty_max = rep_pen
+    begin_stream(prompt, stopToken, maxNew, gs)
     while True:
-        chunk, eos, x, y, z = stream()
+        chunk, eos, x, y, builtResp = stream()
         await ws.send(json.dumps({'action':'streamInfer',
-                                  'request_id':request['request_id'], 
-                                  'response':chunk,
-                                  'fullContext':x, 
-                                  'utilContext':y, 
-                                  'response':z}))
+                                  'request_id':request['request_id'],
+                                  'utilContext':utilized_prompt + builtResp, 
+                                  'response':builtResp}))
         if eos: break
-    return prompt, y
+    return utilized_prompt + built_response,builtResp
 
 
 async def main(websocket, path):
@@ -230,11 +230,11 @@ async def main(websocket, path):
 
             elif action == "oneShotInfer":
                 fctx, utlctx, res = await oneShotInfer(request, websocket)
-                await websocket.send(json.dumps({'action':action, 'request_id':reqID, 'fullContext':fctx, 'utilContext':utlctx, 'response':res}))
+                await websocket.send(json.dumps({'action':action, 'request_id':reqID,'utilContext':utlctx, 'response':res}))
 
             elif action == "streamInfer":
-                fctx, utlctx= await streamInfer(request, websocket)
-                await websocket.send(json.dumps({'action':action, 'request_id':reqID, 'fullContext':fctx, 'utilContext':utlctx, 'response':'</s>'}))
+                utlctx, builtResp= await streamInfer(request, websocket)
+                await websocket.send(json.dumps({'action':action, 'request_id':reqID,'utilContext':utlctx, 'response':builtResp+'</s>'}))
 
         #except Exception as e:
             #print({"error": str(e)})
