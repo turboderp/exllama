@@ -363,7 +363,7 @@ class ExLlamaAttention:
                                      self.config.head_dim,
                                      cache.key_states[self.index],
                                      cache.value_states[self.index],
-                                     self.config.max_seq_len,
+                                     cache.max_seq_len,
                                      q_a, q_b,
                                      k_a, k_b,
                                      v_a, v_b,
