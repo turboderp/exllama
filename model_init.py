@@ -15,6 +15,7 @@ def add_args(parser):
     parser.add_argument("-l", "--length", type = int, help = "Maximum sequence length", default = 2048)
     parser.add_argument("-cpe", "--compress_pos_emb", type = float, help = "Compression factor for positional embeddings", default = 1.0)
     parser.add_argument("-a", "--alpha", type = float, help = "alpha for context size extension via embedding extension", default = 1.0)
+    parser.add_argument("-theta", "--theta", type = float, help = "theta (base) for RoPE embeddings")
 
     parser.add_argument("-gpfix", "--gpu_peer_fix", action = "store_true", help = "Prevent direct copies of data between GPUs")
 
@@ -139,6 +140,9 @@ def make_config(args):
     config.matmul_no_half2 = args.matmul_no_half2
     config.silu_no_half2 = args.silu_no_half2
     config.concurrent_streams = args.concurrent_streams
+
+    if args.theta:
+        config.rotary_embedding_base = args.theta
 
     return config
 
