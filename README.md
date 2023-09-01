@@ -188,6 +188,6 @@ Moved the todo list [here](doc/TODO.md).
 
 ## Recent updates
 
-**2023-07-19**: Added support for grouped-query attention and Llama-2 70b. There's still a bit of optimization to do,
-since it slows down considerably on very long sequences despite GQA having the potential to be faster. Also could use
-some more thorough testing.
+**2023-01-09**: Added rope_theta parameter for (at least partial) CodeLlama support. If you were using alpha = 97
+or similar, you would no longer need that for CodeLlama models. Still stuff to sort out regarding the extended
+vocabulary.
