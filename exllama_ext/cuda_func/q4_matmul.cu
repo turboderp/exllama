@@ -70,8 +70,8 @@ __global__ void q4_matmul_kernel
     if (!no_zero && blockIdx.z == 0 && (threadIdx.x & 1) == 0)
     {
         *((uint32_t*) out_.item_ptr(x_row, w_column)) = 0;
-        __syncthreads();
     }
+    __syncthreads();
 
     // Loop over part of x row (and w column)
 
@@ -90,7 +90,7 @@ __global__ void q4_matmul_kernel
                 if constexpr (use_x_map) x_cache_h[i] = *x_.item_ptr(x_row, x_map[k + i]);
                 else                     x_cache_h[i] = *x_.item_ptr(x_row, k + i);
             }
-            if constexpr (THREADS_X * THREADS_Y > 32) __syncthreads();
+            __syncthreads();
 
             if constexpr (use_half2)
             {
@@ -117,7 +117,7 @@ __global__ void q4_matmul_kernel
                 if constexpr (use_x_map) x_cache_h[i] = *x_.item_ptr(x_row, x_map[k + i]);
                 else                     x_cache_h[i] = *x_.item_ptr(x_row, k + i);
             }
-            if constexpr (THREADS_X * THREADS_Y > 32) __syncthreads();
+            __syncthreads();
 
             if constexpr (use_half2)
             {
