@@ -124,14 +124,14 @@ __global__ void q4_matmul_kernel
                 int group = k / groupsize;
                 half2 w_scale = w_scales_.item_half2half2(group, w_column);
                 uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
-                dot_product_8(acc, x_cache, w_, k, w_column, w_scale, w_zero, groupsize / 8);
+                dot_product_8(acc, x_cache, w_, k, w_column, w_scale, w_zero, 1);
             }
             else
             {
                 int group = k / groupsize;
                 half w_scale = w_scales_.item(group, w_column);
                 uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
-                dot_product_8_h(acc_h, x_cache_h, w_, k, w_column, w_scale, w_zero, groupsize / 8);
+                dot_product_8_h(acc_h, x_cache_h, w_, k, w_column, w_scale, w_zero, 1);
             }
         }
     }
