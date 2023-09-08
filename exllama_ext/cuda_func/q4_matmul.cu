@@ -8,10 +8,10 @@
 #include "../hip_compat.cuh"
 #endif
 
-const int THREADS_X = 128;      // Block size and thread count along columns in w and out
+const int THREADS_X = 32;       // Block size and thread count along columns in w and out
 const int THREADS_Y = 1;        // Block size and thread count along rows in x and out
 
-const int GROUP_STEP = 128;     // Assumed group size when block_size_z % groupsize != 0
+const int GROUP_STEP = 32;      // Assumed group size when block_size_z % groupsize != 0
 
 typedef void (*fp_q4_matmul_kernel)
 (
