@@ -15,7 +15,7 @@ model_directory =  "/mnt/str/models/_test_models/TheBloke_Llama-2-13B-chat-GPTQ/
 tokenizer_path = os.path.join(model_directory, "tokenizer.model")
 model_config_path = os.path.join(model_directory, "config.json")
 st_pattern = os.path.join(model_directory, "*.safetensors")
-model_path = glob.glob(st_pattern)[0]
+model_path = glob.glob(st_pattern)
 
 # Create config, model, tokenizer and generator
 
