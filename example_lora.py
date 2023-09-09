@@ -18,7 +18,7 @@ lora_directory = "/mnt/str/models/_test_loras/tloen_alpaca-lora-7b/"
 tokenizer_path = os.path.join(model_directory, "tokenizer.model")
 model_config_path = os.path.join(model_directory, "config.json")
 st_pattern = os.path.join(model_directory, "*.safetensors")
-model_path = glob.glob(st_pattern)[0]
+model_path = glob.glob(st_pattern)
 
 lora_config_path = os.path.join(lora_directory, "adapter_config.json")
 lora_path = os.path.join(lora_directory, "adapter_model.bin")
