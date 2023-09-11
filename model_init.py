@@ -15,6 +15,7 @@ def add_args(parser):
     parser.add_argument("-l", "--length", type = int, help = "Maximum sequence length", default = 2048)
     parser.add_argument("-cpe", "--compress_pos_emb", type = float, help = "Compression factor for positional embeddings", default = 1.0)
     parser.add_argument("-a", "--alpha", type = float, help = "alpha for context size extension via embedding extension", default = 1.0)
+    parser.add_argument("-theta", "--theta", type = float, help = "theta (base) for RoPE embeddings")
 
     parser.add_argument("-gpfix", "--gpu_peer_fix", action = "store_true", help = "Prevent direct copies of data between GPUs")
 
@@ -58,10 +59,10 @@ def get_model_files(args):
         if len(st) == 0:
             print(f" !! No files matching {st_pattern}")
             sys.exit()
-        if len(st) > 1:
-            print(f" !! Multiple files matching {st_pattern}")
-            sys.exit()
-        args.model = st[0]
+        # if len(st) > 1:
+        #     print(f" !! Multiple files matching {st_pattern}")
+        #     sys.exit()
+        args.model = st
     else:
         if args.tokenizer is None or args.config is None or args.model is None:
             print(" !! Please specify either -d or all of -t, -c and -m")
@@ -69,6 +70,13 @@ def get_model_files(args):
 
 
 # Feedback
+
+def _common_chars(names):
+    cname = max(names, key = len)
+    for x in names:
+        for p, c in enumerate(x):
+            if c != cname[p] and cname[p] != "*": cname = cname[:p] + "*" + cname[p+1:]
+    return cname
 
 def print_options(args, extra_options = None):
 
@@ -81,7 +89,10 @@ def print_options(args, extra_options = None):
 
     print(f" -- Tokenizer: {args.tokenizer}")
     print(f" -- Model config: {args.config}")
-    print(f" -- Model: {args.model}")
+
+    if isinstance(args.model, str): print(f" -- Model: {args.model}")
+    else: print(f" -- Model: {_common_chars(args.model)}")
+
     print(f" -- Sequence length: {args.length}")
     if args.compress_pos_emb != 1.0:
         print(f" -- RoPE compression factor: {args.compress_pos_emb}")
@@ -139,6 +150,9 @@ def make_config(args):
     config.matmul_no_half2 = args.matmul_no_half2
     config.silu_no_half2 = args.silu_no_half2
     config.concurrent_streams = args.concurrent_streams
+
+    if args.theta:
+        config.rotary_embedding_base = args.theta
 
     return config
 

@@ -17,7 +17,7 @@ have no AMD devices to test or optimize on.
 
 * Python 3.9 or newer
 * `torch` tested on 2.0.1 and 2.1.0 (nightly) with cu118
-* `safetensors` 0.3.1
+* `safetensors` 0.3.2
 * `sentencepiece`
 * `ninja`
 
@@ -188,6 +188,13 @@ Moved the todo list [here](doc/TODO.md).
 
 ## Recent updates
 
-**2023-07-19**: Added support for grouped-query attention and Llama-2 70b. There's still a bit of optimization to do,
-since it slows down considerably on very long sequences despite GQA having the potential to be faster. Also could use
-some more thorough testing.
+**2023-01-09**: Added rope_theta parameter for (at least partial) CodeLlama support. If you were using alpha = 97
+or similar, you would no longer need that for CodeLlama models. Still stuff to sort out regarding the extended
+vocabulary.
+
+**2023-08-09**: Added support for sharded models. `config.model_path` now accepts either a filename or a list of
+filenames. `model_init()` will detect multiple .safetensors files if given a model directory. Note the change in the
+various examples: `model_path = glob.glob(st_pattern)[0]` becomes simply `model_path = glob.glob(st_pattern)`. Also
+there's a little script in `util/shard.py` to split large .safetensors files. It also produces an index.json file for
+the sharded model, just for completeness, although ExLlama doesn't need it to read the shards. Note that the 
+**safetensors dependency was bumped to version 0.3.2**. 

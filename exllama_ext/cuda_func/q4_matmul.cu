@@ -11,6 +11,10 @@
 const int THREADS_X = 32;       // Block size and thread count along columns in w and out
 const int THREADS_Y = 1;        // Block size and thread count along rows in x and out
 
+#if defined(USE_SMEM)
+const int GROUP_STEP = 32;      // Assumed group size when block_size_z % groupsize != 0
+#endif
+
 typedef void (*fp_q4_matmul_kernel)
 (
     const half*,
@@ -44,12 +48,19 @@ __global__ void q4_matmul_kernel
     bool no_zero
 )
 {
+    #if defined(USE_SMEM)
+
+        extern __shared__ half2 x_cache[];
+        half* x_cache_h = (half*)x_cache;
+
+    #endif
+
     // Start of block
 
     int x_column = block_size_z * blockIdx.z;
     int x_column_end = min(dim, block_size_z * (blockIdx.z + 1));
 
-    int w_column = THREADS_X * blockIdx.x + threadIdx.x;  // assume width of weight matrix divisible by THREADS_X (32)
+    int w_column = THREADS_X * blockIdx.x + threadIdx.x;  // assume width of weight matrix divisible by THREADS_X
     int x_row = THREADS_Y * blockIdx.y + threadIdx.y;
 
     int iterations = (x_column_end - x_column) / 8;
@@ -67,8 +78,8 @@ __global__ void q4_matmul_kernel
     if (!no_zero && blockIdx.z == 0 && (threadIdx.x & 1) == 0)
     {
         *((uint32_t*) out_.item_ptr(x_row, w_column)) = 0;
-        __syncthreads();
     }
+    __syncthreads();
 
     // Loop over part of x row (and w column)
 
@@ -82,49 +93,109 @@ __global__ void q4_matmul_kernel
 
         for (int k = x_column, group = x_column / groupsize; k < x_column + iterations * 8; group++, k += groupsize)
         {
-            if constexpr (use_half2)
-            {
-                half2 w_scale = w_scales_.item_half2half2(group, w_column);
-                uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
+            #if defined(USE_SMEM)
 
-                if constexpr (use_x_map) acc = dot_product_8_x_map(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8, x_map);
-                else                     acc = dot_product_8      (acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8);
-            }
-            else
-            {
-                half w_scale = w_scales_.item(group, w_column);
-                uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
+                for (int i = threadIdx.x; i < groupsize; i += THREADS_X)
+                {
+                    if constexpr (use_x_map) x_cache_h[i] = *x_.item_ptr(x_row, x_map[k + i]);
+                    else                     x_cache_h[i] = *x_.item_ptr(x_row, k + i);
+                }
+                __syncthreads();
 
-                if constexpr (use_x_map) acc_h = dot_product_8_x_map_h(acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8, x_map);
-                else                     acc_h = dot_product_8_h      (acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8);
-            }
+                if constexpr (use_half2)
+                {
+                    half2 w_scale = w_scales_.item_half2half2(group, w_column);
+                    uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
+                    acc = dot_product_8(acc, x_cache, w_, k, w_column, w_scale, w_zero, groupsize / 8);
+                }
+                else
+                {
+                    half w_scale = w_scales_.item(group, w_column);
+                    uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
+                    acc_h = dot_product_8_h(acc_h, x_cache_h, w_, k, w_column, w_scale, w_zero, groupsize / 8);
+                }
+                __syncthreads();
+
+            #else
+
+                if constexpr (use_half2)
+                {
+                    half2 w_scale = w_scales_.item_half2half2(group, w_column);
+                    uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
+
+                    if constexpr (use_x_map) acc = dot_product_8_x_map(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8, x_map);
+                    else                     acc = dot_product_8      (acc, (const half2*) x_.item_ptr(x_row, k), w_, k, w_column, w_scale, w_zero, groupsize / 8);
+                }
+                else
+                {
+                    half w_scale = w_scales_.item(group, w_column);
+                    uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
+
+                    if constexpr (use_x_map) acc_h = dot_product_8_x_map_h(acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, groupsize / 8, x_map);
+                    else                     acc_h = dot_product_8_h      (acc_h, x_.item_ptr(x_row, k), w_, k, w_column, w_scale, w_zero, groupsize / 8);
+                }
+
+            #endif
         }
     }
     else
     {
-        // Otherwise assume groupsize is a multiple of 8, do 8 columns per iteration and trust the cache
+        // Otherwise assume groupsize is a multiple of GROUP_STEP, do GROUP_STEP columns per iteration and trust the cache
 
-        for (int k = x_column; k < x_column + iterations * 8; k += 8)
-        {
-            if constexpr (use_half2)
+        #if defined(USE_SMEM)
+
+            for (int k = x_column; k < x_column + iterations * 8; k += GROUP_STEP)
             {
-                int group = k / groupsize;
-                half2 w_scale = w_scales_.item_half2half2(group, w_column);
-                uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
+                for (int i = threadIdx.x; i < GROUP_STEP; i += THREADS_X)
+                {
+                    if constexpr (use_x_map) x_cache_h[i] = *x_.item_ptr(x_row, x_map[k + i]);
+                    else                     x_cache_h[i] = *x_.item_ptr(x_row, k + i);
+                }
+                __syncthreads();
 
-                if constexpr (use_x_map) acc = dot_product_8_x_map(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1, x_map);
-                else                     acc = dot_product_8      (acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1);
+                if constexpr (use_half2)
+                {
+                    int group = k / groupsize;
+                    half2 w_scale = w_scales_.item_half2half2(group, w_column);
+                    uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
+                    acc = dot_product_8(acc, x_cache, w_, k, w_column, w_scale, w_zero, GROUP_STEP / 8);
+                }
+                else
+                {
+                    int group = k / groupsize;
+                    half w_scale = w_scales_.item(group, w_column);
+                    uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
+                    acc_h = dot_product_8_h(acc_h, x_cache_h, w_, k, w_column, w_scale, w_zero, GROUP_STEP / 8);
+                }
+                __syncthreads();
             }
-            else
+
+        #else
+
+            for (int k = x_column; k < x_column + iterations * 8; k += 8)
             {
-                int group = k / groupsize;
-                half w_scale = w_scales_.item(group, w_column);
-                uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
+                if constexpr (use_half2)
+                {
+                    int group = k / groupsize;
+                    half2 w_scale = w_scales_.item_half2half2(group, w_column);
+                    uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
 
-                if constexpr (use_x_map) acc_h = dot_product_8_x_map_h(acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1, x_map);
-                else                     acc_h = dot_product_8_h      (acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1);
+                    if constexpr (use_x_map) acc = dot_product_8_x_map(acc, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1, x_map);
+                    else                     acc = dot_product_8      (acc, (const half2*) x_.item_ptr(x_row, k), w_, k, w_column, w_scale, w_zero, 1);
+                }
+                else
+                {
+                    int group = k / groupsize;
+                    half w_scale = w_scales_.item(group, w_column);
+                    uint32_t w_zero = w_zeros_.item(group, w_column) + 1;
+
+                    if constexpr (use_x_map) acc_h = dot_product_8_x_map_h(acc_h, x_, x_row, k, w_, k, w_column, w_scale, w_zero, 1, x_map);
+                    else                     acc_h = dot_product_8_h      (acc_h, x_.item_ptr(x_row, k), w_, k, w_column, w_scale, w_zero, 1);
+                }
             }
-        }
+
+        #endif
+
     }
 
     // Add to block result
@@ -213,7 +284,18 @@ void q4_matmul_cuda
     );
 
     fp_q4_matmul_kernel kernel = q4_matmul_kernel_pick(tuningParams, block_size_z, w->groupsize, x_map);
-    kernel<<<blocks, threads, 0, alt_stream>>> (x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
+
+    #if defined(USE_SMEM)
+
+        int shared_mem = (block_size_z % w->groupsize == 0 ? w->groupsize : GROUP_STEP) * sizeof(half);
+
+    # else
+
+        int shared_mem = 0;
+
+    #endif
+
+    kernel<<<blocks, threads, shared_mem, alt_stream>>> (x_mapped, w->cuda_qweight, out, w->cuda_scales, w->cuda_qzeros, height, dim, width, w->groupsize, block_size_z, x_map, no_zero);
 }
 
 void q4_matmul_recons_cuda

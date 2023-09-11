@@ -47,9 +47,9 @@ class ExLlamaConfig:
 
         # Loaded/automatic settings
 
-        self.bos_token_id = read_config["bos_token_id"]  # Note that the HF LlamaTokenizer doesn't seem to recognize these automatically
-        self.eos_token_id = read_config["eos_token_id"]
-        self.pad_token_id = read_config["pad_token_id"]
+        self.bos_token_id = read_config["bos_token_id"] if "bos_token_id" in read_config else 1
+        self.eos_token_id = read_config["eos_token_id"] if "eos_token_id" in read_config else 2
+        self.pad_token_id = read_config["pad_token_id"] if "pad_token_id" in read_config else 0
 
         self.hidden_size = read_config["hidden_size"]
         self.initializer_range = read_config["initializer_range"]
@@ -66,7 +66,7 @@ class ExLlamaConfig:
             self.num_key_value_heads = self.num_attention_heads
             self.num_key_value_groups = 1
 
-        self.rotary_embedding_base = 10000  # Constant used for pretrained models, leave as is unless retraining
+        self.rotary_embedding_base = read_config["rope_theta"] if "rope_theta" in read_config else 10000.0
         self.head_dim = self.hidden_size // self.num_attention_heads
 
         self.groupsize = None  # Autodetected
@@ -75,7 +75,7 @@ class ExLlamaConfig:
 
         # Required settings
 
-        self.model_path = None
+        self.model_path = None  # str or list[str]
         self.device_map = ExLlamaDeviceMap(self.num_hidden_layers)
 
         # Optional settings
@@ -363,7 +363,7 @@ class ExLlamaAttention:
                                      self.config.head_dim,
                                      cache.key_states[self.index],
                                      cache.value_states[self.index],
-                                     self.config.max_seq_len,
+                                     cache.max_seq_len,
                                      q_a, q_b,
                                      k_a, k_b,
                                      v_a, v_b,
@@ -726,26 +726,26 @@ class ExLlama:
 
         self.config.set_tuning_params()
 
-        # Load model weights
+        # Read tensor list from file(s)
 
-        tensors = {}
-        with safe_open(self.config.model_path, framework = "pt", device = "cpu") as f:
+        if isinstance(self.config.model_path, str): model_path = [self.config.model_path]
+        else: model_path = self.config.model_path
 
-            # Begin auto mapping if enabled
+        # Read tensor list from file(s), and measure layer sizes
 
-            decoder_size = 0
-            norm_size = 0
-            head_size = 0
-            half_element_size = torch.tensor([], dtype = torch.float16).element_size()
+        load_keys = {}
 
-            if self.config.auto_map is not None:
+        decoder_size = 0
+        norm_size = 0
+        head_size = 0
 
-                self.config.device_map.embed_tokens = "cpu"
-                self.config.device_map.layers = ["cuda:0"] + ["?"] * (self.config.num_hidden_layers - 1)
-
+        for path in model_path:
+            with safe_open(path, framework = "pt", device = "cpu") as f:
                 for key in f.keys():
 
                     if _skip_key(key): continue
+
+                    load_keys[key] = path
 
                     if key.startswith("model.layers.0."):
                         tensor_slice = f.get_slice(key)
@@ -765,56 +765,58 @@ class ExLlama:
                         head_size += math.prod(shape) * _layer_dtype_size(key)
                         del tensor_slice
 
-                # Assign layers automatically
+        # Begin auto mapping if enabled
 
-                device_usage = 0
-                device_index = 0
-                layer_index_device = 0
-                max_usage = self.config.auto_map[device_index] * (1024 ** 3)
+        if self.config.auto_map is not None:
 
-                for layer in range(self.config.num_hidden_layers + 2):
+            self.config.device_map.embed_tokens = "cpu"
+            self.config.device_map.layers = ["cuda:0"] + ["?"] * (self.config.num_hidden_layers - 1)
 
-                    this_layer_size = decoder_size
-                    if layer == self.config.num_hidden_layers + 0: this_layer_size = norm_size
-                    elif layer == self.config.num_hidden_layers + 1: this_layer_size = head_size
+            # Assign layers automatically
 
-                    while device_usage + this_layer_size > max_usage:
-                        device_index += 1
-                        device_usage = 0
-                        layer_index_device = 0
-                        max_usage = self.config.auto_map[device_index] * (1024 ** 3)
-                        if device_index >= len(self.config.auto_map): raise ValueError("Model too large for device allocation scheme.")
+            device_usage = 0
+            device_index = 0
+            layer_index_device = 0
+            max_usage = self.config.auto_map[device_index] * (1024 ** 3)
 
-                    target = f"cuda:{device_index}"
-                    if layer == self.config.num_hidden_layers + 0: self.config.device_map.norm = target
-                    elif layer == self.config.num_hidden_layers + 1: self.config.device_map.lm_head = target
-                    else: self.config.device_map.layers[layer] = f"cuda:{device_index}"
+            for layer in range(self.config.num_hidden_layers + 2):
 
-                    device_usage += this_layer_size
-                    layer_index_device += 1
+                this_layer_size = decoder_size
+                if layer == self.config.num_hidden_layers + 0: this_layer_size = norm_size
+                elif layer == self.config.num_hidden_layers + 1: this_layer_size = head_size
 
-        # Read tensor list from file
+                while device_usage + this_layer_size > max_usage:
+                    device_index += 1
+                    device_usage = 0
+                    layer_index_device = 0
+                    max_usage = self.config.auto_map[device_index] * (1024 ** 3)
+                    if device_index >= len(self.config.auto_map): raise ValueError("Model too large for device allocation scheme.")
 
-        load_keys = []
-        with safe_open(self.config.model_path, framework = "pt", device = "cpu") as f:
-            for key in f.keys():
-                load_keys.append(key)
+                target = f"cuda:{device_index}"
+                if layer == self.config.num_hidden_layers + 0: self.config.device_map.norm = target
+                elif layer == self.config.num_hidden_layers + 1: self.config.device_map.lm_head = target
+                else: self.config.device_map.layers[layer] = f"cuda:{device_index}"
 
-        # Load up to 1 GB of tensors at a time, closing and reopening the file in between each chunk
+                device_usage += this_layer_size
+                layer_index_device += 1
+
+         # Load up to 1 GB of tensors at a time, closing and reopening the file in between each chunk
 
         max_dq_buffer_size = 0
-        f = None
+        tensors = {}
+
         st_mem = 0
         MAX_ST_MEM = 1024**3
+        f = None
+        prev_path = ""
+        for key, path in load_keys.items():
 
-        for key in load_keys:
-
-            if _skip_key(key): continue
             device = self.config.device_map.map(key)
 
-            if f is None or st_mem > MAX_ST_MEM:
+            if f is None or st_mem > MAX_ST_MEM or path != prev_path:
                 if f is not None: del f
-                f = safe_open(self.config.model_path, framework = "pt", device = "cpu")
+                f = safe_open(path, framework = "pt", device = "cpu")
+                prev_path = path
                 st_mem = 0
 
             tensor = f.get_tensor(key)
@@ -828,10 +830,13 @@ class ExLlama:
             if key.endswith(".input_layernorm.weight"): tensor = tensor.half()
             if key.endswith(".post_attention_layernorm.weight"): tensor = tensor.half()
 
-            tensor = tensor.to(device, non_blocking = True)
-            if key.endswith(".qweight"): max_dq_buffer_size = max(max_dq_buffer_size, tensor.numel() * 8)
+            if device == "cpu": keep_tensor = tensor.clone()
+            else: keep_tensor = tensor.to(device)
+            del tensor
 
-            tensors[key] = tensor
+            if key.endswith(".qweight"): max_dq_buffer_size = max(max_dq_buffer_size, keep_tensor.numel() * 8)
+
+            tensors[key] = keep_tensor
 
         del f
 
