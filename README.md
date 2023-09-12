@@ -198,3 +198,6 @@ various examples: `model_path = glob.glob(st_pattern)[0]` becomes simply `model_
 there's a little script in `util/shard.py` to split large .safetensors files. It also produces an index.json file for
 the sharded model, just for completeness, although ExLlama doesn't need it to read the shards. Note that the 
 **safetensors dependency was bumped to version 0.3.2**. 
+
+**2023-08-12**: Preliminary, initial and tentative release of [ExLlamaV2](https://github.com/turboderp/exllamav2).
+It doesn't do all the things that ExLlamaV1 does, yet, but it's better at what it does do. So check it out!
