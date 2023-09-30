@@ -17,7 +17,7 @@ void rep_penalty_cpu
     float dv = decay ? (1.0f - penalty_max) / (float) decay : 0.0f;
 
     int s = sustain == -1 ? seq_len : sustain;
-    int beg = seq_len - sustain - decay;
+    int beg = seq_len - s - decay;
     if (beg < 0) beg = 0;
 
     for (int i = 0; i < vocab_size; i++) rep_mask[i] = 1.0f;
@@ -57,7 +57,7 @@ void apply_rep_penalty_cpu
     float dv = decay ? (1.0f - penalty_max) / (float) decay : 0.0f;
 
     int s = sustain == -1 ? seq_len : sustain;
-    int beg = seq_len - sustain - decay;
+    int beg = seq_len - s - decay;
     if (beg < 0) beg = 0;
 
     for (int i = seq_len; i > beg;)

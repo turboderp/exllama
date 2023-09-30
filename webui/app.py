@@ -138,6 +138,8 @@ model_init.get_model_files(args)
 model_init.print_options(args)
 config = model_init.make_config(args)
 
+model_init.set_globals(args)
+
 print(f" -- Loading model...")
 model = ExLlama(config)
 

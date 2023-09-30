@@ -16,6 +16,10 @@
 #define rocblas_handle hipblasHandle_t
 #endif
 
+#if !defined(USE_ROCM) && (!defined(__CUDA_ARCH__) || (defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700))
+#define USE_SMEM
+#endif
+
 void q4_matmul_cuda
 (
     ExLlamaTuning* tuningParams,

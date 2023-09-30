@@ -312,7 +312,7 @@ class ExLlamaGenerator:
 
         self.end_beam_search()
 
-        ids, mask = self.tokenizer.encode(prompt, return_mask = True)
+        ids, mask = self.tokenizer.encode(prompt, return_mask = True, max_seq_len = self.model.config.max_seq_len)
         self.gen_begin(ids, mask = mask)
 
         max_new_tokens = min(max_new_tokens, self.model.config.max_seq_len - ids.shape[1])

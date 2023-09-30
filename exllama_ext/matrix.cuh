@@ -87,9 +87,7 @@ public:
 __device__ __forceinline__ half2 dot_product_8
 (
     const half2 acc,
-    MatrixView_half& h_,
-    const int h_row,
-    const int h_column,                 // divisible by 8
+    const half2* h_ptr,
     MatrixView_q4_column& v_,
     const int v_row,                    // divisible by 8
     const int v_column,
@@ -98,7 +96,6 @@ __device__ __forceinline__ half2 dot_product_8
     const int count
 )
 {
-    const half2* h_ptr = (const half2*) h_.item_ptr(h_row, h_column);
     const uint32_t* v_ptr = (const uint32_t*) v_.item_uint32_ptr(v_row, v_column);
     half2 result = acc;
 
@@ -138,9 +135,7 @@ __device__ __forceinline__ half2 dot_product_8
 __device__ __forceinline__ half dot_product_8_h
 (
     const half acc,
-    MatrixView_half& h_,
-    const int h_row,
-    const int h_column,                 // divisible by 8
+    const half* h_ptr,
     MatrixView_q4_column& v_,
     const int v_row,                    // divisible by 8
     const int v_column,
@@ -149,7 +144,6 @@ __device__ __forceinline__ half dot_product_8_h
     const int count
 )
 {
-    const half* h_ptr = h_.item_ptr(h_row, h_column);
     const uint32_t* v_ptr = (const uint32_t*) v_.item_uint32_ptr(v_row, v_column);
     half result = acc;
 
